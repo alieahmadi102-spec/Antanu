@@ -459,18 +459,29 @@ $("#newChat").addEventListener("click", () => {
 
 async function send(textOverride) {
   if (sending) return;
-  const text = (typeof textOverride === "string" ? textOverride : inputEl.value).trim();
-  if (!text) return;
+  let text = (typeof textOverride === "string" ? textOverride : inputEl.value).trim();
 
   // اگر نوع محتوا (مقاله/پروپوزال/...) تیک خورده باشد، صف تولید محتوا اجرا می‌شود
   const ctypes = (typeof textOverride === "string") ? [] : selectedCtypes();
   if (ctypes.length) {
+    // موضوع می‌تواند نوشته‌شده باشد یا از روی فایل پیوست‌شده گرفته شود
+    if (!text && !attachments.length) {
+      toast("موضوع را بنویسید یا یک فایل پیوست کنید تا بر اساس آن انجام شود");
+      return;
+    }
+    if (!text && attachments.length) {
+      // فقط فایل — موضوع را از محتوای فایل استخراج کن
+      text = "بر اساس اطلاعات، داده‌ها و محتوای فایل پیوست‌شده" +
+             (attachments.length === 1 ? ` («${attachments[0].filename}»)` : "");
+    }
     inputEl.value = "";
     autosize();
     $("#ctypePanel").classList.remove("show");
     await runContentQueue(text, ctypes);
     return;
   }
+
+  if (!text) return;
 
   sending = true;
   sendBtn.disabled = true;
@@ -568,6 +579,7 @@ async function send(textOverride) {
 
 // استریم یک درخواست چت و نمایش در حباب — برای ابزارهای پایان‌نامه
 async function streamChat(promptText, label) {
+  if (attachments.length) label += "\n📎 " + attachments.map(a => a.filename).join("، ");
   addMsg("user", label);
   const aDiv = addMsg("assistant", "");
   const mdEl = aDiv.querySelector(".md");
@@ -616,7 +628,9 @@ async function makeArticleFromPanel(topic) {
   const pages = Number($("#cPages").value) || 10;
   const fmt = $("#cFormat").value;
   const formats = fmt === "both" ? ["docx", "pdf"] : fmt === "all" ? ["docx", "pdf", "xlsx"] : [fmt];
-  addMsg("user", `📄 درخواست مقاله ${pages} صفحه‌ای: ${topic}`);
+  let userLabel = `📄 درخواست مقاله ${pages} صفحه‌ای: ${topic}`;
+  if (attachments.length) userLabel += "\n📎 " + attachments.map(a => a.filename).join("، ");
+  addMsg("user", userLabel);
   const aDiv = addMsg("assistant", "");
   const mdEl = aDiv.querySelector(".md");
   mdEl.innerHTML = '<span class="spin"></span> <span class="typing">شروع ساخت مقاله</span>';
@@ -791,6 +805,154 @@ $("#convExportBtn").addEventListener("click", e => {
   if (!parts.length) { toast("گفتگویی برای خروجی وجود ندارد"); return; }
   closeSidebar();
   openDocOverlay("export", parts.join("\n\n"), null);
+});
+
+/* ---------- کتابخانه منابع ---------- */
+
+const REF_TYPE_FA = { article: "مقاله", book: "کتاب", website: "وب‌سایت", thesis: "پایان‌نامه", conference: "کنفرانس" };
+
+$("#refBtn")?.addEventListener("click", e => {
+  e.preventDefault();
+  closeSidebar();
+  $("#refOverlay").classList.add("show");
+  loadReferences();
+});
+$("#refOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "refOverlay" || e.target.classList.contains("close"))
+    $("#refOverlay").classList.remove("show");
+});
+
+async function loadReferences() {
+  const r = await fetch("/api/references");
+  if (!r.ok) return;
+  const list = await r.json();
+  $("#refCount").textContent = list.length;
+  const box = $("#refList");
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = '<div class="ref-empty">هنوز منبعی اضافه نکرده‌اید.</div>';
+    return;
+  }
+  list.forEach(ref => {
+    const item = el(`
+      <div class="ref-item" data-id="${ref.id}">
+        <div class="ref-main">
+          <span class="ref-badge">${REF_TYPE_FA[ref.ref_type] || ref.ref_type}</span>
+          <b>${escapeHtml(ref.title)}</b>
+          <div class="ref-sub">${escapeHtml([ref.authors, ref.year, ref.source].filter(Boolean).join(" — "))}</div>
+        </div>
+        <button class="ref-del" title="حذف">🗑</button>
+      </div>`);
+    item.querySelector(".ref-del").addEventListener("click", async () => {
+      if (!confirm("این منبع حذف شود؟")) return;
+      await fetch("/api/references/" + ref.id, { method: "DELETE" });
+      loadReferences();
+    });
+    box.appendChild(item);
+  });
+}
+
+function refFormData() {
+  return {
+    ref_type: $("#refType").value,
+    authors: $("#refAuthors").value.trim(),
+    title: $("#refTitle").value.trim(),
+    year: $("#refYear").value.trim(),
+    source: $("#refSource").value.trim(),
+    volume: $("#refVolume").value.trim(),
+    issue: $("#refIssue").value.trim(),
+    pages: $("#refPages").value.trim(),
+    url: $("#refUrl").value.trim(),
+  };
+}
+
+$("#refAddBtn")?.addEventListener("click", async () => {
+  const data = refFormData();
+  if (!data.title) { toast("عنوان منبع الزامی است"); return; }
+  const r = await fetch("/api/reference", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); toast(e.detail || "خطا"); return; }
+  ["refAuthors", "refTitle", "refYear", "refSource", "refVolume", "refIssue", "refPages", "refUrl"]
+    .forEach(id => ($("#" + id).value = ""));
+  toast("منبع اضافه شد ✅");
+  loadReferences();
+});
+
+$("#refParseBtn")?.addEventListener("click", async () => {
+  const text = $("#refParseText").value.trim();
+  if (text.length < 8) { toast("متن ارجاع را کامل بچسبانید"); return; }
+  const msg = $("#refParseMsg");
+  msg.innerHTML = '<span class="spin"></span> در حال تشخیص…';
+  try {
+    const r = await fetch("/api/references/parse", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.textContent = "❌ " + (d.detail || "خطا"); return; }
+    if (d.ref_type && REF_TYPE_FA[d.ref_type]) $("#refType").value = d.ref_type;
+    $("#refAuthors").value = d.authors || "";
+    $("#refTitle").value = d.title || "";
+    $("#refYear").value = d.year || "";
+    $("#refSource").value = d.source || "";
+    $("#refVolume").value = d.volume || "";
+    $("#refIssue").value = d.issue || "";
+    $("#refPages").value = d.pages || "";
+    $("#refUrl").value = d.url || "";
+    msg.textContent = "✅ فیلدها پر شد — بررسی و «افزودن» کنید";
+  } catch { msg.textContent = "❌ خطا در تشخیص"; }
+});
+
+$("#refGenBtn")?.addEventListener("click", async () => {
+  const r = await fetch("/api/references/bibliography", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ style: $("#refStyle").value }),
+  });
+  const d = await r.json();
+  if (!r.ok) { toast(d.detail || "خطا"); return; }
+  if (!d.count) { toast("ابتدا چند منبع اضافه کنید"); return; }
+  $("#refBibBox").style.display = "block";
+  $("#refBib").value = d.text;
+});
+
+$("#refCopyBib")?.addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("#refBib").value); toast("فهرست منابع کپی شد ✅"); }
+  catch { toast("کپی نشد"); }
+});
+
+/* ---------- تغییر تم (روشن / تیره) ---------- */
+
+$("#themeBtn")?.addEventListener("click", e => {
+  e.preventDefault();
+  const cur = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const next = cur === "light" ? "dark" : "light";
+  if (next === "dark") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = "light";
+  try { localStorage.setItem("antanu_theme", next); } catch {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = next === "light" ? "#f4f6fb" : "#0d1017";
+  toast(next === "light" ? "تم روشن ☀️" : "تم تیره 🌙");
+});
+
+/* ---------- اشتراک‌گذاری گفتگو (لینک عمومی فقط‌خواندنی) ---------- */
+
+$("#shareConvBtn")?.addEventListener("click", async e => {
+  e.preventDefault();
+  if (!currentConv) { toast("ابتدا یک گفتگو را باز کنید"); return; }
+  try {
+    const r = await fetch(`/api/conversations/${currentConv}/share`, { method: "POST" });
+    if (!r.ok) { const er = await r.json().catch(() => ({})); toast(er.detail || "خطا"); return; }
+    const d = await r.json();
+    const link = location.origin + d.url;
+    if (navigator.share) {
+      try { await navigator.share({ title: "گفتگوی آنتانو", url: link }); closeSidebar(); return; } catch {}
+    }
+    try { await navigator.clipboard.writeText(link); toast("🔗 لینک اشتراک کپی شد — هر کسی با این لینک می‌تواند گفتگو را ببیند"); }
+    catch { prompt("لینک اشتراک‌گذاری این گفتگو:", link); }
+    closeSidebar();
+  } catch { toast("خطا در ساخت لینک"); }
 });
 
 /* ---------- ابزار پایان‌نامه ---------- */
@@ -1302,6 +1464,13 @@ $("#pPassBtn")?.addEventListener("click", async () => {
   $("#pMsg").textContent = r.ok ? "✅ گذرواژه با موفقیت تغییر کرد" : "❌ " + (d.detail || "خطا");
   if (r.ok) { $("#pOld").value = ""; $("#pNew").value = ""; }
 });
+
+/* ---------- ثبت سرویس‌ورکر (PWA — نصب‌پذیری و بارگذاری سریع‌تر) ---------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
 
 /* ---------- شروع ---------- */
 loadConvs();

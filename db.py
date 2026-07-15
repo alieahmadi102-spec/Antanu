@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title       TEXT,
+    share_token TEXT,                            -- توکن اشتراک‌گذاری عمومی (فقط‌خواندنی)
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
@@ -117,6 +118,24 @@ CREATE TABLE IF NOT EXISTS knowledge (
     answer      TEXT NOT NULL,
     created_at  TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS bib_refs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ref_type    TEXT NOT NULL DEFAULT 'article',  -- article | book | website | thesis | conference
+    authors     TEXT,                             -- نویسندگان (با ؛ جدا)
+    title       TEXT NOT NULL,                    -- عنوان اثر
+    year        TEXT,                             -- سال انتشار
+    source      TEXT,                             -- نام مجله/ناشر/کنفرانس
+    volume      TEXT,                             -- دوره
+    issue       TEXT,                             -- شماره
+    pages       TEXT,                             -- صفحات
+    url         TEXT,                             -- نشانی/DOI
+    note        TEXT,                             -- یادداشت آزاد
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bib ON bib_refs(user_id, created_at);
 """
 
 
@@ -140,6 +159,10 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN expires_at TEXT")
         # کاربران قدیمی: ۳۰ روز از امروز
         conn.execute("UPDATE users SET expires_at = datetime('now', '+30 days') WHERE is_admin = 0 AND expires_at IS NULL")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE conversations ADD COLUMN share_token TEXT")
     except Exception:
         pass
 

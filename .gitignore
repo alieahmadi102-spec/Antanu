@@ -13,3 +13,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# فایل‌های خروجی و داده‌ی موقت (Word/PDF/Excel، پشتیبان‌ها، داده‌ی تحلیل آماری)
+exports/

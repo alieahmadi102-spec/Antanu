@@ -10,15 +10,30 @@ import traceback
 
 
 def _load_dataframe(path: str):
-    """خواندن فایل داده با هر فرمت رایج"""
+    """خواندن فایل داده با هر فرمت رایج — و در صورت پسوند ناشناخته، تلاش هوشمند"""
     import pandas as pd
     ext = os.path.splitext(path)[1].lower()
-    if ext in (".csv", ".txt"):
-        try:
-            return pd.read_csv(path)
-        except Exception:
-            return pd.read_csv(path, sep=None, engine="python")
-    if ext in (".xlsx", ".xls", ".xlsm"):
+
+    def _read_delimited(p):
+        # چند جداکننده را امتحان کن و آن را که بیشترین ستون معنادار را می‌دهد انتخاب کن
+        best = None
+        for kwargs in ({"sep": None, "engine": "python"}, {}, {"sep": "\t"},
+                       {"sep": ";"}, {"sep": "|"}, {"delim_whitespace": True}):
+            try:
+                d = pd.read_csv(p, **kwargs)
+            except Exception:
+                continue
+            if d.shape[0] < 1:
+                continue
+            if best is None or d.shape[1] > best.shape[1]:
+                best = d
+        if best is not None:
+            return best
+        return pd.read_csv(p)  # آخرین تلاش — خطایش را بالا بده
+
+    if ext in (".csv", ".txt", ".tsv", ".tab", ".dat", ".data"):
+        return _read_delimited(path)
+    if ext in (".xlsx", ".xls", ".xlsm", ".xlsb", ".ods"):
         return pd.read_excel(path)
     if ext == ".sav":
         try:
@@ -26,17 +41,26 @@ def _load_dataframe(path: str):
             df, _ = pyreadstat.read_sav(path)
             return df
         except Exception:
-            import pandas as pd
             return pd.read_spss(path)
     if ext == ".dta":
-        import pandas as pd
         return pd.read_stata(path)
-    if ext == ".json":
-        import pandas as pd
-        return pd.read_json(path)
-    # تلاش پیش‌فرض
-    import pandas as pd
-    return pd.read_csv(path)
+    if ext in (".json", ".jsonl"):
+        try:
+            return pd.read_json(path)
+        except Exception:
+            return pd.read_json(path, lines=True)
+    if ext in (".parquet", ".pq"):
+        return pd.read_parquet(path)
+    if ext in (".html", ".htm"):
+        tables = pd.read_html(path)
+        if tables:
+            return tables[0]
+        raise ValueError("جدولی در فایل HTML پیدا نشد")
+    # پسوند ناشناخته: اول Excel، بعد جداکننده‌ی متنی
+    try:
+        return pd.read_excel(path)
+    except Exception:
+        return _read_delimited(path)
 
 
 def dataset_overview(path: str) -> dict:

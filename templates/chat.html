@@ -9,7 +9,8 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
-  <link rel="stylesheet" href="/static/style.css?v=1784134913">
+  <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="/static/style.css?v=1784200000">
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -33,7 +34,10 @@
         </span>
         <span class="badge">اشتراک {{ user.stars }} ستاره</span>
       </div>
+      <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
+      <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
+      <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
       {% if user.is_admin %}
       <a href="#" id="memBtn" class="side-link">🧠 حافظه آنتانو</a>
       <a href="/admin" class="side-link">⚙️ پنل مدیریت</a>
@@ -227,9 +231,9 @@
     <div class="mem-panel">
       <header><h3>📊 تحلیل آماری فصل چهارم</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">فایل داده (Excel، CSV، SPSS) را آپلود کنید تا تحلیل واقعی انجام شود.</p>
+        <p class="model-hint">فایل داده را آپلود کنید تا تحلیل واقعی انجام شود — Excel، CSV، SPSS، Stata، JSON، متنی و هر فایل داده‌ی جدولی دیگر.</p>
         <button id="statsUpBtn" class="btn-primary" type="button">📁 آپلود فایل داده</button>
-        <input type="file" id="statsFile" accept=".csv,.xlsx,.xls,.sav,.dta,.json,.txt" hidden>
+        <input type="file" id="statsFile" hidden>
         <div id="statsInfo" style="margin-top:12px;font-size:13px"></div>
         <div id="statsTools" class="acad-tools" style="display:none">
           <button class="stat-t" data-a="overview">📋 توصیف داده</button>
@@ -242,6 +246,60 @@
           <button class="stat-t" data-a="anova">📊 ANOVA</button>
           <button class="stat-t" data-a="sem_pls">🏗 SEM-PLS</button>
           <button class="stat-t" data-a="sem_cfa">🔺 SEM/CFA</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره کتابخانه منابع -->
+  <div id="refOverlay">
+    <div class="mem-panel ref-panel">
+      <header><h3>🔖 کتابخانه منابع پژوهشی</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">منابع پژوهش را ذخیره کنید و با یک کلیک فهرست منابع به سبک APA یا IEEE بسازید.</p>
+
+        <div class="ref-quickadd">
+          <label>تشخیص خودکار از روی متن ارجاع (اختیاری)</label>
+          <textarea id="refParseText" rows="2" placeholder="ارجاع را از مقاله کپی و اینجا بچسبانید، سپس «تشخیص خودکار» بزنید…"></textarea>
+          <button id="refParseBtn" class="mini" type="button">✨ تشخیص خودکار فیلدها</button>
+          <span id="refParseMsg" style="font-size:12px"></span>
+        </div>
+
+        <div class="ref-form">
+          <select id="refType">
+            <option value="article">مقاله</option>
+            <option value="book">کتاب</option>
+            <option value="website">وب‌سایت</option>
+            <option value="thesis">پایان‌نامه</option>
+            <option value="conference">کنفرانس</option>
+          </select>
+          <input type="text" id="refAuthors" placeholder="نویسندگان (با ؛ جدا کنید)">
+          <input type="text" id="refTitle" placeholder="عنوان اثر *">
+          <input type="text" id="refYear" placeholder="سال" style="width:80px">
+          <input type="text" id="refSource" placeholder="نام مجله / ناشر">
+          <input type="text" id="refVolume" placeholder="دوره" style="width:70px">
+          <input type="text" id="refIssue" placeholder="شماره" style="width:70px">
+          <input type="text" id="refPages" placeholder="صفحات" style="width:90px">
+          <input type="text" id="refUrl" placeholder="نشانی / DOI" style="direction:ltr">
+          <button id="refAddBtn" class="btn-primary" type="button">＋ افزودن به کتابخانه</button>
+        </div>
+
+        <div class="ref-listhead">
+          <span>منابع من (<b id="refCount">0</b>)</span>
+          <div class="ref-genbar">
+            <select id="refStyle">
+              <option value="apa">سبک APA</option>
+              <option value="ieee">سبک IEEE</option>
+            </select>
+            <button id="refGenBtn" class="mini" type="button">📑 ساخت فهرست منابع</button>
+          </div>
+        </div>
+        <div id="refList" class="ref-list"></div>
+
+        <div id="refBibBox" style="display:none">
+          <label>فهرست منابع آماده (کپی کنید یا در انتهای مقاله بگذارید)</label>
+          <textarea id="refBib" rows="6" readonly></textarea>
+          <button id="refCopyBib" class="mini" type="button">📋 کپی فهرست</button>
         </div>
       </div>
     </div>
@@ -325,6 +383,6 @@
   </div>
 
   <script>window.USER_AVATAR = {{ (user.avatar or '')|tojson }};</script>
-  <script src="/static/app.js?v=1784134913"></script>
+  <script src="/static/app.js?v=1784200000"></script>
 </body>
 </html>

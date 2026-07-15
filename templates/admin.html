@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>پنل مدیریت | آنتانو</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+  <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="admin-body">
 
   <h1>⚙️ پنل مدیریت آنتانو</h1>
-  <p class="sub">خوش آمدید {{ user.username }} — <a href="/chat">بازگشت به چت</a></p>
+  <p class="sub">خوش آمدید {{ user.username }} — <a href="/chat">بازگشت به چت</a>
+    &nbsp;•&nbsp; <a href="/admin/backup" title="دانلود نسخه پشتیبان کامل پایگاه داده">💾 پشتیبان‌گیری از داده‌ها</a></p>
 
   <!-- آمار مصرف -->
   <div class="card">

@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from db import get_db, init_db, hash_pw, verify_pw, generate_code
+from db import get_db, init_db, hash_pw, verify_pw, generate_code, DB_PATH
 
 # ---------------- بارگذاری فایل .env ----------------
 # کلید API و تنظیمات محرمانه در فایل .env نگهداری می‌شوند (کنار main.py).
@@ -330,6 +330,14 @@ async def _global_error_handler(request: _Req, exc: Exception):
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.get("/sw.js")
+def service_worker():
+    """سرویس‌ورکر باید از ریشه سرو شود تا کل دامنه را پوشش دهد (PWA)"""
+    return FileResponse("static/sw.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
 # رندر مستقیم قالب‌ها با Jinja2 (مستقل از نسخه starlette — بدون خطای ناسازگاری)
 _jinja = Environment(
     loader=FileSystemLoader("templates"),
@@ -570,6 +578,64 @@ def make_session(user_id: int) -> str:
     return token
 
 
+# ---------------- محافظت امنیتی (ضدحمله) ----------------
+# ردیاب درون‌حافظه‌ای برای جلوگیری از حمله‌ی حدس‌زدن رمز و ارسال سیل‌آسا
+import time as _time
+from collections import deque, defaultdict
+
+_LOGIN_FAILS = {}          # کلید: نام‌کاربری|IP → [تعداد, زمان اولین خطا]
+LOGIN_MAX_FAILS = 6        # پس از ۶ تلاش ناموفق
+LOGIN_LOCK_SECONDS = 300   # قفل ۵ دقیقه‌ای
+
+_CHAT_HITS = defaultdict(deque)  # کلید: user_id → صف زمان درخواست‌ها
+CHAT_MAX_PER_MIN = 25            # حداکثر ۲۵ درخواست چت در دقیقه برای هر کاربر
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def login_locked(key: str):
+    """آیا این کلید (کاربر+IP) قفل است؟ → (قفل؟، ثانیه‌های باقی‌مانده)"""
+    rec = _LOGIN_FAILS.get(key)
+    if not rec:
+        return False, 0
+    count, first = rec
+    if count < LOGIN_MAX_FAILS:
+        return False, 0
+    elapsed = _time.time() - first
+    if elapsed >= LOGIN_LOCK_SECONDS:
+        _LOGIN_FAILS.pop(key, None)  # پنجره تمام شد
+        return False, 0
+    return True, int(LOGIN_LOCK_SECONDS - elapsed)
+
+
+def login_fail(key: str):
+    rec = _LOGIN_FAILS.get(key)
+    if not rec or (_time.time() - rec[1]) >= LOGIN_LOCK_SECONDS:
+        _LOGIN_FAILS[key] = [1, _time.time()]
+    else:
+        rec[0] += 1
+
+
+def login_ok(key: str):
+    _LOGIN_FAILS.pop(key, None)
+
+
+def chat_rate_ok(user_id: int) -> bool:
+    now = _time.time()
+    dq = _CHAT_HITS[user_id]
+    while dq and now - dq[0] > 60:
+        dq.popleft()
+    if len(dq) >= CHAT_MAX_PER_MIN:
+        return False
+    dq.append(now)
+    return True
+
+
 # ---------------- صفحات ----------------
 
 @app.get("/", response_class=HTMLResponse)
@@ -586,6 +652,14 @@ def login_page(request: Request):
 
 @app.post("/login", response_class=HTMLResponse)
 def login(request: Request, username: str = Form(...), password: str = Form(...), fingerprint: str = Form("")):
+    lock_key = f"{username.strip().lower()}|{_client_ip(request)}"
+    locked, remain = login_locked(lock_key)
+    if locked:
+        mins = max(1, remain // 60)
+        return render("login.html",
+                      error=f"به‌دلیل تلاش‌های ناموفق زیاد، ورود موقتاً قفل شد. حدود {mins} دقیقه دیگر دوباره تلاش کنید.",
+                      status_code=429, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
+
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
 
@@ -594,7 +668,14 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         return render("login.html", error=msg, status_code=400, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
 
     if not user or not verify_pw(password, user["password"]):
-        return fail("نام کاربری یا گذرواژه نادرست است.")
+        login_fail(lock_key)
+        _, left = login_locked(lock_key)
+        rec = _LOGIN_FAILS.get(lock_key)
+        tries_left = max(0, LOGIN_MAX_FAILS - (rec[0] if rec else 0))
+        extra = f" ({tries_left} تلاش دیگر تا قفل موقت)" if tries_left <= 3 and tries_left > 0 else ""
+        return fail("نام کاربری یا گذرواژه نادرست است." + extra)
+
+    login_ok(lock_key)
 
     # قفل یک‌دستگاهی: هر حساب فقط روی همان دستگاهی که اولین‌بار وارد شده کار می‌کند (ادمین معاف است)
     if not user["is_admin"]:
@@ -886,6 +967,60 @@ def delete_conversation(conv_id: int, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/conversations/{conv_id}/share")
+def share_conversation(conv_id: int, request: Request):
+    """یک لینک عمومی فقط‌خواندنی برای گفتگو می‌سازد (یا اگر قبلاً ساخته شده، همان را برمی‌گرداند)"""
+    user = require_user(request)
+    db = get_db()
+    conv = db.execute(
+        "SELECT id, share_token FROM conversations WHERE id = ? AND user_id = ?",
+        (conv_id, user["id"]),
+    ).fetchone()
+    if not conv:
+        db.close()
+        raise HTTPException(404, "گفتگو یافت نشد")
+    token = conv["share_token"]
+    if not token:
+        token = secrets.token_urlsafe(10)
+        db.execute("UPDATE conversations SET share_token = ? WHERE id = ?", (token, conv_id))
+        db.commit()
+    db.close()
+    return {"token": token, "url": f"/share/{token}"}
+
+
+@app.post("/api/conversations/{conv_id}/unshare")
+def unshare_conversation(conv_id: int, request: Request):
+    user = require_user(request)
+    db = get_db()
+    db.execute("UPDATE conversations SET share_token = NULL WHERE id = ? AND user_id = ?",
+               (conv_id, user["id"]))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.get("/share/{token}", response_class=HTMLResponse)
+def shared_conversation(token: str, request: Request):
+    """صفحه‌ی عمومی فقط‌خواندنی یک گفتگوی به‌اشتراک‌گذاشته‌شده (بدون نیاز به ورود)"""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", token or ""):
+        raise HTTPException(404, "لینک نامعتبر است")
+    db = get_db()
+    conv = db.execute(
+        "SELECT id, title FROM conversations WHERE share_token = ?", (token,)
+    ).fetchone()
+    if not conv:
+        db.close()
+        raise HTTPException(404, "این گفتگو یافت نشد یا اشتراک آن لغو شده است")
+    rows = db.execute(
+        "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id", (conv["id"],)
+    ).fetchall()
+    db.close()
+    msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
+    return render("shared.html",
+                  title=conv["title"] or "گفتگوی آنتانو",
+                  messages=json.dumps(msgs, ensure_ascii=False))
+
+
 # ---------------- API حافظه بلندمدت ----------------
 
 @app.get("/api/memories")
@@ -922,6 +1057,188 @@ def delete_memory(mem_id: int, request: Request):
     db.commit()
     db.close()
     return {"ok": True}
+
+
+# ---------------- کتابخانه منابع پژوهشی (ارجاع‌دهی APA / IEEE) ----------------
+
+REF_FIELDS = ("ref_type", "authors", "title", "year", "source",
+              "volume", "issue", "pages", "url", "note")
+
+
+def _fmt_authors(authors: str) -> str:
+    """نویسندگان جداشده با ؛ یا ; → رشته‌ی خوانا با «و» فارسی"""
+    parts = [a.strip() for a in re.split(r"[;؛]", authors or "") if a.strip()]
+    if not parts:
+        return "بی‌نام"
+    if len(parts) == 1:
+        return parts[0]
+    return "، ".join(parts[:-1]) + " و " + parts[-1]
+
+
+def format_reference(r: dict, style: str = "apa") -> str:
+    """یک منبع را به سبک APA یا IEEE قالب‌بندی می‌کند"""
+    authors = _fmt_authors(r.get("authors"))
+    title = (r.get("title") or "").strip()
+    year = (r.get("year") or "").strip()
+    source = (r.get("source") or "").strip()
+    vol = (r.get("volume") or "").strip()
+    issue = (r.get("issue") or "").strip()
+    pages = (r.get("pages") or "").strip()
+    url = (r.get("url") or "").strip()
+    rtype = (r.get("ref_type") or "article").strip()
+
+    if style == "ieee":
+        seg = [authors + "،", f"«{title}»,"]
+        if source:
+            seg.append(source + ("," if vol or issue or pages or year else ""))
+        if vol:
+            seg.append(f"دوره {vol},")
+        if issue:
+            seg.append(f"شماره {issue},")
+        if pages:
+            seg.append(f"ص {pages},")
+        if year:
+            seg.append(f"{year}.")
+        if url:
+            seg.append(url)
+        return " ".join(s for s in seg if s).strip()
+
+    # APA (پیش‌فرض)
+    out = f"{authors} ({year or 'بی‌تا'}). {title}."
+    if rtype == "book":
+        if source:
+            out += f" {source}."
+    elif rtype in ("website",):
+        if source:
+            out += f" {source}."
+    elif rtype == "thesis":
+        out += " [پایان‌نامه]."
+        if source:
+            out += f" {source}."
+    else:  # article / conference
+        if source:
+            vp = source
+            if vol:
+                vp += f"، {vol}"
+                if issue:
+                    vp += f"({issue})"
+            if pages:
+                vp += f"، {pages}"
+            out += f" {vp}."
+    if url:
+        out += f" {url}"
+    return out.strip()
+
+
+@app.get("/api/references")
+def list_references(request: Request):
+    user = require_user(request)
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM bib_refs WHERE user_id = ? ORDER BY id DESC", (user["id"],)
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/reference")
+async def add_reference(request: Request):
+    user = require_user(request)
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "عنوان منبع الزامی است")
+    vals = {f: (str(body.get(f) or "").strip())[:400] for f in REF_FIELDS}
+    if vals["ref_type"] not in ("article", "book", "website", "thesis", "conference"):
+        vals["ref_type"] = "article"
+    db = get_db()
+    cur = db.execute(
+        """INSERT INTO bib_refs
+           (user_id, ref_type, authors, title, year, source, volume, issue, pages, url, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user["id"], vals["ref_type"], vals["authors"], vals["title"], vals["year"],
+         vals["source"], vals["volume"], vals["issue"], vals["pages"], vals["url"], vals["note"]),
+    )
+    rid = cur.lastrowid
+    db.commit()
+    db.close()
+    return {"id": rid, "ok": True}
+
+
+@app.delete("/api/references/{ref_id}")
+def delete_reference(ref_id: int, request: Request):
+    user = require_user(request)
+    db = get_db()
+    db.execute("DELETE FROM bib_refs WHERE id = ? AND user_id = ?", (ref_id, user["id"]))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/api/references/parse")
+async def parse_reference(request: Request):
+    """یک ارجاع خام (کپی‌شده از مقاله) را با هوش مصنوعی به فیلدهای ساختارمند تبدیل می‌کند"""
+    user = require_user(request)
+    body = await request.json()
+    raw = (body.get("text") or "").strip()
+    if len(raw) < 8:
+        raise HTTPException(400, "متن ارجاع را کامل بچسبانید")
+    catalog = get_ai_catalog()
+    c = catalog[0]
+    if not c.get("key"):
+        raise HTTPException(400, "برای تشخیص خودکار، مدیر باید کلید API را در پنل تنظیم کند")
+    prompt = (
+        "این یک ارجاع/منبع علمی است. آن را به JSON با این کلیدها تبدیل کن و فقط JSON خام برگردان "
+        "(بدون توضیح، بدون ```): "
+        '{"ref_type":"article|book|website|thesis|conference","authors":"نویسندگان جداشده با ؛",'
+        '"title":"","year":"","source":"نام مجله یا ناشر","volume":"","issue":"","pages":"","url":""}\n\n'
+        f"ارجاع:\n{raw[:1500]}"
+    )
+    try:
+        out = await _call_model_once(c, prompt, max_tokens=500)
+    except Exception:
+        raise HTTPException(502, "تشخیص خودکار ممکن نشد؛ فیلدها را دستی وارد کنید")
+    m = re.search(r"\{.*\}", out or "", re.DOTALL)
+    if not m:
+        raise HTTPException(422, "خروجی قابل خواندن نبود؛ فیلدها را دستی وارد کنید")
+    try:
+        data = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        raise HTTPException(422, "خروجی قابل خواندن نبود؛ فیلدها را دستی وارد کنید")
+    return {f: str(data.get(f, "") or "") for f in REF_FIELDS if f != "note"}
+
+
+@app.post("/api/references/bibliography")
+async def build_bibliography(request: Request):
+    """فهرست منابع مرتب‌شده به سبک APA یا IEEE می‌سازد"""
+    user = require_user(request)
+    body = await request.json()
+    style = (body.get("style") or "apa").lower()
+    if style not in ("apa", "ieee"):
+        style = "apa"
+    ids = body.get("ids") or []
+    db = get_db()
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        rows = db.execute(
+            f"SELECT * FROM bib_refs WHERE user_id = ? AND id IN ({marks})",
+            (user["id"], *[int(i) for i in ids]),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM bib_refs WHERE user_id = ?", (user["id"],)
+        ).fetchall()
+    db.close()
+    refs = [dict(r) for r in rows]
+    if style == "ieee":
+        # IEEE: به ترتیب ورود، شماره‌دار
+        refs.sort(key=lambda r: r["id"])
+        lines = [f"[{i}] {format_reference(r, 'ieee')}" for i, r in enumerate(refs, 1)]
+    else:
+        # APA: مرتب بر اساس نام نویسنده
+        refs.sort(key=lambda r: (r.get("authors") or r.get("title") or "").strip())
+        lines = [format_reference(r, "apa") for r in refs]
+    return {"style": style, "count": len(refs), "text": "\n\n".join(lines)}
 
 
 # ---------------- جستجوی وب (رایگان و بدون کلید) ----------------
@@ -1138,6 +1455,8 @@ async def stream_model(messages, stars: int, model: str, base: str, key: str):
 @app.post("/api/chat")
 async def api_chat(request: Request):
     user = require_user(request)
+    if not chat_rate_ok(user["id"]):
+        raise HTTPException(429, "پیام‌ها را خیلی سریع می‌فرستید. چند لحظه صبر کنید و دوباره تلاش کنید.")
     body = await request.json()
     message = (body.get("message") or "").strip()
     conv_id = body.get("conversation_id")
@@ -1476,8 +1795,17 @@ async def stats_upload(request: Request, file: UploadFile = File(...)):
         raise HTTPException(400, "حجم فایل داده نباید بیشتر از ۲۰ مگابایت باشد")
     name = file.filename or "data.csv"
     ext = os.path.splitext(name)[1].lower()
-    if ext not in (".csv", ".xlsx", ".xls", ".xlsm", ".sav", ".dta", ".json", ".txt"):
-        raise HTTPException(400, "فرمت مجاز داده: Excel، CSV، SPSS(.sav)، Stata(.dta)")
+    # هر فرمتی مجاز است؛ فقط فایل‌هایی که قطعاً «داده جدولی» نیستند (عکس/سند/ویدیو) رد می‌شوند
+    NON_DATA = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".pdf", ".docx", ".doc",
+                ".mp4", ".mov", ".avi", ".mkv", ".mp3", ".wav", ".zip", ".rar", ".exe"}
+    if ext in NON_DATA:
+        raise HTTPException(
+            400,
+            "این فایل داده‌ی جدولی نیست. برای تحلیل آماری، فایل داده (Excel، CSV، SPSS، Stata، JSON، متنی و…) بفرستید. "
+            "اگر داده‌تان در PDF یا Word است، آن را به Excel یا CSV تبدیل کنید.",
+        )
+    if not ext:
+        ext = ".csv"  # فایل بدون پسوند را به‌عنوان CSV تلاش می‌کنیم
     try:
         import export_utils
     except ImportError as _e:
@@ -2047,6 +2375,34 @@ def admin_analytics(request: Request):
         "daily": daily,
         "top_users": [dict(u) for u in top_users],
     }
+
+
+@app.get("/admin/backup")
+def admin_backup(request: Request):
+    """دانلود نسخه‌ی پشتیبان کامل پایگاه داده (کاربران، کدها، گفتگوها و…)"""
+    require_admin(request)
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(404, "فایل پایگاه داده پیدا نشد")
+    # نسخه‌ی سازگار با SQLite (حتی هنگام باز بودن) با API رسمی backup ساخته می‌شود
+    import sqlite3
+    import datetime as _d
+    try:
+        import export_utils
+        out_dir = export_utils.EXPORT_DIR
+    except ImportError:
+        out_dir = "."
+    stamp = _d.datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_name = f"antanu-backup-{stamp}.db"
+    out_path = os.path.join(out_dir, out_name)
+    src = sqlite3.connect(DB_PATH)
+    dst = sqlite3.connect(out_path)
+    try:
+        with dst:
+            src.backup(dst)
+    finally:
+        src.close()
+        dst.close()
+    return FileResponse(out_path, filename=out_name, media_type="application/octet-stream")
 
 
 @app.get("/admin/data")
