@@ -1,0 +1,25 @@
+{
+  "name": "آنتانو — دستیار هوشمند",
+  "short_name": "آنتانو",
+  "description": "هوش مصنوعی فارسی‌زبان برای دانشجویان و پژوهشگران",
+  "start_url": "/chat",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "fa",
+  "background_color": "#0d1017",
+  "theme_color": "#0d1017",
+  "icons": [
+    {
+      "src": "/static/logo.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/logo.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

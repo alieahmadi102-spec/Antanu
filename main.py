@@ -1,0 +1,1767 @@
+# -*- coding: utf-8 -*-
+"""
+main.py — هسته اصلی هوش مصنوعی آنتانو (ANTANU)
+اجرا:  uvicorn main:app --host 0.0.0.0 --port 8000
+"""
+import os
+import re
+import json
+import asyncio
+import secrets
+
+import httpx
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from starlette.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+from db import get_db, init_db, hash_pw, verify_pw, generate_code
+
+# ---------------- بارگذاری فایل .env ----------------
+# کلید API و تنظیمات محرمانه در فایل .env نگهداری می‌شوند (کنار main.py).
+# این فایل هرگز نباید روی گیت‌هاب آپلود شود — در .gitignore مستثنی شده است.
+
+def _load_env_file(path: str = ".env"):
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_env_file()
+
+# ---------------- تنظیمات ----------------
+# آنتانو با هر سرویس سازگار با OpenAI کار می‌کند: Groq، GitHub Models، Gemini، OpenRouter و...
+# فقط کافی است ANTANU_PROVIDER و ANTANU_API_KEY را تنظیم کنید (راهنما در README).
+
+PROVIDERS = {
+    # سریع و رایگان — پیشنهادی برای تعداد کاربر زیاد
+    "groq": {
+        "base": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile",
+    },
+    # رایگان با توکن گیت‌هاب (محدودیت روزانه کم دارد)
+    "github": {
+        "base": "https://models.github.ai/inference",
+        "model": "openai/gpt-4o-mini",
+    },
+    # بهترین کیفیت فارسی در بین گزینه‌های رایگان
+    "gemini": {
+        "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model": "gemini-2.0-flash",
+    },
+    # انویدیا NIM — رایگان با ثبت‌نام در build.nvidia.com
+    "nvidia": {
+        "base": "https://integrate.api.nvidia.com/v1",
+        "model": "meta/llama-3.3-70b-instruct",
+    },
+    # سربراس — رایگان و بسیار سریع
+    "cerebras": {
+        "base": "https://api.cerebras.ai/v1",
+        "model": "llama-3.3-70b",
+    },
+    # میسترال — پلن رایگان دارد
+    "mistral": {
+        "base": "https://api.mistral.ai/v1",
+        "model": "mistral-small-latest",
+    },
+    # توگدر — اعتبار رایگان اولیه
+    "together": {
+        "base": "https://api.together.xyz/v1",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    },
+    # دیپ‌سیک رسمی (پولی ولی بسیار ارزان)
+    "deepseek": {
+        "base": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+    },
+    # API مخصوص آنتانو — برای آینده که مدل اختصاصی خودت را وصل کنی
+    "antanu": {
+        "base": os.environ.get("ANTANU_OWN_BASE", "https://api.antanu.ai/v1"),
+        "model": os.environ.get("ANTANU_OWN_MODEL", "antanu-1"),
+    },
+    # کلادفلر Workers AI — رایگان با حساب Cloudflare (نیاز به Account ID دارد)
+    "cloudflare": {
+        "base": "https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai/v1",
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    },
+    # چت جی‌پی‌تی رسمی (پولی)
+    "openai": {
+        "base": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+    },
+    # چندین مدل رایگان — openrouter/free خودش مدل رایگانِ در دسترس را انتخاب می‌کند
+    "openrouter": {
+        "base": "https://openrouter.ai/api/v1",
+        "model": "openrouter/free, meta-llama/llama-3.3-70b:free, openai/gpt-oss-120b:free",
+    },
+}
+
+PROVIDER = os.environ.get("ANTANU_PROVIDER", "groq").lower()
+_p = PROVIDERS.get(PROVIDER, PROVIDERS["groq"])
+API_BASE = os.environ.get("ANTANU_API_BASE", _p["base"]).rstrip("/")
+API_KEY = os.environ.get("ANTANU_API_KEY", "")
+# می‌توان چند مدل را با کاما جدا کرد؛ اگر اولی در دسترس نبود خودکار سراغ بعدی می‌رود
+MODELS = [m.strip() for m in os.environ.get("ANTANU_MODEL", _p["model"]).split(",") if m.strip()]
+ADMIN_CONTACT = os.environ.get("ANTANU_ADMIN_CONTACT", "آیدی تلگرام ادمین: @your_admin_id")
+
+# ---------------- فهرست هوش مصنوعی‌های قابل انتخاب توسط کاربر ----------------
+# دو روش تعریف:
+# روش ساده: فقط ANTANU_PROVIDER و ANTANU_API_KEY را بدهید → فهرست پیش‌فرض همان سرویس ساخته می‌شود.
+# روش چندسرویسه: در فایل .env هر هوش مصنوعی را در یک خط تعریف کنید (تا ۱۰ عدد):
+#   ANTANU_AI_1=نام نمایشی | سرویس | نام مدل | کلید
+#   «سرویس» یکی از این‌هاست: groq / gemini / github / openrouter / یا آدرس کامل API
+# مثال:
+#   ANTANU_AI_1=جمنای گوگل | gemini | gemini-2.0-flash | AIza...
+#   ANTANU_AI_2=لاما (گراک) | groq | llama-3.3-70b-versatile | gsk_...
+#   ANTANU_AI_3=دیپ‌سیک | openrouter | deepseek/deepseek-r1-distill:free | sk-or-...
+
+def _parse_custom_ais():
+    out = []
+    for i in range(1, 11):
+        raw = os.environ.get(f"ANTANU_AI_{i}", "").strip()
+        if not raw:
+            continue
+        parts = [p.strip() for p in raw.split("|")]
+        if len(parts) != 4:
+            print(f"[ANTANU] قالب ANTANU_AI_{i} نادرست است — باید ۴ بخش جداشده با | باشد")
+            continue
+        name, prov, model, key = parts
+        base = PROVIDERS[prov.lower()]["base"] if prov.lower() in PROVIDERS else prov.rstrip("/")
+        out.append({"id": f"ai{i}", "name": name, "base": base, "model": model, "key": key})
+    return out
+
+
+_customs = _parse_custom_ais()
+
+AI_CATALOG = []
+if API_KEY:
+    # «آنتانو (خودکار)» — هوش مصنوعی اصلی خود سایت
+    AI_CATALOG.append(
+        {"id": "auto", "name": "آنتانو (خودکار)", "base": API_BASE, "model": MODELS[0], "key": API_KEY}
+    )
+    if PROVIDER == "openrouter" and not _customs:
+        # فهرست پیش‌فرض مدل‌های رایگان OpenRouter (با همان یک کلید)
+        AI_CATALOG += [
+            {"id": "llama",    "name": "Llama 3.3 70B",          "base": API_BASE, "model": "meta-llama/llama-3.3-70b:free",    "key": API_KEY},
+            {"id": "gptoss",   "name": "GPT-OSS 120B (OpenAI)",  "base": API_BASE, "model": "openai/gpt-oss-120b:free",         "key": API_KEY},
+            {"id": "deepseek", "name": "DeepSeek R1",            "base": API_BASE, "model": "deepseek/deepseek-r1-distill:free","key": API_KEY},
+            {"id": "gptnano",  "name": "GPT-5.4 Nano (سریع)",    "base": API_BASE, "model": "openai/gpt-5.4-nano:free",         "key": API_KEY},
+        ]
+    elif not _customs and len(MODELS) > 1:
+        AI_CATALOG += [
+            {"id": f"m{i}", "name": m.split("/")[-1], "base": API_BASE, "model": m, "key": API_KEY}
+            for i, m in enumerate(MODELS[1:], 1)
+        ]
+
+# هوش مصنوعی‌های تعریف‌شده توسط مدیر — دقیقاً همین‌ها به کاربر نمایش داده می‌شوند
+AI_CATALOG += _customs
+
+if not AI_CATALOG:
+    AI_CATALOG = [{"id": "auto", "name": "آنتانو", "base": API_BASE, "model": MODELS[0], "key": ""}]
+
+# کاتالوگ ساخته‌شده از فایل .env (به‌عنوان پشتیبان)
+ENV_CATALOG = AI_CATALOG
+
+
+def resolve_base(service: str) -> str:
+    """نام سرویس (groq/gemini/...) یا آدرس کامل → آدرس پایه API"""
+    s = (service or "").strip()
+    if s.lower() in PROVIDERS:
+        return PROVIDERS[s.lower()]["base"]
+    return s.rstrip("/")
+
+
+def get_ai_catalog():
+    """فهرست نهایی هوش مصنوعی‌ها — اولویت با تنظیماتی است که ادمین در پنل ذخیره کرده"""
+    from db import get_db as _gdb
+    try:
+        db = _gdb()
+        row = db.execute("SELECT value FROM settings WHERE key = 'ai_config'").fetchone()
+        db.close()
+    except Exception:
+        row = None
+    if row:
+        try:
+            cfg = json.loads(row["value"])
+        except json.JSONDecodeError:
+            cfg = None
+        if cfg:
+            catalog = []
+            main_key = (cfg.get("api_key") or "").strip()
+            if main_key:
+                prov = (cfg.get("provider") or "groq").lower()
+                model = (cfg.get("model") or "").strip() or PROVIDERS.get(prov, PROVIDERS["groq"])["model"].split(",")[0].strip()
+                catalog.append({
+                    "id": "auto", "name": "آنتانو (خودکار)",
+                    "base": resolve_base(prov), "model": model, "key": main_key,
+                })
+            for i, ai in enumerate(cfg.get("ais") or [], 1):
+                if not (ai.get("key") or "").strip() or not (ai.get("model") or "").strip():
+                    continue
+                catalog.append({
+                    "id": f"ai{i}",
+                    "name": (ai.get("name") or f"مدل {i}").strip(),
+                    "base": resolve_base(ai.get("service")),
+                    "model": ai["model"].strip(),
+                    "key": ai["key"].strip(),
+                })
+            if catalog:
+                # اگر کلید اصلی خالی بود، «آنتانو (خودکار)» با اولین هوش مصنوعیِ دارای کلید کار کند
+                if catalog[0]["id"] != "auto":
+                    first = catalog[0]
+                    catalog.insert(0, {"id": "auto", "name": "آنتانو (خودکار)",
+                                       "base": first["base"], "model": first["model"], "key": first["key"]})
+                return catalog
+    # پشتیبان .env — اگر آن هم بی‌کلید بود ولی مدل دیگری کلید داشت، از آن استفاده کن
+    cat = [dict(c) for c in ENV_CATALOG]
+    if cat and not cat[0].get("key"):
+        withkey = next((c for c in cat if c.get("key")), None)
+        if withkey:
+            cat[0].update({"base": withkey["base"], "model": withkey["model"], "key": withkey["key"]})
+    return cat
+
+
+def add_knowledge(question: str, answer: str):
+    """ذخیره خودکار پرسش‌وپاسخ در پایگاه دانش آنتانو (بدون تکرار)"""
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    if len(q) < 4 or len(a) < 20 or a.startswith("⚠️") or a.startswith("🧠"):
+        return
+    try:
+        db = get_db()
+        exists = db.execute("SELECT 1 FROM knowledge WHERE question = ?", (q[:500],)).fetchone()
+        if not exists:
+            db.execute("INSERT INTO knowledge (question, answer) VALUES (?, ?)", (q[:500], a[:8000]))
+            db.commit()
+        db.close()
+    except Exception:
+        pass
+
+
+def search_knowledge(query: str, limit: int = 3):
+    """جستجوی ساده در پایگاه دانش برای یافتن پاسخ‌های مشابه قبلی"""
+    q = (query or "").strip()
+    if len(q) < 4:
+        return []
+    try:
+        db = get_db()
+        rows = db.execute(
+            "SELECT question, answer FROM knowledge WHERE question LIKE ? OR ? LIKE '%' || question || '%' "
+            "ORDER BY length(question) DESC LIMIT ?",
+            (f"%{q[:100]}%", q[:200], limit),
+        ).fetchall()
+        db.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_setting(key: str, default: str = "") -> str:
+    try:
+        db = get_db()
+        row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        db.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def set_setting(key: str, value: str):
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    db.commit()
+    db.close()
+
+# سقف پیام روزانه بر اساس ستاره اشتراک (None یعنی بدون محدودیت)
+DAILY_LIMITS = {1: 30, 2: 80, 3: 200, 4: None}
+# حداکثر طول پاسخ مدل بر اساس ستاره (-۱ یعنی آزاد)
+MAX_TOKENS = {1: 450, 2: 900, 3: 1600, 4: -1}
+
+app = FastAPI(title="ANTANU")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# رندر مستقیم قالب‌ها با Jinja2 (مستقل از نسخه starlette — بدون خطای ناسازگاری)
+_jinja = Environment(
+    loader=FileSystemLoader("templates"),
+    autoescape=select_autoescape(["html"]),
+)
+
+
+def render(name: str, status_code: int = 200, **context) -> HTMLResponse:
+    html = _jinja.get_template(name).render(**context)
+    return HTMLResponse(html, status_code=status_code)
+
+
+init_db()
+
+import datetime as _dt
+
+# ---------- تاریخ و ساعت زنده (شمسی + میلادی، به وقت ایران) ----------
+
+_J_MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+             "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
+_WEEKDAYS = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
+
+
+def _to_jalali(gy, gm, gd):
+    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    gy2, gm2, gd2 = gy - 1600, gm - 1, gd - 1
+    g_day_no = 365 * gy2 + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400
+    g_day_no += g_d_m[gm2]
+    if gm2 > 1 and ((gy % 4 == 0 and gy % 100 != 0) or gy % 400 == 0):
+        g_day_no += 1
+    g_day_no += gd2
+    j_day_no = g_day_no - 79
+    j_np = j_day_no // 12053
+    j_day_no %= 12053
+    jy = 979 + 33 * j_np + 4 * (j_day_no // 1461)
+    j_day_no %= 1461
+    if j_day_no >= 366:
+        jy += (j_day_no - 1) // 365
+        j_day_no = (j_day_no - 1) % 365
+    if j_day_no < 186:
+        jm, jd = 1 + j_day_no // 31, 1 + j_day_no % 31
+    else:
+        jm, jd = 7 + (j_day_no - 186) // 30, 1 + (j_day_no - 186) % 30
+    return jy, jm, jd
+
+
+def now_string() -> str:
+    """مثل: جمعه ۱۹ تیر ۱۴۰۵ برابر با 10 July 2026، ساعت ۱۴:۳۰ به وقت ایران"""
+    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3, minutes=30)))
+    jy, jm, jd = _to_jalali(now.year, now.month, now.day)
+    weekday = _WEEKDAYS[now.weekday()]
+    return (f"{weekday} {jd} {_J_MONTHS[jm - 1]} {jy} هجری شمسی، برابر با "
+            f"{now.day} {now.strftime('%B')} {now.year} میلادی، ساعت {now.strftime('%H:%M')} به وقت ایران")
+
+
+# ---------- فیلتر حروف غیرفارسی (هندی، چینی، کره‌ای، ژاپنی، تایلندی و...) ----------
+
+_FOREIGN_RE = re.compile(
+    r"[\u00C0-\u024F"            # لاتین لهجه‌دار (فرانسوی، ویتنامی، ترکی و...)
+    r"\u0370-\u03FF"             # یونانی
+    r"\u0400-\u04FF"             # روسی و سیریلیک
+    r"\u0900-\u097F\u0980-\u0DFF\u0E00-\u0E7F"  # هندی، بنگالی، تایلندی
+    r"\u1100-\u11FF\u1E00-\u1EFF"                  # کره‌ای قدیم، ویتنامی
+    r"\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]+"  # ژاپنی، چینی، کره‌ای
+)
+
+
+# الگوی پاسخ‌های نامعتبر: بعضی مدل‌های رایگان فقط برچسب ایمنی می‌دهند (مثل «User Safety: safe»)
+JUNK_RE = re.compile(
+    r"^(user\s*safety|response\s*safety|safety\s*[:=]|\s*(un)?safe\s*$|i cannot|i can't assist)",
+    re.IGNORECASE,
+)
+
+
+def clean_foreign(text: str) -> str:
+    return _FOREIGN_RE.sub("", text) if text else text
+
+
+# واژه‌هایی که یعنی کاربر اطلاعات «روز» می‌خواهد → جستجوی وب خودکار روشن می‌شود
+AUTO_SEARCH_WORDS = [
+    "امروز", "دیروز", "فردا", "اخبار", "خبر", "قیمت", "نرخ", "دلار", "یورو",
+    "سکه", "طلا", "بیت‌کوین", "بیتکوین", "آب‌وهوا", "آب و هوا", "هوای",
+    "الان", "اکنون", "هم‌اکنون", "جدیدترین", "آخرین", "چه خبر", "نتیجه بازی",
+    "این هفته", "این ماه", "امسال", "چه سالی", "چندم", "تاریخ امروز", "ساعت چند",
+]
+
+BASE_SYSTEM_PROMPT = (
+    "تو «آنتانو» (ANTANU) هستی؛ دستیار هوشمند فارسی‌زبان برای دانشجویان و پژوهشگران. "
+    "قواعد نگارش که همیشه باید رعایت کنی: "
+    "۱) به فارسیِ معیار، روان و طبیعی بنویس؛ از ترجمه تحت‌اللفظی و جمله‌بندی انگلیسی‌مآب جداً پرهیز کن. "
+    "۲) دستور زبان، املا و نشانه‌گذاری فارسی را کامل رعایت کن: نیم‌فاصله در «می‌شود» و «کتاب‌ها»، فعل در انتهای جمله، حروف اضافه درست. "
+    "۳) اصطلاحات تخصصی را به فارسی بنویس و در اولین اشاره، معادل انگلیسی را داخل پرانتز بیاور. "
+    "۴) در حوزه‌های دانشگاهی — به‌ویژه حسابداری، مدیریت، آمار و روش تحقیق — دقیق و علمی پاسخ بده. "
+    "۵) اگر چیزی را نمی‌دانی صادقانه بگو نمی‌دانم و حدس نزن. "
+    "۶) پاسخ را ساختارمند ارائه کن و اگر از نتایج جستجوی وب استفاده کردی، منبع را ذکر کن. "
+    "۷) از تکرار واژه‌ها، عبارت‌ها و مطالب پرهیز کن؛ همیشه واژگان متنوع و مطالب تازه به کار ببر. "
+    "۸) بسیار مهم: خروجی فقط با حروف فارسی (و در صورت نیاز، معادل انگلیسی داخل پرانتز) باشد؛ "
+    "هرگز واژه‌های روسی، هندی، چینی، ویتنامی، فرانسوی، اسپانیایی یا هر زبان دیگری را وسط متن فارسی نیاور. "
+    "اگر واژه‌ای را نمی‌دانی، ساده‌ترین معادل فارسی را بنویس. جمله ناتمام یا شکسته ننویس."
+)
+
+
+# ---------------- ابزارهای احراز هویت ----------------
+
+def current_user(request: Request):
+    token = request.cookies.get("antanu_session")
+    if not token:
+        return None
+    db = get_db()
+    row = db.execute(
+        "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?",
+        (token,),
+    ).fetchone()
+    db.close()
+    return row
+
+
+def require_user(request: Request):
+    user = current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="ابتدا وارد حساب خود شوید")
+    return user
+
+
+def require_admin(request: Request):
+    user = require_user(request)
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="دسترسی فقط برای مدیر")
+    return user
+
+
+def make_session(user_id: int) -> str:
+    token = secrets.token_hex(32)
+    db = get_db()
+    db.execute("INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user_id))
+    db.commit()
+    db.close()
+    return token
+
+
+# ---------------- صفحات ----------------
+
+@app.get("/", response_class=HTMLResponse)
+def root(request: Request):
+    return RedirectResponse("/chat" if current_user(request) else "/login")
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if current_user(request):
+        return RedirectResponse("/chat")
+    return render("login.html", error=None, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login(request: Request, username: str = Form(...), password: str = Form(...), fingerprint: str = Form("")):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+
+    def fail(msg):
+        db.close()
+        return render("login.html", error=msg, status_code=400, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
+
+    if not user or not verify_pw(password, user["password"]):
+        return fail("نام کاربری یا گذرواژه نادرست است.")
+
+    # قفل یک‌دستگاهی: هر حساب فقط روی همان دستگاهی که اولین‌بار وارد شده کار می‌کند (ادمین معاف است)
+    if not user["is_admin"]:
+        if user["device_fp"] and fingerprint and user["device_fp"] != fingerprint:
+            return fail("این حساب به دستگاه دیگری متصل است. برای انتقال به دستگاه جدید با ادمین تماس بگیرید.")
+        if not user["device_fp"] and fingerprint:
+            db.execute("UPDATE users SET device_fp = ? WHERE id = ?", (fingerprint, user["id"]))
+            db.commit()
+
+    db.close()
+    token = make_session(user["id"])
+    resp = RedirectResponse("/chat", status_code=303)
+    resp.set_cookie("antanu_session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return resp
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request):
+    if current_user(request):
+        return RedirectResponse("/chat")
+    return render("register.html", error=None, version=get_setting("app_version", "1.0"))
+
+
+@app.post("/register", response_class=HTMLResponse)
+def register(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    code: str = Form(...),
+    fingerprint: str = Form(""),
+):
+    username, code = username.strip(), code.strip()
+    db = get_db()
+
+    def fail(msg):
+        db.close()
+        return render("register.html", error=msg, status_code=400, version=get_setting("app_version", "1.0"))
+
+    if len(username) < 3:
+        return fail("نام کاربری باید حداقل ۳ حرف باشد.")
+    if len(password) < 6:
+        return fail("گذرواژه باید حداقل ۶ حرف باشد.")
+    if not fingerprint:
+        return fail("شناسه دستگاه دریافت نشد. صفحه را نوسازی کنید.")
+    if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        return fail("این نام کاربری قبلاً گرفته شده است.")
+
+    code_row = db.execute("SELECT * FROM codes WHERE code = ?", (code,)).fetchone()
+    if not code_row:
+        return fail("کد ثبت‌نام نامعتبر است.")
+    if code_row["used"]:
+        return fail("این کد قبلاً استفاده شده است. هر کد فقط برای یک کاربر و یک دستگاه معتبر است.")
+
+    cur = db.execute(
+        "INSERT INTO users (username, password, stars, device_fp, code_used) VALUES (?, ?, ?, ?, ?)",
+        (username, hash_pw(password), code_row["stars"], fingerprint, code),
+    )
+    user_id = cur.lastrowid
+    db.execute("UPDATE codes SET used = 1, used_by = ? WHERE id = ?", (username, code_row["id"]))
+    db.commit()
+    db.close()
+
+    token = make_session(user_id)
+    resp = RedirectResponse("/chat", status_code=303)
+    resp.set_cookie("antanu_session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return resp
+
+
+@app.post("/logout")
+def logout(request: Request):
+    token = request.cookies.get("antanu_session")
+    if token:
+        db = get_db()
+        db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        db.commit()
+        db.close()
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("antanu_session")
+    return resp
+
+
+@app.get("/buy", response_class=HTMLResponse)
+def buy_page(request: Request):
+    return render("buy.html", contact=ADMIN_CONTACT)
+
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page(request: Request):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    limit = DAILY_LIMITS.get(user["stars"])
+    return render("chat.html", user=user, daily_limit=limit if limit else "نامحدود",
+                  version=get_setting("app_version", "1.0"),
+                  announcement=get_setting("announcement", ""))
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page(request: Request):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    if not user["is_admin"]:
+        return RedirectResponse("/chat")
+    return render("admin.html", user=user)
+
+
+# ---------------- API پروفایل کاربر ----------------
+
+@app.get("/api/profile")
+def api_profile(request: Request):
+    user = require_user(request)
+    db = get_db()
+    used = db.execute(
+        """SELECT COUNT(*) AS c FROM messages m
+           JOIN conversations c2 ON c2.id = m.conversation_id
+           WHERE c2.user_id = ? AND m.role = 'user' AND date(m.created_at) = date('now')""",
+        (user["id"],),
+    ).fetchone()["c"]
+    db.close()
+    limit = DAILY_LIMITS.get(user["stars"])
+    created = (user["created_at"] or "")[:10]
+    joined = created
+    try:
+        y, m, d0 = map(int, created.split("-"))
+        jy, jm, jd = _to_jalali(y, m, d0)
+        joined = f"{jd} {_J_MONTHS[jm - 1]} {jy}"
+    except Exception:
+        pass
+    avatar = user["avatar"] if "avatar" in user.keys() else None
+    return {
+        "username": user["username"],
+        "stars": user["stars"],
+        "avatar": avatar,
+        "joined": joined,
+        "used_today": used,
+        "daily_limit": limit,
+    }
+
+
+@app.post("/api/profile/avatar")
+async def api_profile_avatar(request: Request, file: UploadFile = File(...)):
+    user = require_user(request)
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(400, "حجم عکس نباید بیشتر از ۵ مگابایت باشد")
+    try:
+        import io
+        import base64
+        from PIL import Image
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        img.thumbnail((128, 128))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+        dataurl = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        raise HTTPException(400, "فایل عکس معتبر نیست")
+    db = get_db()
+    db.execute("UPDATE users SET avatar = ? WHERE id = ?", (dataurl, user["id"]))
+    db.commit()
+    db.close()
+    return {"avatar": dataurl}
+
+
+@app.post("/api/profile/password")
+async def api_profile_password(request: Request):
+    user = require_user(request)
+    body = await request.json()
+    old = body.get("old") or ""
+    new = body.get("new") or ""
+    if len(new) < 6:
+        raise HTTPException(400, "گذرواژه جدید باید حداقل ۶ حرف باشد")
+    if not verify_pw(old, user["password"]):
+        raise HTTPException(400, "گذرواژه فعلی نادرست است")
+    token = request.cookies.get("antanu_session") or ""
+    db = get_db()
+    db.execute("UPDATE users SET password = ? WHERE id = ?", (hash_pw(new), user["id"]))
+    # همه نشست‌های دیگر این کاربر بسته می‌شوند (امنیت)
+    db.execute("DELETE FROM sessions WHERE user_id = ? AND token <> ?", (user["id"], token))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+# ---------------- API گفتگوها ----------------
+
+@app.get("/api/conversations")
+def list_conversations(request: Request):
+    user = require_user(request)
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, title, created_at FROM conversations WHERE user_id = ? ORDER BY id DESC",
+        (user["id"],),
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/conversations/{conv_id}/messages")
+def conversation_messages(conv_id: int, request: Request):
+    user = require_user(request)
+    db = get_db()
+    conv = db.execute(
+        "SELECT id FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user["id"])
+    ).fetchone()
+    if not conv:
+        db.close()
+        raise HTTPException(404, "گفتگو یافت نشد")
+    rows = db.execute(
+        "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id", (conv_id,)
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/conversations/{conv_id}/rename")
+async def rename_conversation(conv_id: int, request: Request):
+    user = require_user(request)
+    body = await request.json()
+    title = (body.get("title") or "").strip()[:60]
+    if not title:
+        raise HTTPException(400, "نام خالی است")
+    db = get_db()
+    db.execute(
+        "UPDATE conversations SET title = ? WHERE id = ? AND user_id = ?",
+        (title, conv_id, user["id"]),
+    )
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.delete("/api/conversations/{conv_id}")
+def delete_conversation(conv_id: int, request: Request):
+    user = require_user(request)
+    db = get_db()
+    db.execute("DELETE FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user["id"]))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+# ---------------- API حافظه بلندمدت ----------------
+
+@app.get("/api/memories")
+def list_memories(request: Request):
+    user = require_admin(request)
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, content, created_at FROM memories WHERE user_id = ? ORDER BY id DESC",
+        (user["id"],),
+    ).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/memory")
+async def save_memory(request: Request):
+    user = require_admin(request)
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(400, "متن خالی است")
+    db = get_db()
+    db.execute("INSERT INTO memories (user_id, content) VALUES (?, ?)", (user["id"], content[:4000]))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.delete("/api/memories/{mem_id}")
+def delete_memory(mem_id: int, request: Request):
+    user = require_admin(request)
+    db = get_db()
+    db.execute("DELETE FROM memories WHERE id = ? AND user_id = ?", (mem_id, user["id"]))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+# ---------------- جستجوی وب (رایگان و بدون کلید) ----------------
+
+def _search_web_sync(query: str) -> str:
+    """جستجوی وب با موتور DuckDuckGo — رایگان، بدون نیاز به کلید"""
+    from ddgs import DDGS
+    lines = []
+    with DDGS() as d:
+        for r in d.text(query, max_results=5):
+            title = r.get("title", "")
+            body = r.get("body", "")
+            href = r.get("href", "")
+            lines.append(f"- {title}: {body}\n  منبع: {href}")
+    return "\n".join(lines)
+
+
+# ---------------- API فهرست مدل‌ها و آپلود فایل ----------------
+
+@app.get("/api/models")
+def list_models(request: Request):
+    require_user(request)
+    return [{"id": c["id"], "name": c["name"]} for c in get_ai_catalog()]
+
+
+ALLOWED_TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".html", ".xml", ".log"}
+
+
+@app.post("/api/upload")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    user = require_user(request)
+    raw = await file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل نباید بیشتر از ۱۰ مگابایت باشد")
+
+    name = file.filename or "file"
+    ext = os.path.splitext(name)[1].lower()
+    text = ""
+
+    try:
+        if ext in ALLOWED_TEXT_EXT:
+            text = raw.decode("utf-8", errors="ignore")
+        elif ext == ".pdf":
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n".join((p.extract_text() or "") for p in reader.pages)
+        elif ext == ".docx":
+            import io
+            from docx import Document
+            doc = Document(io.BytesIO(raw))
+            parts = [p.text for p in doc.paragraphs]
+            for table in doc.tables:
+                for row in table.rows:
+                    parts.append(" | ".join(c.text for c in row.cells))
+            text = "\n".join(parts)
+        elif ext in (".xlsx", ".xlsm"):
+            import io
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            parts = []
+            for ws in wb.worksheets:
+                parts.append(f"[برگه: {ws.title}]")
+                for row in ws.iter_rows(values_only=True):
+                    parts.append(" | ".join("" if v is None else str(v) for v in row))
+            text = "\n".join(parts)
+        elif ext in (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"):
+            # عکس: فشرده‌سازی و تبدیل به base64 تا مدل‌های بینادار (مثل Gemini) آن را ببینند
+            import io
+            import base64
+            from PIL import Image
+            img = Image.open(io.BytesIO(raw))
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.thumbnail((1024, 1024))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=82)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            # بندانگشتی کوچک برای نمایش در چت
+            thumb = img.copy()
+            thumb.thumbnail((320, 320))
+            tbuf = io.BytesIO()
+            thumb.save(tbuf, format="JPEG", quality=70)
+            thumb_b64 = base64.b64encode(tbuf.getvalue()).decode()
+            db = get_db()
+            cur = db.execute(
+                "INSERT INTO uploads (user_id, filename, content, kind) VALUES (?, ?, ?, 'image')",
+                (user["id"], name[:200], b64),
+            )
+            db.commit()
+            upload_id = cur.lastrowid
+            db.close()
+            return {"id": upload_id, "filename": name, "kind": "image",
+                    "preview": f"data:image/jpeg;base64,{thumb_b64}"}
+        elif ext in (".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp"):
+            raise HTTPException(
+                400,
+                "تحلیل ویدیو هنوز توسط سرویس‌های هوش مصنوعی رایگان پشتیبانی نمی‌شود. "
+                "می‌توانید عکس (اسکرین‌شات از ویدیو) بفرستید تا تحلیل شود.",
+            )
+        else:
+            raise HTTPException(
+                400,
+                "این نوع فایل فعلاً پشتیبانی نمی‌شود. فرمت‌های مجاز: عکس (jpg/png)، pdf، docx، xlsx، txt، csv، md، json",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "خواندن محتوای فایل ممکن نشد. از سالم بودن فایل مطمئن شوید.")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(400, "متنی در این فایل پیدا نشد.")
+
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO uploads (user_id, filename, content, kind) VALUES (?, ?, ?, 'text')",
+        (user["id"], name[:200], text[:60000]),
+    )
+    db.commit()
+    upload_id = cur.lastrowid
+    db.close()
+    return {"id": upload_id, "filename": name, "kind": "text", "chars": len(text)}
+
+
+# ---------------- API چت (استریم — چندمدلی + جستجوی وب + فایل) ----------------
+
+def build_system_prompt(user, memories) -> str:
+    prompt = BASE_SYSTEM_PROMPT
+    prompt += (f"\n\nتاریخ و ساعت کنونی: {now_string()}. "
+               "هر جا درباره تاریخ، روز، سال یا ساعت پرسیده شد، دقیقاً از همین استفاده کن و نگو که نمی‌دانی.")
+    if user["stars"] < 4:
+        prompt += " پاسخ‌ها را نسبتاً خلاصه و مفید ارائه بده."
+    else:
+        prompt += " پاسخ‌ها را کامل، عمیق و جامع ارائه بده."
+    if memories:
+        prompt += "\n\nحافظه بلندمدت این کاربر (همیشه در نظر بگیر):\n"
+        prompt += "\n".join(f"- {m['content']}" for m in memories)
+    return prompt
+
+
+class ModelError(Exception):
+    def __init__(self, status: int, body: str = ""):
+        self.status = status
+        self.body = body
+
+
+def _save_gen_image(dataurl: str):
+    """عکس تولیدشده مدل را به فایل واقعی تبدیل می‌کند و نامش را برمی‌گرداند"""
+    try:
+        import base64
+        import export_utils
+        header, b64 = dataurl.split(",", 1)
+        ext = "png"
+        if "jpeg" in header or "jpg" in header:
+            ext = "jpg"
+        elif "webp" in header:
+            ext = "webp"
+        name = f"antanu-img-{secrets.token_hex(6)}.{ext}"
+        with open(os.path.join(export_utils.EXPORT_DIR, name), "wb") as f:
+            f.write(base64.b64decode(b64))
+        return name
+    except Exception:
+        return None
+
+
+async def stream_model(messages, stars: int, model: str, base: str, key: str):
+    """استریم پاسخ از هر سرویس سازگار با OpenAI — هر مدل با آدرس و کلید خودش"""
+    payload = {"model": model, "messages": messages, "stream": True}
+    if MAX_TOKENS.get(stars, -1) > 0:
+        payload["max_tokens"] = MAX_TOKENS[stars]
+
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
+        async with client.stream(
+            "POST", f"{base}/chat/completions", json=payload, headers=headers
+        ) as r:
+            if r.status_code != 200:
+                body = (await r.aread()).decode(errors="ignore")[:400]
+                raise ModelError(r.status_code, body)
+            async for line in r.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = obj.get("choices") or [{}]
+                delta = choices[0].get("delta") or {}
+                chunk = clean_foreign(delta.get("content") or "")
+                # عکس‌های تولیدشده توسط مدل‌های عکس‌ساز (مثل gemini-2.5-flash-image)
+                for im in (delta.get("images") or []):
+                    url = ((im or {}).get("image_url") or {}).get("url") or ""
+                    if url.startswith("data:image"):
+                        fname = _save_gen_image(url)
+                        if fname:
+                            chunk += f"\n\n[[ANTANU_IMG:/download/{fname}]]\n\n"
+                if chunk:
+                    yield chunk
+
+
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    user = require_user(request)
+    body = await request.json()
+    message = (body.get("message") or "").strip()
+    conv_id = body.get("conversation_id")
+    selected_ids = body.get("models") or ["auto"]
+    web_on = bool(body.get("web"))
+    research = bool(body.get("research"))
+    attachment_ids = body.get("attachments") or []
+    if not message:
+        raise HTTPException(400, "پیام خالی است")
+
+    # ---------- دستور ذخیره در حافظه:  \save متن  یا  /save ----------
+    save_match = re.match(r"^[\\/]\s*save\b[:\s]*", message, re.IGNORECASE)
+    if save_match:
+        remainder = message[save_match.end():].strip()
+        db = get_db()
+        if conv_id:
+            conv = db.execute(
+                "SELECT id FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user["id"])
+            ).fetchone()
+            if not conv:
+                db.close()
+                raise HTTPException(404, "گفتگو یافت نشد")
+        else:
+            cur = db.execute(
+                "INSERT INTO conversations (user_id, title) VALUES (?, ?)",
+                (user["id"], "🧠 ذخیره در حافظه"),
+            )
+            conv_id = cur.lastrowid
+        db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+            (conv_id, message),
+        )
+        if not remainder:
+            row = db.execute(
+                "SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant' "
+                "ORDER BY id DESC LIMIT 1",
+                (conv_id,),
+            ).fetchone()
+            remainder = (row["content"] if row else "").strip()
+        if remainder:
+            db.execute(
+                "INSERT INTO memories (user_id, content) VALUES (?, ?)",
+                (user["id"], remainder[:4000]),
+            )
+            reply = "🧠 در حافظه بلندمدت آنتانو ذخیره شد و هرگز فراموش نمی‌شود."
+        else:
+            reply = "⚠️ چیزی برای ذخیره پیدا نشد. بنویسید: \\save متن موردنظر — یا بعد از پاسخ ربات فقط \\save بفرستید تا همان پاسخ ذخیره شود."
+        db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
+            (conv_id, reply),
+        )
+        db.commit()
+        db.close()
+
+        async def save_gen():
+            yield reply
+
+        return StreamingResponse(
+            save_gen(),
+            media_type="text/plain; charset=utf-8",
+            headers={"X-Conversation-Id": str(conv_id)},
+        )
+
+    # مدل‌های انتخاب‌شده توسط کاربر (یکی یا چندتا)
+    catalog = get_ai_catalog()
+    chosen = [c for c in catalog if c["id"] in selected_ids]
+    if not chosen:
+        chosen = [catalog[0]]
+
+    # حالت تحقیق گروهی: همه هوش مصنوعی‌ها دست‌به‌دست هم پژوهش را کامل می‌کنند + جستجوی وب
+    if research:
+        chosen = list(catalog)
+        web_on = True
+
+    db = get_db()
+
+    # بررسی سقف پیام روزانه بر اساس اشتراک
+    limit = DAILY_LIMITS.get(user["stars"])
+    if limit is not None:
+        used = db.execute(
+            """SELECT COUNT(*) AS c FROM messages m
+               JOIN conversations c2 ON c2.id = m.conversation_id
+               WHERE c2.user_id = ? AND m.role = 'user' AND date(m.created_at) = date('now')""",
+            (user["id"],),
+        ).fetchone()["c"]
+        if used >= limit:
+            db.close()
+            raise HTTPException(
+                429,
+                f"سقف {limit} پیام روزانه اشتراک {user['stars']} ستاره شما تمام شد. "
+                "برای ادامه، اشتراک بالاتر تهیه کنید یا فردا برگردید.",
+            )
+
+    # گفتگو
+    if conv_id:
+        conv = db.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user["id"])
+        ).fetchone()
+        if not conv:
+            db.close()
+            raise HTTPException(404, "گفتگو یافت نشد")
+    else:
+        cur = db.execute(
+            "INSERT INTO conversations (user_id, title) VALUES (?, ?)",
+            (user["id"], message[:60]),
+        )
+        conv_id = cur.lastrowid
+
+    # محتوای فایل‌های پیوست (متن و عکس جداگانه)
+    extra_context = ""
+    attach_names = []
+    images_b64 = []
+    for aid in attachment_ids[:5]:
+        row = db.execute(
+            "SELECT filename, content, kind FROM uploads WHERE id = ? AND user_id = ?",
+            (int(aid), user["id"]),
+        ).fetchone()
+        if not row:
+            continue
+        attach_names.append(row["filename"])
+        if row["kind"] == "image":
+            images_b64.append(row["content"])
+        else:
+            extra_context += f"\n\n[محتوای فایل پیوست «{row['filename']}»]:\n{row['content'][:20000]}"
+
+    # جستجوی وب — اگر سؤال درباره اطلاعات روز باشد، خودکار روشن می‌شود
+    if not web_on and any(w in message for w in AUTO_SEARCH_WORDS):
+        web_on = True
+
+    web_note = ""
+    if web_on:
+        try:
+            results = await run_in_threadpool(_search_web_sync, message[:300])
+            if results:
+                extra_context += (
+                    "\n\n[نتایج جستجوی وب — برای پاسخ به‌روز از این‌ها استفاده کن و منبع را ذکر کن]:\n"
+                    + results
+                )
+        except Exception:
+            web_note = "\n\n_🌐 جستجوی وب در دسترس نبود؛ پاسخ از دانش خود مدل است._"
+
+    # پیام نمایشی که در تاریخچه ذخیره می‌شود
+    display = message
+    if attach_names:
+        display += "\n📎 " + "، ".join(attach_names)
+    if web_on:
+        display += "\n🌐 با جستجوی وب"
+
+    db.execute(
+        "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+        (conv_id, display),
+    )
+    db.commit()
+
+    history = db.execute(
+        "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 24",
+        (conv_id,),
+    ).fetchall()[::-1]
+    memories = db.execute(
+        "SELECT content FROM memories WHERE user_id = ? ORDER BY id DESC LIMIT 30", (user["id"],)
+    ).fetchall()
+    db.close()
+
+    # دانش خودآموز: پاسخ‌های مشابه قبلی از پایگاه دانش آنتانو
+    kb = search_knowledge(message, limit=2)
+    sys_content = build_system_prompt(user, memories)
+    if kb:
+        sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
+        sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
+
+    msgs = [{"role": "system", "content": sys_content}]
+    msgs += [{"role": r["role"], "content": r["content"]} for r in history[:-1]]
+    if images_b64:
+        # پیام چندرسانه‌ای: متن + عکس‌ها (برای مدل‌های بینادار مثل Gemini و GPT-4o)
+        img_instruction = message if message else "این تصویر را با دقت و جزئیات کامل به فارسی توصیف و تحلیل کن."
+        img_instruction += ("\n\n[راهنما: تو یک مدل بینا هستی؛ تصویر را مستقیماً ببین و "
+                            "همه اشیا، متن‌ها، اعداد، نمودارها و جزئیات آن را به فارسی روان توضیح بده. "
+                            "هرگز نگو که نمی‌توانی عکس ببینی.]")
+        parts = [{"type": "text", "text": img_instruction + extra_context}]
+        for b64 in images_b64[:4]:
+            parts.append({"type": "image_url",
+                          "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+        msgs.append({"role": "user", "content": parts})
+    else:
+        msgs.append({"role": "user", "content": message + extra_context})
+
+    stars = user["stars"]
+
+    async def gen():
+        full = ""
+        c0 = chosen[0]
+
+        async def try_stream(messages):
+            """تلاش روی مدل اصلی و در صورت خطا/پاسخ نامعتبر، خودکار روی بقیه مدل‌های دارای کلید"""
+            nonlocal full
+            candidates = [c0] + [c for c in catalog if c["id"] != c0["id"] and c.get("key")]
+            last_err = None
+            for c in candidates:
+                buf = ""
+                emitted = False
+                try:
+                    async for chunk in stream_model(messages, stars, c["model"], c["base"], c["key"]):
+                        if not emitted:
+                            buf += chunk
+                            if len(buf) >= 60:
+                                if JUNK_RE.match(buf.strip()):
+                                    raise ModelError(590, "junk")
+                                full += buf
+                                yield buf
+                                emitted = True
+                            continue
+                        full += chunk
+                        yield chunk
+                    # پایان استریم
+                    if not emitted and buf.strip():
+                        if JUNK_RE.match(buf.strip()):
+                            raise ModelError(590, "junk")
+                        full += buf
+                        yield buf
+                        emitted = True
+                    if emitted:
+                        return
+                    last_err = ModelError(591, "empty")  # پاسخ خالی → مدل بعدی
+                except ModelError as e:
+                    if emitted:
+                        return  # وسط پاسخ قطع شد؛ همان بخش را نگه می‌داریم
+                    last_err = e
+                    continue
+
+            # هیچ مدلی پاسخ سالم نداد
+            e = last_err
+            if images_b64 and e and e.status in (400, 422):
+                note = ("⚠️ هیچ‌کدام از مدل‌های متصل الان توان دیدن این عکس را ندارند. "
+                        "ظرفیت مدل بینا (مثل Gemini) پر شده یا مدل بینایی متصل نیست. "
+                        "پیشنهاد: در پنل مدیریت یک ردیف OpenRouter با مدل google/gemini-2.0-flash-exp:free اضافه کنید.")
+            elif e and e.status in (401, 403):
+                note = "⚠️ کلید API نامعتبر یا منقضی است. مدیر سیستم در پنل مدیریت کلیدها را بررسی کند."
+            elif e and e.status == 429:
+                note = ("⚠️ سهمیه رایگان امروزِ سرویس‌های متصل پر شده است. "
+                        "کمی بعد دوباره تلاش کنید (سهمیه Gemini هر شب آزاد می‌شود).")
+            elif e and e.status == 590:
+                note = "⚠️ مدل‌های متصل پاسخ نامعتبر دادند. مدیر سیستم مدل‌های خراب را از پنل حذف کند."
+            else:
+                note = "⚠️ هیچ سرویس هوش مصنوعی‌ای در دسترس نبود. کمی بعد دوباره تلاش کنید."
+            full += note
+            yield note
+
+        try:
+            if not c0.get("key"):
+                # حالت بدون API: از پایگاه دانش آنتانو جواب بده
+                kb_ans = search_knowledge(message, limit=1)
+                if kb_ans:
+                    ans = "🧠 (از حافظه آنتانو)\n\n" + kb_ans[0]["answer"]
+                    full += ans
+                    yield ans
+                else:
+                    err = ("⚠️ در حال حاضر هیچ هوش مصنوعی‌ای متصل نیست و پاسخ این پرسش هم در حافظه آنتانو ذخیره نشده. "
+                           "مدیر سیستم باید از پنل مدیریت یک کلید API وصل کند.")
+                    full += err
+                    yield err
+            elif len(chosen) == 1 or images_b64:
+                # تک‌مدلی یا وقتی عکس هست: استریم با failover خودکار
+                async for chunk in try_stream(msgs):
+                    yield chunk
+            else:
+                # چند هوش مصنوعی: پیش‌نویس موازی + پاسخ واحد از زبان آنتانو
+                async def draft(c):
+                    if not c.get("key"):
+                        return ""
+                    try:
+                        out = await _call_model_once(c, messages=msgs, max_tokens=1200)
+                        return "" if JUNK_RE.match((out or "").strip()) else out
+                    except Exception:
+                        return ""
+
+                drafts = await asyncio.gather(*[draft(c) for c in chosen])
+                drafts = [d.strip() for d in drafts if d and d.strip()]
+
+                if not drafts:
+                    async for chunk in try_stream(msgs):
+                        yield chunk
+                else:
+                    combo = "\n\n═══ پیش‌نویس بعدی ═══\n\n".join(d[:3500] for d in drafts)
+                    goal = ("یک پژوهش کامل، عمیق و ساختارمند با عنوان‌بندی" if research
+                            else "یک پاسخ واحد، کامل و منسجم")
+                    synth_msgs = [
+                        {"role": "system", "content": build_system_prompt(user, memories)},
+                        {"role": "user", "content":
+                            f"پرسش کاربر: {message}\n\n"
+                            f"چند پیش‌نویس داخلی برای پاسخ آماده شده است:\n{combo}\n\n"
+                            f"بر پایه بهترین نکات همه پیش‌نویس‌ها، {goal} بنویس. "
+                            "تکرارها را حذف کن، اشتباه‌ها را اصلاح کن و فقط به فارسیِ معیارِ روان و درست بنویس؛ "
+                            "هیچ حرف یا واژه غیرفارسی به کار نبر مگر معادل انگلیسی داخل پرانتز. "
+                            "هرگز به وجود پیش‌نویس‌ها یا چند دستیار اشاره نکن — پاسخ فقط از زبان خودت (آنتانو) باشد."},
+                    ]
+                    async for chunk in try_stream(synth_msgs):
+                        yield chunk
+
+            if web_note:
+                full += web_note
+                yield web_note
+
+        except (httpx.ConnectError, httpx.ReadError, httpx.ConnectTimeout, httpx.RemoteProtocolError):
+            err = "⚠️ اتصال به سرویس هوش مصنوعی برقرار نشد. کمی بعد دوباره تلاش کنید."
+            full += err
+            yield err
+        finally:
+            d = get_db()
+            d.execute(
+                "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
+                (conv_id, full or "…"),
+            )
+            d.commit()
+            d.close()
+            # ذخیره خودکار در پایگاه دانش آنتانو (یادگیری از گفتگوها)
+            if not images_b64:
+                add_knowledge(message, full)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Conversation-Id": str(conv_id)},
+    )
+
+
+# ---------------- خروجی Word / PDF و سازنده مقاله بلند ----------------
+
+FONT_CHOICES = ["Vazirmatn", "B Nazanin", "IRANSans", "B Titr", "Tahoma", "Times New Roman", "Calibri", "Arial"]
+
+
+@app.get("/download/{fname}")
+def download_file(fname: str, request: Request):
+    require_user(request)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", fname):
+        raise HTTPException(400, "نام فایل نامعتبر")
+    import export_utils
+    path = os.path.join(export_utils.EXPORT_DIR, fname)
+    if not os.path.exists(path):
+        raise HTTPException(404, "فایل پیدا نشد یا منقضی شده است")
+    return FileResponse(path, filename=fname)
+
+
+@app.post("/api/export")
+async def api_export(request: Request):
+    """تبدیل یک پاسخ به فایل Word / PDF با فونت و سایز دلخواه"""
+    user = require_user(request)
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(400, "متنی برای خروجی وجود ندارد")
+    font = body.get("font") or "Vazirmatn"
+    if font not in FONT_CHOICES:
+        font = "Vazirmatn"
+    try:
+        size = max(8, min(int(body.get("size") or 14), 36))
+    except (TypeError, ValueError):
+        size = 14
+    formats = body.get("formats") or ["docx"]
+    align = body.get("align") if body.get("align") in ("right", "left", "center") else "right"
+    title = (body.get("title") or "").strip() or None
+
+    import export_utils
+    blocks = export_utils.md_to_blocks(content)
+    files, notes = [], []
+    if "docx" in formats:
+        name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align)
+        files.append({"label": "📄 دانلود Word", "url": f"/download/{name}"})
+    if "pdf" in formats:
+        name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, title, align)
+        if name:
+            files.append({"label": "📕 دانلود PDF", "url": f"/download/{name}"})
+        elif err:
+            notes.append(err)
+    if "xlsx" in formats:
+        name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, title, align)
+        files.append({"label": "📊 دانلود Excel", "url": f"/download/{name}"})
+    return {"files": files, "notes": notes}
+
+
+async def _call_model_once(c, prompt: str | None = None, system: str | None = None,
+                           max_tokens: int = 1800, messages=None) -> str:
+    """یک فراخوانی بدون استریم — با دو تلاش مجدد در صورت شلوغی"""
+    if messages is None:
+        messages = ([{"role": "system", "content": system}] if system else []) + [
+            {"role": "user", "content": prompt}
+        ]
+    payload = {"model": c["model"], "messages": messages, "max_tokens": max_tokens}
+    headers = {"Authorization": f"Bearer {c['key']}", "Content-Type": "application/json"}
+    for attempt in range(3):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
+            r = await client.post(f"{c['base']}/chat/completions", json=payload, headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            msg_obj = (data.get("choices") or [{}])[0].get("message") or {}
+            out = clean_foreign(msg_obj.get("content", "") or "")
+            for im in (msg_obj.get("images") or []):
+                url = ((im or {}).get("image_url") or {}).get("url") or ""
+                if url.startswith("data:image"):
+                    fname = _save_gen_image(url)
+                    if fname:
+                        out += f"\n\n[[ANTANU_IMG:/download/{fname}]]\n\n"
+            return out
+        if r.status_code == 429 and attempt < 2:
+            await asyncio.sleep(20)
+            continue
+        raise ModelError(r.status_code, r.text[:300])
+    return ""
+
+
+@app.post("/api/longdoc")
+async def api_longdoc(request: Request):
+    """سازنده مقاله بلند: فهرست بخش‌ها → نوشتن بخش‌به‌بخش → خروجی Word/PDF"""
+    user = require_user(request)
+    body = await request.json()
+    topic = (body.get("topic") or "").strip()
+    if not topic:
+        raise HTTPException(400, "موضوع مقاله را بنویسید")
+    try:
+        pages = max(1, min(int(body.get("pages") or 10), 500))
+    except (TypeError, ValueError):
+        pages = 10
+    font = body.get("font") or "Vazirmatn"
+    if font not in FONT_CHOICES:
+        font = "Vazirmatn"
+    try:
+        size = max(8, min(int(body.get("size") or 14), 36))
+    except (TypeError, ValueError):
+        size = 14
+    formats = body.get("formats") or ["docx"]
+    align = body.get("align") if body.get("align") in ("right", "left", "center") else "right"
+    attachment_ids = body.get("attachments") or []
+    use_web = bool(body.get("use_web"))
+
+    catalog = get_ai_catalog()
+    c = catalog[0]
+    if not c.get("key"):
+        raise HTTPException(400, "ابتدا در پنل مدیریت، کلید API را تنظیم کنید")
+
+    # منابع کاربر: فایل‌های متنی و عکس‌ها
+    source_text = ""
+    source_images = []
+    if attachment_ids:
+        db0 = get_db()
+        for aid in attachment_ids[:6]:
+            row = db0.execute(
+                "SELECT filename, content, kind FROM uploads WHERE id = ? AND user_id = ?",
+                (int(aid), user["id"]),
+            ).fetchone()
+            if not row:
+                continue
+            if row["kind"] == "image":
+                source_images.append(row["content"])
+            else:
+                source_text += f"\n\n[منبع: {row['filename']}]\n{row['content'][:12000]}"
+        db0.close()
+
+    n_sections = max(3, min(pages // 2 + 1, 250))
+    sys_prompt = BASE_SYSTEM_PROMPT
+
+    # ثبت در تاریخچه گفتگوها
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO conversations (user_id, title) VALUES (?, ?)",
+        (user["id"], f"📄 مقاله: {topic[:45]}"),
+    )
+    conv_id = cur.lastrowid
+    db.execute(
+        "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+        (conv_id, f"📄 درخواست مقاله {pages} صفحه‌ای درباره: {topic}"),
+    )
+    db.commit()
+    db.close()
+
+    async def gen():
+        full_log = ""
+
+        def log(t):
+            nonlocal full_log
+            full_log += t
+            return t
+
+        try:
+            yield log(f"📄 **ساخت مقاله «{topic}» — حدود {pages} صفحه**\n\n")
+
+            # گام ۰: مطالعه منابع کاربر (فایل، عکس، وب)
+            digest = ""
+            if source_images:
+                yield log("⏳ گام ۰: بررسی عکس‌های شما…\n")
+                try:
+                    parts = [{"type": "text", "text":
+                              "این تصاویر منبع یک مقاله هستند. هر تصویر را با جزئیات کامل به فارسی توصیف کن "
+                              "و هر متن، عدد یا نموداری که در آن هست را بنویس."}]
+                    for b64 in source_images[:4]:
+                        parts.append({"type": "image_url",
+                                      "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+                    desc = await _call_model_once(c, messages=[{"role": "user", "content": parts}], max_tokens=1000)
+                    digest += "\n\n[توصیف عکس‌های کاربر]:\n" + desc
+                except ModelError:
+                    yield log("⚠️ این مدل عکس را پشتیبانی نمی‌کند؛ عکس‌ها نادیده گرفته شدند.\n")
+            if source_text:
+                digest += source_text
+            if use_web:
+                yield log("⏳ جستجوی وب برای منابع…\n")
+                try:
+                    results = await run_in_threadpool(_search_web_sync, topic[:300])
+                    if results:
+                        digest += "\n\n[نتایج جستجوی وب]:\n" + results
+                except Exception:
+                    pass
+            if len(digest) > 6000:
+                yield log("⏳ خلاصه‌سازی منابع…\n")
+                try:
+                    digest = await _call_model_once(
+                        c,
+                        f"این منابع را برای نگارش مقاله‌ای درباره «{topic}» در حداکثر ۱۰۰۰ کلمه فارسی خلاصه کن "
+                        f"و همه داده‌ها و نکات مهم را نگه دار:\n{digest[:18000]}",
+                        system=sys_prompt, max_tokens=1600,
+                    )
+                except ModelError:
+                    digest = digest[:6000]
+            src_note = (f"\n\nمنابع کاربر (حتماً مبنای مقاله قرار بده):\n{digest[:5000]}" if digest.strip() else "")
+
+            yield log("⏳ گام ۱: طراحی فهرست بخش‌ها…\n")
+            outline = await _call_model_once(
+                c,
+                f"برای یک مقاله جامع {pages} صفحه‌ای فارسی درباره «{topic}» دقیقاً {n_sections} عنوان بخش بنویس. "
+                "هر عنوان در یک خط جداگانه، بدون شماره و بدون توضیح اضافه. عنوان‌ها متنوع و بدون هم‌پوشانی باشند."
+                + src_note,
+                system=sys_prompt,
+                max_tokens=1200,
+            )
+            titles = [re.sub(r"^[\d\-.،*#)\s]+", "", t).strip() for t in outline.split("\n")]
+            titles = [t for t in titles if 2 < len(t) < 120][:n_sections]
+            if not titles:
+                yield log("\n⚠️ فهرست بخش‌ها ساخته نشد. دوباره تلاش کنید.")
+                return
+
+            yield log(f"✅ {len(titles)} بخش طراحی شد.\n\n")
+            article = f"# {topic}\n"
+            done_titles = []
+
+            for i, t in enumerate(titles, 1):
+                if await request.is_disconnected():
+                    yield log("\n⏹ ساخت مقاله توسط کاربر متوقف شد.")
+                    break
+                pct = round((i - 1) * 100 / len(titles))
+                yield log(f"⏳ ({pct}٪) نوشتن بخش {i} از {len(titles)}: «{t}»…\n")
+                try:
+                    part = await _call_model_once(
+                        c,
+                        f"مقاله‌ای فارسی درباره «{topic}» در حال نگارش است.\n"
+                        f"بخش‌های نوشته‌شده تاکنون: {'، '.join(done_titles) if done_titles else 'هیچ'}.\n"
+                        f"اکنون فقط بخش «{t}» را بنویس: حدود ۶۰۰ تا ۸۰۰ کلمه، علمی و ساختارمند. "
+                        "از تکرار مطالب و واژه‌های بخش‌های قبلی جداً پرهیز کن و مطالب و واژگان کاملاً تازه بیاور. "
+                        "فقط به فارسی معیار بنویس و هیچ واژه خارجی وسط متن نیاور. "
+                        "خودِ عنوان بخش را ننویس؛ فقط متن."
+                        + src_note,
+                        system=sys_prompt,
+                    )
+                except ModelError as e:
+                    yield log(f"⚠️ بخش «{t}» به دلیل خطای سرویس (کد {e.status}) رد شد.\n")
+                    continue
+                article += f"\n\n## {t}\n\n{part.strip()}"
+                done_titles.append(t)
+                await asyncio.sleep(1)
+
+            yield log("\n⏳ گام پایانی: ساخت فایل‌ها…\n")
+            import export_utils
+            blocks = export_utils.md_to_blocks(article)
+            links = []
+            if "docx" in formats:
+                name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align)
+                links.append(f"[📄 دانلود Word](/download/{name})")
+            if "pdf" in formats:
+                name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, topic, align)
+                if name:
+                    links.append(f"[📕 دانلود PDF](/download/{name})")
+                elif err:
+                    yield log(f"⚠️ {err}\n")
+            if "xlsx" in formats:
+                name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, topic, align)
+                links.append(f"[📊 دانلود Excel](/download/{name})")
+            yield log(f"\n✅ **مقاله آماده شد!** ({len(done_titles)} بخش)\n\n" + "  |  ".join(links))
+        except ModelError as e:
+            yield log(f"\n⚠️ سرویس هوش مصنوعی خطا داد (کد {e.status}). کمی بعد دوباره تلاش کنید.")
+        except Exception:
+            yield log("\n⚠️ خطای غیرمنتظره در ساخت مقاله.")
+        finally:
+            d = get_db()
+            d.execute(
+                "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
+                (conv_id, full_log or "…"),
+            )
+            d.commit()
+            d.close()
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Conversation-Id": str(conv_id)},
+    )
+
+
+# ---------------- API پنل مدیریت ----------------
+
+@app.get("/admin/app_settings")
+def admin_get_app_settings(request: Request):
+    require_admin(request)
+    return {"version": get_setting("app_version", "1.0"),
+            "announcement": get_setting("announcement", "")}
+
+
+@app.post("/admin/app_settings")
+async def admin_save_app_settings(request: Request):
+    require_admin(request)
+    body = await request.json()
+    set_setting("app_version", (body.get("version") or "1.0").strip()[:20])
+    set_setting("announcement", (body.get("announcement") or "").strip()[:300])
+    return {"ok": True}
+
+
+@app.get("/admin/ai_settings")
+def admin_get_ai_settings(request: Request):
+    require_admin(request)
+    db = get_db()
+    row = db.execute("SELECT value FROM settings WHERE key = 'ai_config'").fetchone()
+    db.close()
+    if row:
+        try:
+            return json.loads(row["value"])
+        except json.JSONDecodeError:
+            pass
+    return {"provider": PROVIDER, "api_key": "", "model": "", "ais": []}
+
+
+@app.post("/admin/ai_settings")
+async def admin_save_ai_settings(request: Request):
+    require_admin(request)
+    body = await request.json()
+    cfg = {
+        "provider": (body.get("provider") or "groq").strip(),
+        "api_key": (body.get("api_key") or "").strip(),
+        "model": (body.get("model") or "").strip(),
+        "ais": [
+            {
+                "name": (a.get("name") or "").strip(),
+                "service": (a.get("service") or "").strip(),
+                "model": (a.get("model") or "").strip(),
+                "key": (a.get("key") or "").strip(),
+            }
+            for a in (body.get("ais") or [])[:10]
+        ],
+    }
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES ('ai_config', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(cfg, ensure_ascii=False),),
+    )
+    db.commit()
+    db.close()
+    return {"ok": True, "models": len(get_ai_catalog())}
+
+
+@app.post("/admin/test_ai")
+async def admin_test_ai(request: Request):
+    """تست زنده یک کلید — یک پیام کوتاه به سرویس می‌فرستد"""
+    require_admin(request)
+    body = await request.json()
+    base = resolve_base(body.get("service"))
+    model = (body.get("model") or "").strip()
+    key = (body.get("key") or "").strip()
+    if not (base and model and key):
+        return {"ok": False, "msg": "سرویس، نام مدل و کلید را کامل وارد کنید"}
+    payload = {"model": model, "messages": [{"role": "user", "content": "سلام"}], "max_tokens": 10}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as client:
+            r = await client.post(
+                f"{base}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            )
+        if r.status_code == 200:
+            return {"ok": True, "msg": "✅ کلید سالم است و مدل پاسخ داد"}
+        if r.status_code in (401, 403):
+            return {"ok": False, "msg": "❌ کلید نامعتبر یا منقضی است"}
+        if r.status_code == 404:
+            return {"ok": False, "msg": "❌ نام مدل در این سرویس پیدا نشد"}
+        if r.status_code == 429:
+            return {"ok": False, "msg": "⚠️ کلید درست است ولی ظرفیت رایگان فعلاً پر است"}
+        if r.status_code >= 500:
+            return {"ok": False, "msg": f"⚠️ سرویس موقتاً پاسخ نمی‌دهد (کد {r.status_code}) — چند دقیقه بعد دوباره تست کنید یا نام مدل دیگری بنویسید"}
+        return {"ok": False, "msg": f"❌ خطای سرویس (کد {r.status_code})"}
+    except Exception:
+        return {"ok": False, "msg": "❌ اتصال به سرویس برقرار نشد"}
+
+
+@app.get("/admin/knowledge_stats")
+def admin_kb_stats(request: Request):
+    require_admin(request)
+    db = get_db()
+    n = db.execute("SELECT COUNT(*) AS c FROM knowledge").fetchone()["c"]
+    db.close()
+    return {"count": n}
+
+
+@app.post("/admin/knowledge_clear")
+def admin_kb_clear(request: Request):
+    require_admin(request)
+    db = get_db()
+    db.execute("DELETE FROM knowledge")
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.get("/admin/data")
+def admin_data(request: Request):
+    require_admin(request)
+    db = get_db()
+    codes = db.execute("SELECT * FROM codes ORDER BY id DESC LIMIT 500").fetchall()
+    users = db.execute(
+        "SELECT id, username, stars, is_admin, device_fp, code_used, created_at FROM users ORDER BY id DESC"
+    ).fetchall()
+    db.close()
+    return {"codes": [dict(c) for c in codes], "users": [dict(u) for u in users]}
+
+
+@app.post("/admin/codes")
+async def admin_generate_codes(request: Request):
+    require_admin(request)
+    body = await request.json()
+    stars = int(body.get("stars", 1))
+    count = max(1, min(int(body.get("count", 1)), 200))
+    if stars not in (1, 2, 3, 4):
+        raise HTTPException(400, "ستاره باید بین ۱ تا ۴ باشد")
+    db = get_db()
+    new_codes = []
+    for _ in range(count):
+        code = generate_code()
+        db.execute("INSERT INTO codes (code, stars) VALUES (?, ?)", (code, stars))
+        new_codes.append(code)
+    db.commit()
+    db.close()
+    return {"codes": new_codes, "stars": stars}
+
+
+@app.post("/admin/create_user")
+async def admin_create_user(request: Request):
+    """ساخت دستی کاربر توسط ادمین (بدون نیاز به کد)"""
+    require_admin(request)
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    stars = int(body.get("stars", 1))
+    if len(username) < 3 or len(password) < 6 or stars not in (1, 2, 3, 4):
+        raise HTTPException(400, "اطلاعات نامعتبر (نام ≥ ۳ حرف، گذرواژه ≥ ۶ حرف، ستاره ۱ تا ۴)")
+    db = get_db()
+    if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        db.close()
+        raise HTTPException(400, "این نام کاربری وجود دارد")
+    db.execute(
+        "INSERT INTO users (username, password, stars) VALUES (?, ?, ?)",
+        (username, hash_pw(password), stars),
+    )
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/admin/reset_device")
+async def admin_reset_device(request: Request):
+    """آزاد کردن قفل دستگاه یک کاربر (برای انتقال به گوشی/کامپیوتر جدید)"""
+    require_admin(request)
+    body = await request.json()
+    db = get_db()
+    db.execute("UPDATE users SET device_fp = NULL WHERE id = ?", (int(body["user_id"]),))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/admin/set_stars")
+async def admin_set_stars(request: Request):
+    require_admin(request)
+    body = await request.json()
+    stars = int(body.get("stars", 1))
+    if stars not in (1, 2, 3, 4):
+        raise HTTPException(400, "ستاره باید بین ۱ تا ۴ باشد")
+    db = get_db()
+    db.execute("UPDATE users SET stars = ? WHERE id = ? AND is_admin = 0", (stars, int(body["user_id"])))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.post("/admin/reset_password")
+async def admin_reset_password(request: Request):
+    """ساخت رمز جدید برای کاربری که رمزش را فراموش کرده — ادمین رمز را به او می‌دهد"""
+    require_admin(request)
+    body = await request.json()
+    temp = "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(8))
+    db = get_db()
+    db.execute("UPDATE users SET password = ? WHERE id = ? AND is_admin = 0",
+               (hash_pw(temp), int(body["user_id"])))
+    db.execute("DELETE FROM sessions WHERE user_id = ?", (int(body["user_id"]),))
+    db.commit()
+    db.close()
+    return {"password": temp}
+
+
+@app.post("/admin/delete_user")
+async def admin_delete_user(request: Request):
+    require_admin(request)
+    body = await request.json()
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id = ? AND is_admin = 0", (int(body["user_id"]),))
+    db.commit()
+    db.close()
+    return {"ok": True}
