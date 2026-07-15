@@ -1014,7 +1014,7 @@ $("#statsFile")?.addEventListener("change", async e => {
       `✅ داده خوانده شد: <b>${o.rows}</b> ردیف، <b>${o.cols}</b> متغیر` +
       (o.total_missing ? ` — ${o.total_missing} داده گمشده` : "") +
       `<br><span style="color:var(--muted);font-size:12px">متغیرها: ${o.columns.join("، ")}</span>`;
-    $("#statsTools").style.display = "flex";
+    $("#statsTools").style.display = "grid";
   } catch { $("#statsInfo").textContent = "❌ خطا در آپلود"; }
   e.target.value = "";
 });

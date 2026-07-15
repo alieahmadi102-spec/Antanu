@@ -851,8 +851,11 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px;
 }
 #acadOverlay.show, #statsOverlay.show { display: flex; }
+/* پنل داخلی این پنجره‌ها باید بلندی‌اش محدود و قابل اسکرول باشد تا همه دکمه‌ها دیده شوند */
+#acadOverlay .mem-panel, #statsOverlay .mem-panel { max-height: 88vh; }
+#acadOverlay .doc-form, #statsOverlay .doc-form { overflow-y: auto; }
 .acad-tools, #statsTools {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 9px;
   padding: 4px 22px 22px;
 }
 .acad-t, .stat-t {
@@ -868,7 +871,7 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
 #statsUpBtn { margin: 0 22px 12px; }
 @media (max-width: 480px) {
-  .acad-tools, #statsTools { grid-template-columns: 1fr; }
+  .acad-tools, #statsTools { grid-template-columns: 1fr 1fr; }
 }
 
 /* ---------- پنل نوع محتوا (تیک‌دار) ---------- */

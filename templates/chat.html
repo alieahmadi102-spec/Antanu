@@ -10,7 +10,7 @@
   <meta name="theme-color" content="#0d1017">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
-  <link rel="stylesheet" href="/static/style.css?v=1784200000">
+  <link rel="stylesheet" href="/static/style.css?v=1784260000">
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -231,7 +231,7 @@
     <div class="mem-panel">
       <header><h3>📊 تحلیل آماری فصل چهارم</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">فایل داده را آپلود کنید تا تحلیل واقعی انجام شود — Excel، CSV، SPSS، Stata، JSON، متنی و هر فایل داده‌ی جدولی دیگر.</p>
+        <p class="model-hint">فایل داده را آپلود کنید تا تحلیل واقعی انجام شود — Excel، CSV، SPSS، Stata، JSON، PDF، Word و هر فایل داده‌ی دیگر (جدول‌ها از PDF و Word خودکار استخراج می‌شوند).</p>
         <button id="statsUpBtn" class="btn-primary" type="button">📁 آپلود فایل داده</button>
         <input type="file" id="statsFile" hidden>
         <div id="statsInfo" style="margin-top:12px;font-size:13px"></div>
@@ -383,6 +383,6 @@
   </div>
 
   <script>window.USER_AVATAR = {{ (user.avatar or '')|tojson }};</script>
-  <script src="/static/app.js?v=1784200000"></script>
+  <script src="/static/app.js?v=1784260000"></script>
 </body>
 </html>

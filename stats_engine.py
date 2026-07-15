@@ -56,11 +56,106 @@ def _load_dataframe(path: str):
         if tables:
             return tables[0]
         raise ValueError("جدولی در فایل HTML پیدا نشد")
+    if ext == ".pdf":
+        return _pdf_to_df(path)
+    if ext in (".docx", ".doc"):
+        return _docx_to_df(path)
     # پسوند ناشناخته: اول Excel، بعد جداکننده‌ی متنی
     try:
         return pd.read_excel(path)
     except Exception:
         return _read_delimited(path)
+
+
+def _rows_to_df(rows):
+    """چند ردیف (هرکدام فهرستی از سلول‌ها) → دیتافریم با تشخیص سرستون و تبدیل عددی"""
+    import pandas as pd
+    rows = [r for r in rows if r]
+    if len(rows) < 2:
+        raise ValueError("ساختار جدولی در فایل تشخیص داده نشد (حداقل یک سرستون و یک ردیف داده لازم است)")
+    from collections import Counter
+    ncol = Counter(len(r) for r in rows).most_common(1)[0][0]
+    if ncol < 2:
+        raise ValueError("ساختار جدولی چندستونی در فایل پیدا نشد")
+    data = [r for r in rows if len(r) == ncol]
+    if len(data) < 2:
+        raise ValueError("تعداد ستون‌ها در ردیف‌ها یکسان نیست؛ داده‌ی جدولی منظم پیدا نشد")
+
+    def _is_num(x):
+        try:
+            float(str(x).replace("٫", ".").replace("،", "").replace(",", ""))
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    header = data[0]
+    if all(_is_num(h) for h in header):  # سرستون عددی است → خودمان نام می‌گذاریم
+        cols = [f"ستون{i + 1}" for i in range(ncol)]
+        body = data
+    else:
+        cols = [str(h).strip() or f"ستون{i + 1}" for i, h in enumerate(header)]
+        body = data[1:]
+    df = pd.DataFrame(body, columns=cols)
+    # ستون‌های عددی را واقعاً عددی کن (با پشتیبانی از اعشار فارسی)
+    for c in df.columns:
+        conv = pd.to_numeric(
+            df[c].astype(str).str.replace("٫", ".", regex=False)
+                 .str.replace("،", "", regex=False).str.replace(",", "", regex=False),
+            errors="coerce",
+        )
+        if conv.notna().sum() >= max(1, int(0.6 * len(conv))):  # اگر بیشترش عدد بود
+            df[c] = conv
+    return df
+
+
+def _split_row(line: str):
+    """یک خط متن را به سلول‌ها می‌شکند (تب یا دو فاصله یا بیشتر)"""
+    import re as _re
+    cells = _re.split(r"\t|\s{2,}", line.strip())
+    return [c.strip() for c in cells if c.strip() != ""]
+
+
+def _pdf_to_df(path: str):
+    """استخراج جدول/داده از فایل PDF (حتی اگر جدول واقعی نباشد، از ساختار متن حدس می‌زند)"""
+    from pypdf import PdfReader
+    reader = PdfReader(path)
+    lines = []
+    for page in reader.pages:
+        txt = page.extract_text() or ""
+        for ln in txt.split("\n"):
+            if ln.strip():
+                lines.append(ln)
+    if not lines:
+        raise ValueError("متنی در PDF پیدا نشد (احتمالاً اسکن‌شده است)؛ لطفاً فایل Excel/CSV بفرستید")
+    rows = [_split_row(ln) for ln in lines]
+    rows = [r for r in rows if r]
+    # اگر با تب/دوفاصله ستون‌بندی نشد، با تک‌فاصله تلاش کن
+    from collections import Counter
+    import re as _re
+    if Counter(len(r) for r in rows).most_common(1)[0][0] < 2:
+        rows = [[c for c in _re.split(r"\s+", ln.strip()) if c] for ln in lines]
+    return _rows_to_df(rows)
+
+
+def _docx_to_df(path: str):
+    """استخراج داده از Word: اول جدول‌های واقعی، بعد متن پاراگراف‌ها"""
+    from docx import Document
+    doc = Document(path)
+    # ۱) اگر جدول واقعی دارد، همان را بردار
+    for table in doc.tables:
+        rows = []
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                rows.append(cells)
+        if len(rows) >= 2:
+            return _rows_to_df(rows)
+    # ۲) از متن پاراگراف‌ها حدس بزن
+    lines = [p.text for p in doc.paragraphs if p.text.strip()]
+    if not lines:
+        raise ValueError("جدول یا داده‌ای در فایل Word پیدا نشد")
+    rows = [_split_row(ln) for ln in lines]
+    return _rows_to_df(rows)
 
 
 def dataset_overview(path: str) -> dict:

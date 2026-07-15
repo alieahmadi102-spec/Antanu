@@ -1795,14 +1795,15 @@ async def stats_upload(request: Request, file: UploadFile = File(...)):
         raise HTTPException(400, "حجم فایل داده نباید بیشتر از ۲۰ مگابایت باشد")
     name = file.filename or "data.csv"
     ext = os.path.splitext(name)[1].lower()
-    # هر فرمتی مجاز است؛ فقط فایل‌هایی که قطعاً «داده جدولی» نیستند (عکس/سند/ویدیو) رد می‌شوند
-    NON_DATA = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".pdf", ".docx", ".doc",
-                ".mp4", ".mov", ".avi", ".mkv", ".mp3", ".wav", ".zip", ".rar", ".exe"}
+    # هر فرمتی مجاز است — از جمله PDF و Word (جدول‌ها/داده‌ها خودکار استخراج می‌شوند).
+    # فقط فایل‌هایی که هیچ داده‌ی متنی/جدولی ندارند (عکس/ویدیو/صوت/آرشیو) رد می‌شوند.
+    NON_DATA = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff",
+                ".mp4", ".mov", ".avi", ".mkv", ".mp3", ".wav", ".zip", ".rar", ".7z", ".exe"}
     if ext in NON_DATA:
         raise HTTPException(
             400,
-            "این فایل داده‌ی جدولی نیست. برای تحلیل آماری، فایل داده (Excel، CSV، SPSS، Stata، JSON، متنی و…) بفرستید. "
-            "اگر داده‌تان در PDF یا Word است، آن را به Excel یا CSV تبدیل کنید.",
+            "این فایل داده ندارد (عکس/ویدیو/صوت). برای تحلیل آماری، فایل داده (Excel، CSV، SPSS، Stata، JSON، "
+            "PDF یا Word) بفرستید.",
         )
     if not ext:
         ext = ".csv"  # فایل بدون پسوند را به‌عنوان CSV تلاش می‌کنیم
@@ -1821,8 +1822,16 @@ async def stats_upload(request: Request, file: UploadFile = File(...)):
         except ImportError as _e:
             raise HTTPException(500, f"کتابخانه‌های تحلیل آماری نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
         overview = stats_engine.run("overview", path)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, f"خواندن داده ممکن نشد: {e}")
+    if isinstance(overview, dict) and overview.get("error"):
+        hint = ""
+        if ext in (".pdf", ".docx", ".doc"):
+            hint = (" اگر جدول در این فایل به‌صورت متن پیوسته است، آن را به Excel/CSV تبدیل کنید "
+                    "یا مطمئن شوید ستون‌ها با فاصله/تب از هم جدا شده‌اند.")
+        raise HTTPException(400, f"خواندن داده‌ی جدولی از این فایل ممکن نشد.{hint}")
     return {"file": fname, "overview": overview}
 
 
