@@ -9,7 +9,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
-  <link rel="stylesheet" href="/static/style.css?v=1783938505">
+  <link rel="stylesheet" href="/static/style.css?v=1784134913">
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -50,9 +50,11 @@
       <button id="menuBtn">☰</button>
       <img src="/static/logo.png" class="logo-sm" alt="ANTANU" width="34" height="34" style="width:34px;height:34px;border-radius:50%">
       <h1>آنتانو <span>ANTANU</span></h1>
-      <span class="limit-note">سقف روزانه: {{ daily_limit }} پیام</span>
     </header>
 
+    {% if sub_warn %}
+    <div id="subWarn">{{ sub_warn }}</div>
+    {% endif %}
     {% if announcement %}
     <div id="announce"><span>📢 {{ announcement }}</span><button id="announceClose">✕</button></div>
     {% endif %}
@@ -75,8 +77,7 @@
     <footer>
       <!-- انتخابگر مدل‌ها -->
       <div class="toolbar">
-        <button id="researchBtn" class="tool-chip" title="همه هوش مصنوعی‌ها + جستجوی وب، دست‌به‌دست هم پژوهش را کامل می‌کنند">🔬 تحقیق گروهی</button>
-        <button id="docBtn" class="tool-chip" title="ساخت مقاله بلند با خروجی Word و PDF">📄 مقاله بلند</button>
+        <button id="researchBtn" class="tool-chip" title="همه هوش مصنوعی‌ها + جستجوی وب">🔬 تحقیق گروهی</button>
         <div class="model-wrap">
           <button id="modelBtn" class="tool-chip">🧠 <span id="modelLabel">آنتانو (خودکار)</span> ▾</button>
           <div id="modelPanel">
@@ -87,11 +88,59 @@
         </div>
       </div>
 
+      <!-- پنل انتخاب نوع محتوا (تیک‌دار) -->
+      <div id="ctypePanel">
+        <div class="ctype-head">
+          <span>✍️ چه محتوایی می‌خواهید بسازید؟ (یک یا چند مورد را تیک بزنید)</span>
+          <button id="ctypeClear" type="button">پاک کردن</button>
+        </div>
+        <div class="ctype-grid">
+          <label><input type="checkbox" class="ctype" value="پروپوزال"> 📋 پروپوزال</label>
+          <label><input type="checkbox" class="ctype" value="فهرست"> 📑 فهرست پایان‌نامه</label>
+          <label><input type="checkbox" class="ctype" value="پیشینه"> 📚 پیشینه پژوهش</label>
+          <label><input type="checkbox" class="ctype" value="مبانی"> 🧠 مبانی نظری</label>
+          <label><input type="checkbox" class="ctype" value="فرضیه"> 🎯 فرضیه‌سازی</label>
+          <label><input type="checkbox" class="ctype" value="موضوع"> 💡 موضوع‌یابی</label>
+          <label><input type="checkbox" class="ctype" value="منبع"> 🔖 منبع و ارجاع</label>
+          <label><input type="checkbox" class="ctype" value="داور"> ⚖️ نقد داور علمی</label>
+          <label><input type="checkbox" class="ctype" value="مقاله"> 📄 مقاله بلند</label>
+          <label><input type="checkbox" class="ctype" value="آماری"> 📊 تحلیل آماری</label>
+        </div>
+        <!-- تنظیمات خروجی: فقط وقتی «مقاله بلند» تیک بخورد -->
+        <div id="ctypeDocOpts" style="display:none">
+          <div class="ctype-opts-row">
+            <label>صفحه <input type="number" id="cPages" value="10" min="1" max="500"></label>
+            <label>فونت
+              <select id="cFont">
+                <option>Vazirmatn</option><option>B Nazanin</option><option>B Zar</option>
+                <option>IRANSans</option><option>B Titr</option><option>Tahoma</option>
+                <option>Times New Roman</option><option>Calibri</option><option>Arial</option>
+              </select>
+            </label>
+            <label>اندازه <input type="number" id="cSize" value="14" min="8" max="36"></label>
+            <label>چین
+              <select id="cAlign">
+                <option value="right">راست</option><option value="center">وسط</option><option value="left">چپ</option>
+              </select>
+            </label>
+            <label>خروجی
+              <select id="cFormat">
+                <option value="docx">Word</option><option value="pdf">PDF</option>
+                <option value="xlsx">Excel</option><option value="pptx">پاورپوینت</option>
+                <option value="both" selected>Word+PDF</option><option value="all">همه</option>
+              </select>
+            </label>
+            <label class="ck"><input type="checkbox" id="cWeb"> 🌐 منابع وب</label>
+          </div>
+        </div>
+      </div>
+
       <!-- چیپ فایل‌های پیوست -->
       <div id="chips"></div>
 
       <!-- نوار ورودی تلگرامی -->
       <div class="inputbar">
+        <button id="ctypeBtn" class="icon-btn" title="نوع محتوا: مقاله، پروپوزال، تحلیل آماری و...">✍️</button>
         <button id="attachBtn" class="icon-btn" title="پیوست فایل و عکس (jpg, png, pdf, docx, xlsx, txt, csv)">📎</button>
         <input type="file" id="fileInput" multiple
                accept=".txt,.pdf,.docx,.xlsx,.csv,.md,.json,.py,.html,.xml,.log,.jpg,.jpeg,.png,.webp,image/*,text/plain,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json"
@@ -125,7 +174,7 @@
           <div><span>نام کاربری:</span> <b id="pUser"></b></div>
           <div><span>اشتراک:</span> <b id="pStars"></b></div>
           <div><span>تاریخ عضویت:</span> <b id="pJoined"></b></div>
-          <div><span>مصرف امروز:</span> <b id="pUsage"></b></div>
+          <div><span>اعتبار اشتراک:</span> <b id="pExpire"></b></div>
         </div>
         <h4 class="p-sec">🔑 تغییر گذرواژه</h4>
         <input type="password" id="pOld" class="p-inp" placeholder="گذرواژه فعلی">
@@ -150,6 +199,54 @@
     </div>
   </div>
 
+  <!-- پنجره ابزار پایان‌نامه -->
+  <div id="acadOverlay">
+    <div class="mem-panel">
+      <header><h3>🎓 ابزار پایان‌نامه</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <div class="doc-field">
+          <label>موضوع / رشته / متغیرهای پژوهش</label>
+          <textarea id="acadTopic" rows="2" placeholder="مثلاً: تأثیر کیفیت خدمات بر وفاداری مشتری در بانک‌های خصوصی"></textarea>
+        </div>
+        <div class="acad-tools">
+          <button class="acad-t" data-t="موضوع">💡 موضوع‌یابی (۵ عنوان)</button>
+          <button class="acad-t" data-t="پروپوزال">📋 نوشتن پروپوزال</button>
+          <button class="acad-t" data-t="فهرست">📑 فهرست پایان‌نامه</button>
+          <button class="acad-t" data-t="پیشینه">📚 پیشینه پژوهش</button>
+          <button class="acad-t" data-t="مبانی">🧠 مبانی نظری</button>
+          <button class="acad-t" data-t="فرضیه">🎯 فرضیه‌سازی</button>
+          <button class="acad-t" data-t="منبع">🔖 منبع و ارجاع (APA)</button>
+          <button class="acad-t" data-t="داور">⚖️ نقد داور علمی</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره تحلیل آماری -->
+  <div id="statsOverlay">
+    <div class="mem-panel">
+      <header><h3>📊 تحلیل آماری فصل چهارم</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">فایل داده (Excel، CSV، SPSS) را آپلود کنید تا تحلیل واقعی انجام شود.</p>
+        <button id="statsUpBtn" class="btn-primary" type="button">📁 آپلود فایل داده</button>
+        <input type="file" id="statsFile" accept=".csv,.xlsx,.xls,.sav,.dta,.json,.txt" hidden>
+        <div id="statsInfo" style="margin-top:12px;font-size:13px"></div>
+        <div id="statsTools" class="acad-tools" style="display:none">
+          <button class="stat-t" data-a="overview">📋 توصیف داده</button>
+          <button class="stat-t" data-a="assumptions">✅ پیش‌فرض‌ها</button>
+          <button class="stat-t" data-a="reliability">🔒 پایایی (کرونباخ)</button>
+          <button class="stat-t" data-a="correlation">🔗 همبستگی</button>
+          <button class="stat-t" data-a="regression">📈 رگرسیون</button>
+          <button class="stat-t" data-a="mediation">🔀 میانجی‌گری</button>
+          <button class="stat-t" data-a="factor_analysis">🧩 تحلیل عاملی</button>
+          <button class="stat-t" data-a="anova">📊 ANOVA</button>
+          <button class="stat-t" data-a="sem_pls">🏗 SEM-PLS</button>
+          <button class="stat-t" data-a="sem_cfa">🔺 SEM/CFA</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- پنجره خروجی سند / مقاله بلند -->
   <div id="docOverlay">
     <div class="mem-panel">
@@ -158,6 +255,10 @@
         <button class="close">✕</button>
       </header>
       <div class="doc-form">
+        <div id="docHubTools" class="acad-tools" style="margin:0 22px 4px">
+          <button class="acad-t" data-hub="acad"><b>🎓 ابزار پایان‌نامه</b>موضوع، پروپوزال، فهرست، پیشینه، مبانی، منبع</button>
+          <button class="acad-t" data-hub="stats"><b>📊 تحلیل آماری</b>رگرسیون، SEM، پایایی، میانجی‌گری</button>
+        </div>
         <div class="doc-field" id="topicField">
           <label>موضوع مقاله</label>
           <textarea id="docTopic" rows="2" placeholder="مثلاً: تأثیر هوش مصنوعی بر حسابداری مدیریت"></textarea>
@@ -172,6 +273,7 @@
             <select id="docFont">
               <option>Vazirmatn</option>
               <option>B Nazanin</option>
+              <option>B Zar</option>
               <option>IRANSans</option>
               <option>B Titr</option>
               <option>Tahoma</option>
@@ -200,6 +302,7 @@
               <option value="xlsx">Excel</option>
               <option value="both" selected>Word + PDF</option>
               <option value="all">Word + PDF + Excel</option>
+              <option value="pptx">پاورپوینت</option>
             </select>
           </div>
         </div>
@@ -222,6 +325,6 @@
   </div>
 
   <script>window.USER_AVATAR = {{ (user.avatar or '')|tojson }};</script>
-  <script src="/static/app.js?v=1783938505"></script>
+  <script src="/static/app.js?v=1784134913"></script>
 </body>
 </html>

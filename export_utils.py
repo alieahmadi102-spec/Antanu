@@ -242,3 +242,83 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     name = _new_name("xlsx")
     wb.save(os.path.join(EXPORT_DIR, name))
     return name
+
+
+# ---------------- ساخت پاورپوینت (راست‌به‌چپ فارسی) ----------------
+
+def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
+    from pptx import Presentation
+    from pptx.util import Pt, Inches
+    from pptx.enum.text import PP_ALIGN
+    from pptx.dml.color import RGBColor
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    TEAL = RGBColor(0x0F, 0x76, 0x6E)
+    GOLD = RGBColor(0xB8, 0x86, 0x0B)
+    DARK = RGBColor(0x1F, 0x29, 0x37)
+
+    def set_rtl(tf):
+        for p in tf.paragraphs:
+            p.alignment = PP_ALIGN.RIGHT
+            pPr = p._pPr
+            if pPr is None:
+                pPr = p._p.get_or_add_pPr()
+            pPr.set("rtl", "1")
+
+    # اسلاید عنوان
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    box = s.shapes.add_textbox(Inches(1), Inches(2.6), Inches(11.3), Inches(2))
+    tf = box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    r = p.add_run(); r.text = title
+    r.font.size = Pt(44); r.font.bold = True; r.font.color.rgb = TEAL; r.font.name = "Vazirmatn"
+    p.alignment = PP_ALIGN.CENTER
+
+    # تقسیم محتوا به اسلایدها بر اساس عنوان‌ها (خطوط # یا ##)
+    blocks = md_to_blocks(content)
+    cur_title = None
+    cur_points = []
+
+    def flush():
+        if cur_title is None and not cur_points:
+            return
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        # نوار عنوان
+        t = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12), Inches(1))
+        ttf = t.text_frame; ttf.word_wrap = True
+        tp = ttf.paragraphs[0]
+        tr = tp.add_run(); tr.text = cur_title or "•"
+        tr.font.size = Pt(30); tr.font.bold = True; tr.font.color.rgb = GOLD; tr.font.name = "Vazirmatn"
+        tp.alignment = PP_ALIGN.RIGHT
+        set_rtl(ttf)
+        # محتوا
+        body = slide.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(12), Inches(5.4))
+        btf = body.text_frame; btf.word_wrap = True
+        first = True
+        for pt in cur_points:
+            para = btf.paragraphs[0] if first else btf.add_paragraph()
+            first = False
+            run = para.add_run(); run.text = "• " + pt
+            run.font.size = Pt(20); run.font.color.rgb = DARK; run.font.name = "Vazirmatn"
+            para.alignment = PP_ALIGN.RIGHT
+            para.space_after = Pt(10)
+        set_rtl(btf)
+
+    for kind, txt in blocks:
+        if kind in ("h1", "h2", "h3"):
+            flush()
+            cur_title = txt
+            cur_points = []
+        else:
+            cur_points.append(txt)
+            if len(cur_points) >= 6:  # حداکثر ۶ نکته در هر اسلاید
+                flush()
+                cur_points = []
+    flush()
+
+    name = _new_name("pptx")
+    prs.save(os.path.join(EXPORT_DIR, name))
+    return name

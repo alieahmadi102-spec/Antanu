@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin    INTEGER NOT NULL DEFAULT 0,
     device_fp   TEXT,                            -- اثر انگشت دستگاه (قفل یک‌دستگاهی)
     avatar      TEXT,                            -- عکس پروفایل (base64)
+    expires_at  TEXT,                            -- پایان اعتبار اشتراک (۳۰ روز)
     code_used   TEXT,                            -- کدی که با آن ثبت‌نام کرده
     created_at  TEXT DEFAULT (datetime('now'))
 );
@@ -101,6 +102,15 @@ CREATE TABLE IF NOT EXISTS settings (
     value       TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,               -- chat | image | video | article
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage ON usage_log(user_id, kind, created_at);
+
 CREATE TABLE IF NOT EXISTS knowledge (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     question    TEXT NOT NULL,
@@ -120,6 +130,16 @@ def init_db():
         pass  # ستون از قبل وجود دارد
     try:
         conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE usage_log ADD COLUMN amount INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN expires_at TEXT")
+        # کاربران قدیمی: ۳۰ روز از امروز
+        conn.execute("UPDATE users SET expires_at = datetime('now', '+30 days') WHERE is_admin = 0 AND expires_at IS NULL")
     except Exception:
         pass
 

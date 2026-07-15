@@ -12,6 +12,28 @@
   <h1>⚙️ پنل مدیریت آنتانو</h1>
   <p class="sub">خوش آمدید {{ user.username }} — <a href="/chat">بازگشت به چت</a></p>
 
+  <!-- آمار مصرف -->
+  <div class="card">
+    <h2>📈 آمار مصرف</h2>
+    <div class="stat-tiles">
+      <div class="stile"><b id="stActiveToday">—</b><span>کاربر فعال امروز</span></div>
+      <div class="stile"><b id="stActiveWeek">—</b><span>کاربر فعال ۷ روز اخیر</span></div>
+      <div class="stile"><b id="stMsgToday">—</b><span>پیام امروز</span></div>
+      <div class="stile"><b id="stTotalUsers">—</b><span>کل کاربران</span></div>
+    </div>
+    <canvas id="analyticsChart" height="120" style="width:100%;max-width:100%;margin-top:16px"></canvas>
+    <p class="sub" style="margin:6px 0 14px">روند پیام‌های چت در ۱۴ روز اخیر (به وقت ایران)</p>
+    <h3 style="font-size:14px;margin-bottom:10px;color:#2dd4bf">پرمصرف‌ترین کاربران (۳۰ روز اخیر)</h3>
+    <div class="table-wrap">
+      <table class="data" id="topUsersTable">
+        <thead>
+          <tr><th>کاربر</th><th>اشتراک</th><th>پیام</th><th>عکس</th><th>ویدیو</th><th>مقاله</th><th>آخرین فعالیت</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- تنظیمات API هوش مصنوعی -->
   <div class="card" style="border-color:#2dd4bf55">
     <h2>🔑 تنظیمات API هوش مصنوعی</h2>
@@ -78,7 +100,8 @@
         <option value="1">اشتراک ۱ ستاره</option>
         <option value="2">اشتراک ۲ ستاره</option>
         <option value="3">اشتراک ۳ ستاره</option>
-        <option value="4">اشتراک ۴ ستاره (نامحدود)</option>
+        <option value="4">اشتراک ۴ ستاره</option>
+        <option value="5">⭐ ۵ ستاره — مدیر تیم (نامحدود)</option>
       </select>
       <input type="number" id="codeCount" value="1" min="1" max="200" style="width:90px" title="تعداد کد">
       <button id="genBtn">تولید کد</button>
@@ -97,6 +120,7 @@
         <option value="2">۲ ستاره</option>
         <option value="3">۳ ستاره</option>
         <option value="4">۴ ستاره</option>
+        <option value="5">۵ ستاره — مدیر (نامحدود)</option>
       </select>
       <button id="createUserBtn">ساخت کاربر</button>
     </div>
@@ -229,7 +253,7 @@ async function resetDevice(id) {
 }
 
 async function changeStars(id) {
-  const s = prompt("اشتراک جدید (۱ تا ۴):");
+  const s = prompt("اشتراک جدید (۱ تا ۴ — عدد ۵ فقط برای مدیر تیم، نامحدود):");
   if (!s) return;
   await post("/admin/set_stars", { user_id: id, stars: Number(s) });
   loadData();
@@ -391,10 +415,85 @@ function bindTableSearch(inputId, tableId) {
 bindTableSearch("userSearch", "usersTable");
 bindTableSearch("codeSearch", "codesTable");
 
+/* ---------- آمار مصرف ---------- */
+
+function drawDailyChart(daily) {
+  const canvas = $("#analyticsChart");
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 600;
+  const cssH = 120;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const max = Math.max(1, ...daily.map(d => d.messages));
+  const n = daily.length;
+  const gap = 4;
+  const barW = (cssW - gap * (n - 1)) / n;
+  const styles = getComputedStyle(document.body);
+  ctx.fillStyle = styles.getPropertyValue("--accent") || "#2dd4bf";
+
+  daily.forEach((d, i) => {
+    const h = Math.max(2, (d.messages / max) * (cssH - 24));
+    const x = i * (barW + gap);
+    const y = cssH - 20 - h;
+    ctx.fillRect(x, y, barW, h);
+  });
+
+  ctx.fillStyle = styles.getPropertyValue("--muted") || "#8b93a3";
+  ctx.font = "10px Vazirmatn, sans-serif";
+  ctx.textAlign = "center";
+  daily.forEach((d, i) => {
+    if (i % 2 !== 0 && n > 8) return; // شلوغی کم شود
+    const x = i * (barW + gap) + barW / 2;
+    ctx.fillText(d.date.slice(5), x, cssH - 6);
+  });
+}
+
+let lastDaily = [];
+
+async function loadAnalytics() {
+  const r = await fetch("/admin/analytics");
+  if (!r.ok) return;
+  const a = await r.json();
+  $("#stActiveToday").textContent = a.today_active;
+  $("#stActiveWeek").textContent = a.week_active;
+  $("#stMsgToday").textContent = a.today_messages;
+  $("#stTotalUsers").textContent = a.total_users;
+  lastDaily = a.daily;
+  drawDailyChart(lastDaily);
+
+  const tb = $("#topUsersTable tbody");
+  tb.innerHTML = "";
+  if (!a.top_users.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">هنوز داده‌ای ثبت نشده</td></tr>';
+  }
+  a.top_users.forEach(u => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(u.username)}</td>
+      <td>${"★".repeat(u.stars)}</td>
+      <td>${u.messages}</td>
+      <td>${u.images}</td>
+      <td>${u.videos}</td>
+      <td>${u.articles}</td>
+      <td class="ltr">${esc((u.last_active || "").slice(0, 16))}</td>`;
+    tb.appendChild(tr);
+  });
+}
+let resizeDebounce = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeDebounce);
+  resizeDebounce = setTimeout(() => { if (lastDaily.length) drawDailyChart(lastDaily); }, 150);
+});
+
 loadKb();
 loadAppSettings();
 loadAiSettings();
 loadData();
+loadAnalytics();
 </script>
 </body>
 </html>

@@ -286,12 +286,48 @@ def set_setting(key: str, value: str):
     db.commit()
     db.close()
 
-# سقف پیام روزانه بر اساس ستاره اشتراک (None یعنی بدون محدودیت)
-DAILY_LIMITS = {1: 30, 2: 80, 3: 200, 4: None}
-# حداکثر طول پاسخ مدل بر اساس ستاره (-۱ یعنی آزاد)
-MAX_TOKENS = {1: 450, 2: 900, 3: 1600, 4: -1}
+# ---------------- سطوح اشتراک ----------------
+# سقف روزانه: chat بر حسب «توکن» (تقریب دلار)، بقیه بر حسب تعداد
+# ۱ دلار توکن ≈ ۱ میلیون توکن ورودی/خروجی برای مدل‌های ارزان — اینجا سخاوتمندانه حساب می‌کنیم
+DOLLAR_TOKENS = 200_000  # هر «دلار» = ۲۰۰ هزار توکن مصرفی (ورودی+خروجی)
+QUOTAS = {
+    1: {"tokens": 1 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 2},
+    2: {"tokens": 2 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 3},
+    3: {"tokens": 3 * DOLLAR_TOKENS, "image": 10, "video": 1, "article": 4},
+    4: {"tokens": 4 * DOLLAR_TOKENS, "image": 15, "video": 3, "article": 6},
+}
+# ستاره ۵ = نامحدود، فقط برای مدیران تیم (فروخته و نمایش داده نمی‌شود)
+ADMIN_STARS = 5
+
+QUOTA_NAMES = {"chat": "پیام", "image": "ساخت عکس", "video": "ساخت ویدیو", "article": "مقاله بلند"}
+
+# مدت اعتبار اشتراک از لحظه ثبت‌نام/تمدید (روز)
+SUBSCRIPTION_DAYS = 30
+
+MAX_TOKENS = {1: 700, 2: 1000, 3: 1600, 4: 2400}
 
 app = FastAPI(title="ANTANU")
+
+# هندلر سراسری خطا: علت واقعی را در ترمینال سرور چاپ می‌کند تا اشکال‌زدایی ساده شود
+import traceback as _tb
+from starlette.requests import Request as _Req
+from fastapi.responses import JSONResponse as _JR
+
+
+@app.exception_handler(Exception)
+async def _global_error_handler(request: _Req, exc: Exception):
+    from fastapi import HTTPException as _HE
+    if isinstance(exc, _HE):
+        return _JR({"detail": str(exc.detail)}, status_code=exc.status_code)
+    print("\n" + "=" * 60)
+    print(f"❌ خطای سرور در مسیر: {request.method} {request.url.path}")
+    _tb.print_exc()
+    print("=" * 60 + "\n")
+    return _JR(
+        {"detail": "خطای داخلی سرور. لطفاً متن خطا را که در پنجره سیاه (ترمینال) چاپ شده به پشتیبانی بدهید."},
+        status_code=500,
+    )
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # رندر مستقیم قالب‌ها با Jinja2 (مستقل از نسخه starlette — بدون خطای ناسازگاری)
@@ -380,8 +416,108 @@ AUTO_SEARCH_WORDS = [
     "این هفته", "این ماه", "امسال", "چه سالی", "چندم", "تاریخ امروز", "ساعت چند",
 ]
 
+def is_unlimited(user) -> bool:
+    """مدیران تیم: نامحدود"""
+    return bool(user["is_admin"]) or user["stars"] >= ADMIN_STARS
+
+
+def sub_status(user):
+    """وضعیت اشتراک: (فعال؟، روزهای باقی‌مانده، تاریخ پایان شمسی)
+    اولویت با expires_at است (که با تمدید ادمین به‌روز می‌شود)"""
+    if is_unlimited(user):
+        return True, None, None
+    endd = None
+    exp = user["expires_at"] if "expires_at" in user.keys() else None
+    if exp:
+        try:
+            endd = _dt.date(*map(int, exp[:10].split("-")))
+        except Exception:
+            endd = None
+    if endd is None:
+        created = (user["created_at"] or "")[:10]
+        try:
+            y, m, d0 = map(int, created.split("-"))
+            endd = _dt.date(y, m, d0) + _dt.timedelta(days=SUBSCRIPTION_DAYS)
+        except Exception:
+            return True, None, None
+    today = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3, minutes=30))).date()
+    left = (endd - today).days
+    jy, jm, jd = _to_jalali(endd.year, endd.month, endd.day)
+    return left >= 0, left, f"{jd} {_J_MONTHS[jm - 1]} {jy}"
+
+
+def quota_used(db, user_id: int, kind: str) -> int:
+    """مصرف امروزِ یک نوع فعالیت (به وقت ایران — ریست هر شب ساعت ۱۲).
+    برای chat مجموع توکن، برای بقیه تعداد دفعات."""
+    # «امروز» به وقت ایران محاسبه می‌شود (ریست نیمه‌شب تهران)
+    row = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS c FROM usage_log "
+        "WHERE user_id = ? AND kind = ? AND date(created_at, '+3 hours', '+30 minutes') = date('now', '+3 hours', '+30 minutes')",
+        (user_id, kind),
+    ).fetchone()
+    return row["c"] if row else 0
+
+
+def quota_check(db, user, kind: str):
+    """بررسی اشتراک و سهمیه — در صورت مشکل، HTTPException می‌دهد"""
+    if is_unlimited(user):
+        return
+    active, left, endj = sub_status(user)
+    if not active:
+        raise HTTPException(
+            403,
+            f"⏳ اشتراک شما به پایان رسیده است (تاریخ پایان: {endj}). "
+            f"برای شارژ مجدد به مدیر پیام دهید — {ADMIN_CONTACT}",
+        )
+    qkey = "tokens" if kind == "chat" else kind
+    limit = QUOTAS.get(user["stars"], QUOTAS[1]).get(qkey, 0)
+    used = quota_used(db, user["id"], kind)
+    if limit <= 0 and kind in ("image", "video"):
+        raise HTTPException(
+            403,
+            f"اشتراک {user['stars']} ستاره شما امکان «{QUOTA_NAMES[kind]}» ندارد. "
+            f"برای ارتقا به مدیر پیام دهید — {ADMIN_CONTACT}",
+        )
+    if used >= limit:
+        # پیام بدون افشای عدد دقیق سقف (کاربر سطح مصرف را نبیند)
+        raise HTTPException(
+            429,
+            f"سهمیه امروز «{QUOTA_NAMES[kind]}» شما به پایان رسید. هر شب ساعت ۱۲ بامداد دوباره فعال می‌شود.",
+        )
+
+
+def quota_add(db, user, kind: str, amount: int = 1):
+    if is_unlimited(user):
+        return
+    db.execute("INSERT INTO usage_log (user_id, kind, amount) VALUES (?, ?, ?)",
+               (user["id"], kind, amount))
+
+
+def check_subscription(user):
+    """فقط اعتبار زمانی (۳۰ روزه) اشتراک را بررسی می‌کند"""
+    if is_unlimited(user):
+        return
+    active, left, endj = sub_status(user)
+    if not active:
+        raise HTTPException(
+            403,
+            f"⏳ اشتراک شما به پایان رسیده است (تاریخ پایان: {endj}). "
+            f"برای شارژ مجدد به مدیر پیام دهید — {ADMIN_CONTACT}",
+        )
+
+
 BASE_SYSTEM_PROMPT = (
     "تو «آنتانو» (ANTANU) هستی؛ دستیار هوشمند فارسی‌زبان برای دانشجویان و پژوهشگران. "
+    "هویت و معرفی تو: آنتانو محصول شرکت بین‌المللی آنتانو است؛ شرکتی گسترده در حوزه فناوری و هوش مصنوعی "
+    "که مرکز اصلی آن در کشور ارمنستان است و در ایران و چندین کشور دیگر نیز فعالیت و شعبه دارد. "
+    "اگر پرسیدند «تو کی هستی؟» بگو: «من آنتانو هستم؛ یک هوش مصنوعی گسترده برای گفتگو، پژوهش، مقاله‌نویسی، "
+    "تحلیل داده و تولید محتوا که توسط شرکت آنتانو ساخته شده‌ام — شرکتی با مرکزیت ارمنستان و حضور فعال در ایران و کشورهای دیگر.» "
+    "اگر درباره معنا یا ریشه نام «آنتانو» پرسیدند، توضیح بده که آنتانو نام برند این شرکت است، ریشه در فرهنگ ارمنی دارد "
+    "و نماد دانایی و همراهی هوشمند است. "
+    "هرگز خود را ساخته گوگل، اوپن‌ای‌آی، متا، آنتروپیک یا هر شرکت دیگری معرفی نکن و نام مدل زیربنایی را فاش نکن. ""\n\nتوانمندی‌های تخصصی پژوهشی تو (وقتی کاربر خواست، کامل و دانشگاهی انجام بده): "
+    "موضوع‌یابی و ساخت عنوان پایان‌نامه؛ نوشتن پروپوزال؛ ساخت فهرست و سرفصل‌های پایان‌نامه؛ نوشتن پیشینه پژوهش و مبانی نظری؛ "
+    "ارجاع‌دهی و فوت‌نوت به سبک APA و IEEE؛ نگارش فصل چهارم و تفسیر نتایج آماری؛ نقد علمی فصل‌ها در نقش داور. "
+    "برای تحلیل آماری واقعی (رگرسیون، SEM، آزمون‌ها، پایایی، میانجی‌گری)، به کاربر بگو فایل داده (Excel/CSV/SPSS) را با «📊 تحلیل آماری» آپلود کند تا محاسبه واقعی انجام شود. "
     "قواعد نگارش که همیشه باید رعایت کنی: "
     "۱) به فارسیِ معیار، روان و طبیعی بنویس؛ از ترجمه تحت‌اللفظی و جمله‌بندی انگلیسی‌مآب جداً پرهیز کن. "
     "۲) دستور زبان، املا و نشانه‌گذاری فارسی را کامل رعایت کن: نیم‌فاصله در «می‌شود» و «کتاب‌ها»، فعل در انتهای جمله، حروف اضافه درست. "
@@ -513,7 +649,8 @@ def register(
         return fail("این کد قبلاً استفاده شده است. هر کد فقط برای یک کاربر و یک دستگاه معتبر است.")
 
     cur = db.execute(
-        "INSERT INTO users (username, password, stars, device_fp, code_used) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, password, stars, device_fp, code_used, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))",
         (username, hash_pw(password), code_row["stars"], fingerprint, code),
     )
     user_id = cur.lastrowid
@@ -550,10 +687,20 @@ def chat_page(request: Request):
     user = current_user(request)
     if not user:
         return RedirectResponse("/login")
-    limit = DAILY_LIMITS.get(user["stars"])
-    return render("chat.html", user=user, daily_limit=limit if limit else "نامحدود",
+    active, days_left, end_date = sub_status(user)
+    limit_txt = "نامحدود"  # مصرف از کاربر مخفی است
+    sub_warn = ""
+    if not is_unlimited(user):
+        if not active:
+            sub_warn = (f"⛔ اشتراک شما به پایان رسیده است (تاریخ پایان: {end_date}). "
+                        f"برای شارژ مجدد به مدیر پیام دهید — {ADMIN_CONTACT}")
+        elif days_left is not None and days_left <= 5:
+            sub_warn = (f"⏳ تنها {days_left} روز از اشتراک شما باقی مانده است (پایان: {end_date}). "
+                        f"برای تمدید به مدیر پیام دهید — {ADMIN_CONTACT}")
+    return render("chat.html", user=user, daily_limit=limit_txt,
                   version=get_setting("app_version", "1.0"),
-                  announcement=get_setting("announcement", ""))
+                  announcement=get_setting("announcement", ""),
+                  sub_warn=sub_warn)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -571,15 +718,7 @@ def admin_page(request: Request):
 @app.get("/api/profile")
 def api_profile(request: Request):
     user = require_user(request)
-    db = get_db()
-    used = db.execute(
-        """SELECT COUNT(*) AS c FROM messages m
-           JOIN conversations c2 ON c2.id = m.conversation_id
-           WHERE c2.user_id = ? AND m.role = 'user' AND date(m.created_at) = date('now')""",
-        (user["id"],),
-    ).fetchone()["c"]
-    db.close()
-    limit = DAILY_LIMITS.get(user["stars"])
+
     created = (user["created_at"] or "")[:10]
     joined = created
     try:
@@ -588,14 +727,19 @@ def api_profile(request: Request):
         joined = f"{jd} {_J_MONTHS[jm - 1]} {jy}"
     except Exception:
         pass
+
+    active, days_left, end_date = sub_status(user)
     avatar = user["avatar"] if "avatar" in user.keys() else None
     return {
         "username": user["username"],
         "stars": user["stars"],
         "avatar": avatar,
         "joined": joined,
-        "used_today": used,
-        "daily_limit": limit,
+        "unlimited": is_unlimited(user),
+        "sub_active": active,
+        "days_left": days_left,
+        "end_date": end_date,
+        "contact": ADMIN_CONTACT,
     }
 
 
@@ -655,6 +799,47 @@ def list_conversations(request: Request):
     ).fetchall()
     db.close()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/conversations/search")
+def search_conversations(request: Request, q: str = ""):
+    """جستجوی تمام‌متنی در محتوای پیام‌های همه گفتگوهای کاربر (نه فقط عنوان)"""
+    user = require_user(request)
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    db = get_db()
+    rows = db.execute(
+        """SELECT c.id AS conv_id, c.title AS title, c.created_at AS created_at, m.content AS content
+           FROM messages m JOIN conversations c ON c.id = m.conversation_id
+           WHERE c.user_id = ? AND m.content LIKE ?
+           ORDER BY m.id DESC LIMIT 200""",
+        (user["id"], f"%{q}%"),
+    ).fetchall()
+    db.close()
+
+    seen = set()
+    results = []
+    for r in rows:
+        if r["conv_id"] in seen:
+            continue
+        seen.add(r["conv_id"])
+        content = r["content"] or ""
+        pos = content.lower().find(q.lower())
+        if pos == -1:
+            snippet = content[:90]
+        else:
+            start = max(0, pos - 30)
+            snippet = ("…" if start > 0 else "") + content[start:pos + len(q) + 60]
+        results.append({
+            "id": r["conv_id"],
+            "title": r["title"] or "گفتگوی بدون عنوان",
+            "created_at": r["created_at"],
+            "snippet": snippet.strip(),
+        })
+        if len(results) >= 30:
+            break
+    return results
 
 
 @app.get("/api/conversations/{conv_id}/messages")
@@ -885,7 +1070,7 @@ class ModelError(Exception):
 
 
 def _save_gen_image(dataurl: str):
-    """عکس تولیدشده مدل را به فایل واقعی تبدیل می‌کند و نامش را برمی‌گرداند"""
+    """عکس/ویدیوی تولیدشده مدل را به فایل واقعی تبدیل می‌کند و نامش را برمی‌گرداند"""
     try:
         import base64
         import export_utils
@@ -895,6 +1080,10 @@ def _save_gen_image(dataurl: str):
             ext = "jpg"
         elif "webp" in header:
             ext = "webp"
+        elif "mp4" in header:
+            ext = "mp4"
+        elif "webm" in header:
+            ext = "webm"
         name = f"antanu-img-{secrets.token_hex(6)}.{ext}"
         with open(os.path.join(export_utils.EXPORT_DIR, name), "wb") as f:
             f.write(base64.b64decode(b64))
@@ -932,12 +1121,16 @@ async def stream_model(messages, stars: int, model: str, base: str, key: str):
                 delta = choices[0].get("delta") or {}
                 chunk = clean_foreign(delta.get("content") or "")
                 # عکس‌های تولیدشده توسط مدل‌های عکس‌ساز (مثل gemini-2.5-flash-image)
-                for im in (delta.get("images") or []):
-                    url = ((im or {}).get("image_url") or {}).get("url") or ""
+                for im in (delta.get("images") or []) + (delta.get("videos") or []):
+                    url = ((im or {}).get("image_url") or (im or {}).get("video_url") or {}).get("url") or ""
                     if url.startswith("data:image"):
                         fname = _save_gen_image(url)
                         if fname:
                             chunk += f"\n\n[[ANTANU_IMG:/download/{fname}]]\n\n"
+                    elif url.startswith("data:video"):
+                        fname = _save_gen_image(url)
+                        if fname:
+                            chunk += f"\n\n[[ANTANU_VID:/download/{fname}]]\n\n"
                 if chunk:
                     yield chunk
 
@@ -1019,24 +1212,17 @@ async def api_chat(request: Request):
         chosen = list(catalog)
         web_on = True
 
-    db = get_db()
+    # تشخیص نوع درخواست (چت / ساخت عکس / ساخت ویدیو) برای سهمیه
+    kind = "chat"
+    if re.search(r"(عکس|تصویر|نقاشی|طرح)\s*(.{0,20})?(بساز|درست کن|تولید کن|بکش|ایجاد کن)", message) \
+            or re.search(r"(بساز|تولید کن).{0,12}(عکس|تصویر)", message):
+        kind = "image"
+    if re.search(r"(ویدیو|ویدئو|فیلم|کلیپ|انیمیشن)\s*(.{0,20})?(بساز|درست کن|تولید کن|ایجاد کن)", message) \
+            or re.search(r"(بساز|تولید کن).{0,12}(ویدیو|ویدئو|فیلم|کلیپ)", message):
+        kind = "video"
 
-    # بررسی سقف پیام روزانه بر اساس اشتراک
-    limit = DAILY_LIMITS.get(user["stars"])
-    if limit is not None:
-        used = db.execute(
-            """SELECT COUNT(*) AS c FROM messages m
-               JOIN conversations c2 ON c2.id = m.conversation_id
-               WHERE c2.user_id = ? AND m.role = 'user' AND date(m.created_at) = date('now')""",
-            (user["id"],),
-        ).fetchone()["c"]
-        if used >= limit:
-            db.close()
-            raise HTTPException(
-                429,
-                f"سقف {limit} پیام روزانه اشتراک {user['stars']} ستاره شما تمام شد. "
-                "برای ادامه، اشتراک بالاتر تهیه کنید یا فردا برگردید.",
-            )
+    db = get_db()
+    quota_check(db, user, kind)
 
     # گفتگو
     if conv_id:
@@ -1257,6 +1443,14 @@ async def api_chat(request: Request):
                 "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
                 (conv_id, full or "…"),
             )
+            # ثبت مصرف — سهمیه فقط روی نتیجه‌ی واقعاً موفق حساب می‌شود
+            if kind == "chat":
+                est_tokens = max(1, (len(message) + len(full)) // 3)
+                quota_add(d, user, "chat", est_tokens)
+            elif kind == "image" and "[[ANTANU_IMG:" in full:
+                quota_add(d, user, "image")
+            elif kind == "video" and "[[ANTANU_VID:" in full:
+                quota_add(d, user, "video")
             d.commit()
             d.close()
             # ذخیره خودکار در پایگاه دانش آنتانو (یادگیری از گفتگوها)
@@ -1270,9 +1464,106 @@ async def api_chat(request: Request):
     )
 
 
+# ---------------- تحلیل آماری (فصل چهارم رساله) ----------------
+
+@app.post("/api/stats/upload")
+async def stats_upload(request: Request, file: UploadFile = File(...)):
+    """آپلود فایل داده آماری برای تحلیل"""
+    user = require_user(request)
+    check_subscription(user)
+    raw = await file.read()
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل داده نباید بیشتر از ۲۰ مگابایت باشد")
+    name = file.filename or "data.csv"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in (".csv", ".xlsx", ".xls", ".xlsm", ".sav", ".dta", ".json", ".txt"):
+        raise HTTPException(400, "فرمت مجاز داده: Excel، CSV، SPSS(.sav)، Stata(.dta)")
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
+    fname = f"data-{secrets.token_hex(6)}{ext}"
+    path = os.path.join(export_utils.EXPORT_DIR, fname)
+    with open(path, "wb") as f:
+        f.write(raw)
+    # توصیف اولیه
+    try:
+        try:
+            import stats_engine
+        except ImportError as _e:
+            raise HTTPException(500, f"کتابخانه‌های تحلیل آماری نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
+        overview = stats_engine.run("overview", path)
+    except Exception as e:
+        raise HTTPException(400, f"خواندن داده ممکن نشد: {e}")
+    return {"file": fname, "overview": overview}
+
+
+@app.post("/api/stats/run")
+async def stats_run(request: Request):
+    """اجرای یک تحلیل آماری و تفسیر دانشگاهی با هوش مصنوعی"""
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    fname = body.get("file") or ""
+    analysis = body.get("analysis") or "overview"
+    params = body.get("params") or {}
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", fname):
+        raise HTTPException(400, "نام فایل نامعتبر")
+    try:
+        import export_utils, stats_engine
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌ها نصب نیستند. دستور: pip install -r requirements.txt (جزئیات: {_e})")
+    path = os.path.join(export_utils.EXPORT_DIR, fname)
+    if not os.path.exists(path):
+        raise HTTPException(404, "فایل داده پیدا نشد؛ دوباره آپلود کنید")
+
+    result = await run_in_threadpool(stats_engine.run, analysis, path, **params)
+    if "error" in result:
+        return {"result": result, "interpretation": ""}
+
+    # تفسیر دانشگاهی توسط هوش مصنوعی
+    catalog = get_ai_catalog()
+    c = catalog[0]
+    interpretation = ""
+    if c.get("key"):
+        try:
+            prompt = (
+                f"تو یک متخصص آمار و مشاور روش تحقیق هستی. این خروجی واقعی یک تحلیل «{analysis}» است "
+                f"که با نرم‌افزار آماری روی داده‌های کاربر اجرا شده:\n\n{json.dumps(result, ensure_ascii=False)}\n\n"
+                "این نتایج را به زبان فارسی دانشگاهی و دقیق برای فصل چهارم رساله تفسیر کن: "
+                "معناداری‌ها را توضیح بده، فرضیه‌ها را تأیید یا رد کن، و در صورت وجود مشکل روش‌شناختی هشدار بده. "
+                "نمونه لحن درست: «با توجه به ضریب مسیر ۰٫۴۲ و آماره t برابر ۳٫۱۸، اثر متغیر … معنادار است»."
+            )
+            interpretation = await _call_model_once(c, prompt, system=BASE_SYSTEM_PROMPT, max_tokens=1500)
+            quota_add_db = get_db()
+            quota_add(quota_add_db, user, "chat", 3000)
+            quota_add_db.commit(); quota_add_db.close()
+        except Exception:
+            interpretation = ""
+    return {"result": result, "interpretation": interpretation}
+
+
 # ---------------- خروجی Word / PDF و سازنده مقاله بلند ----------------
 
-FONT_CHOICES = ["Vazirmatn", "B Nazanin", "IRANSans", "B Titr", "Tahoma", "Times New Roman", "Calibri", "Arial"]
+FONT_CHOICES = ["Vazirmatn", "B Nazanin", "B Zar", "IRANSans", "B Titr", "Tahoma", "Times New Roman", "Calibri", "Arial"]
+
+
+@app.post("/api/pptx")
+async def api_pptx(request: Request):
+    """تبدیل متن به ارائه پاورپوینت"""
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    title = (body.get("title") or "ارائه آنتانو").strip()
+    if not content:
+        raise HTTPException(400, "متنی برای ساخت ارائه نیست")
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
+    name = await run_in_threadpool(export_utils.build_pptx, content, title)
+    return {"files": [{"label": "📊 دانلود پاورپوینت", "url": f"/download/{name}"}]}
 
 
 @app.get("/download/{fname}")
@@ -1280,7 +1571,10 @@ def download_file(fname: str, request: Request):
     require_user(request)
     if not re.fullmatch(r"[A-Za-z0-9._-]+", fname):
         raise HTTPException(400, "نام فایل نامعتبر")
-    import export_utils
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
     path = os.path.join(export_utils.EXPORT_DIR, fname)
     if not os.path.exists(path):
         raise HTTPException(404, "فایل پیدا نشد یا منقضی شده است")
@@ -1306,7 +1600,10 @@ async def api_export(request: Request):
     align = body.get("align") if body.get("align") in ("right", "left", "center") else "right"
     title = (body.get("title") or "").strip() or None
 
-    import export_utils
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
     blocks = export_utils.md_to_blocks(content)
     files, notes = [], []
     if "docx" in formats:
@@ -1382,6 +1679,15 @@ async def api_longdoc(request: Request):
     c = catalog[0]
     if not c.get("key"):
         raise HTTPException(400, "ابتدا در پنل مدیریت، کلید API را تنظیم کنید")
+
+    # سهمیه مقاله بلند
+    dbq = get_db()
+    try:
+        quota_check(dbq, user, "article")
+        quota_add(dbq, user, "article")
+        dbq.commit()
+    finally:
+        dbq.close()
 
     # منابع کاربر: فایل‌های متنی و عکس‌ها
     source_text = ""
@@ -1470,7 +1776,9 @@ async def api_longdoc(request: Request):
             yield log("⏳ گام ۱: طراحی فهرست بخش‌ها…\n")
             outline = await _call_model_once(
                 c,
-                f"برای یک مقاله جامع {pages} صفحه‌ای فارسی درباره «{topic}» دقیقاً {n_sections} عنوان بخش بنویس. "
+                f"برای یک مقاله علمی-پژوهشی {pages} صفحه‌ای فارسی درباره «{topic}» دقیقاً {n_sections} عنوان بخش بنویس. "
+                "ساختار باید استاندارد مقاله دانشگاهی باشد: با چکیده و مقدمه شروع شود، سپس مبانی نظری و پیشینه پژوهش "
+                "(داخلی و خارجی)، روش‌شناسی پژوهش، یافته‌ها و تحلیل داده‌ها، بحث و نتیجه‌گیری، و در پایان منابع. "
                 "هر عنوان در یک خط جداگانه، بدون شماره و بدون توضیح اضافه. عنوان‌ها متنوع و بدون هم‌پوشانی باشند."
                 + src_note,
                 system=sys_prompt,
@@ -1512,7 +1820,10 @@ async def api_longdoc(request: Request):
                 await asyncio.sleep(1)
 
             yield log("\n⏳ گام پایانی: ساخت فایل‌ها…\n")
-            import export_utils
+            try:
+                import export_utils
+            except ImportError as _e:
+                raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
             blocks = export_utils.md_to_blocks(article)
             links = []
             if "docx" in formats:
@@ -1661,6 +1972,83 @@ def admin_kb_clear(request: Request):
     return {"ok": True}
 
 
+@app.get("/admin/analytics")
+def admin_analytics(request: Request):
+    """آمار مصرف: کاربران فعال، روند روزانه و پرمصرف‌ترین کاربران (بر پایه usage_log)"""
+    require_admin(request)
+    db = get_db()
+
+    def iran_today_offset(days_ago: int = 0) -> str:
+        row = db.execute(
+            "SELECT date('now', '+3 hours', '+30 minutes', ?) AS d", (f"-{days_ago} days",)
+        ).fetchone()
+        return row["d"]
+
+    today = iran_today_offset(0)
+
+    today_active = db.execute(
+        "SELECT COUNT(DISTINCT user_id) AS c FROM usage_log "
+        "WHERE date(created_at, '+3 hours', '+30 minutes') = ?", (today,),
+    ).fetchone()["c"]
+
+    week_active = db.execute(
+        "SELECT COUNT(DISTINCT user_id) AS c FROM usage_log "
+        "WHERE date(created_at, '+3 hours', '+30 minutes') >= ?", (iran_today_offset(6),),
+    ).fetchone()["c"]
+
+    total_users = db.execute("SELECT COUNT(*) AS c FROM users WHERE is_admin = 0").fetchone()["c"]
+
+    rows = db.execute(
+        """SELECT date(created_at, '+3 hours', '+30 minutes') AS d,
+                  SUM(CASE WHEN kind='chat' THEN 1 ELSE 0 END) AS messages,
+                  SUM(CASE WHEN kind='image' THEN amount ELSE 0 END) AS images,
+                  SUM(CASE WHEN kind='video' THEN amount ELSE 0 END) AS videos,
+                  SUM(CASE WHEN kind='article' THEN amount ELSE 0 END) AS articles
+           FROM usage_log
+           WHERE date(created_at, '+3 hours', '+30 minutes') >= ?
+           GROUP BY d ORDER BY d""",
+        (iran_today_offset(13),),
+    ).fetchall()
+    by_day = {r["d"]: dict(r) for r in rows}
+    daily = []
+    for i in range(13, -1, -1):
+        d = iran_today_offset(i)
+        r = by_day.get(d)
+        daily.append({
+            "date": d,
+            "messages": (r["messages"] if r else 0) or 0,
+            "images": (r["images"] if r else 0) or 0,
+            "videos": (r["videos"] if r else 0) or 0,
+            "articles": (r["articles"] if r else 0) or 0,
+        })
+
+    today_messages = by_day.get(today, {}).get("messages") or 0
+
+    top_users = db.execute(
+        """SELECT u.username AS username, u.stars AS stars,
+                  SUM(CASE WHEN l.kind='chat' THEN 1 ELSE 0 END) AS messages,
+                  SUM(CASE WHEN l.kind='image' THEN l.amount ELSE 0 END) AS images,
+                  SUM(CASE WHEN l.kind='video' THEN l.amount ELSE 0 END) AS videos,
+                  SUM(CASE WHEN l.kind='article' THEN l.amount ELSE 0 END) AS articles,
+                  MAX(l.created_at) AS last_active
+           FROM usage_log l JOIN users u ON u.id = l.user_id
+           WHERE l.created_at >= datetime('now', '-30 days')
+           GROUP BY u.id
+           ORDER BY messages DESC
+           LIMIT 10""",
+    ).fetchall()
+    db.close()
+
+    return {
+        "today_active": today_active,
+        "week_active": week_active,
+        "total_users": total_users,
+        "today_messages": today_messages,
+        "daily": daily,
+        "top_users": [dict(u) for u in top_users],
+    }
+
+
 @app.get("/admin/data")
 def admin_data(request: Request):
     require_admin(request)
@@ -1679,8 +2067,8 @@ async def admin_generate_codes(request: Request):
     body = await request.json()
     stars = int(body.get("stars", 1))
     count = max(1, min(int(body.get("count", 1)), 200))
-    if stars not in (1, 2, 3, 4):
-        raise HTTPException(400, "ستاره باید بین ۱ تا ۴ باشد")
+    if stars not in (1, 2, 3, 4, 5):
+        raise HTTPException(400, "ستاره باید بین ۱ تا ۵ باشد")
     db = get_db()
     new_codes = []
     for _ in range(count):
@@ -1707,7 +2095,8 @@ async def admin_create_user(request: Request):
         db.close()
         raise HTTPException(400, "این نام کاربری وجود دارد")
     db.execute(
-        "INSERT INTO users (username, password, stars) VALUES (?, ?, ?)",
+        "INSERT INTO users (username, password, stars, expires_at) "
+        "VALUES (?, ?, ?, datetime('now', '+30 days'))",
         (username, hash_pw(password), stars),
     )
     db.commit()
@@ -1732,10 +2121,14 @@ async def admin_set_stars(request: Request):
     require_admin(request)
     body = await request.json()
     stars = int(body.get("stars", 1))
-    if stars not in (1, 2, 3, 4):
-        raise HTTPException(400, "ستاره باید بین ۱ تا ۴ باشد")
+    if stars not in (1, 2, 3, 4, 5):
+        raise HTTPException(400, "ستاره باید بین ۱ تا ۵ باشد")
     db = get_db()
-    db.execute("UPDATE users SET stars = ? WHERE id = ? AND is_admin = 0", (stars, int(body["user_id"])))
+    db.execute(
+        "UPDATE users SET stars = ?, expires_at = datetime('now', '+30 days') "
+        "WHERE id = ? AND is_admin = 0",
+        (stars, int(body["user_id"])),
+    )
     db.commit()
     db.close()
     return {"ok": True}

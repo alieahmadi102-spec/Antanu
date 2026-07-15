@@ -185,6 +185,14 @@ input, textarea, select { font-family: var(--font); }
 .conv .del:hover { color: var(--danger); }
 .conv .ren:hover { color: var(--accent); }
 
+.conv.search-hit { display: block; }
+.conv.search-hit .t { display: block; white-space: normal; margin-bottom: 3px; color: var(--text); font-weight: 600; }
+.hit-snip {
+  font-size: 12px; color: var(--muted); line-height: 1.6;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.conv-empty { padding: 14px 12px; font-size: 13px; color: var(--muted); text-align: center; }
+
 .side-bottom { border-top: 1px solid var(--border); padding: 12px 14px; }
 .user-box { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
 .badge {
@@ -465,6 +473,17 @@ table.data td.ltr { direction: ltr; text-align: left; font-size: 11.5px; }
 .mini:hover { color: var(--accent); border-color: var(--accent); }
 .mini.danger:hover { color: var(--danger); border-color: var(--danger); }
 .table-wrap { overflow-x: auto; }
+
+.stat-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.stile {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 10px; text-align: center;
+}
+.stile b { display: block; font-size: 22px; color: var(--accent); margin-bottom: 4px; }
+.stile span { font-size: 12px; color: var(--muted); }
+@media (max-width: 560px) {
+  .stat-tiles { grid-template-columns: repeat(2, 1fr); }
+}
 
 /* ================= واکنش‌گرایی (موبایل) ================= */
 
@@ -776,4 +795,111 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   max-width: 100%; max-height: 480px;
   border-radius: 14px; border: 1px solid var(--border);
   margin: 10px 0; cursor: zoom-in; display: block;
+}
+
+
+/* ---------- چرخنده (اسپینر) ---------- */
+.spin {
+  display: inline-block; width: 14px; height: 14px; min-width: 14px;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: rot .8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+/* ---------- ویدیوی تولیدشده ---------- */
+.gen-vid {
+  max-width: 100%; max-height: 420px;
+  border-radius: 14px; border: 1px solid var(--border);
+  margin: 10px 0; display: block; background: #000;
+}
+
+
+/* ---------- هشدار اشتراک ---------- */
+#subWarn {
+  background: rgba(248,113,113,0.12);
+  border-bottom: 1px solid rgba(248,113,113,0.4);
+  color: #fca5a5; padding: 9px 16px; font-size: 13.5px;
+}
+
+/* ---------- سهمیه‌های پروفایل ---------- */
+.p-quotas .q-row { margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.p-quotas .q-row b { color: var(--text); float: left; }
+.q-bar { height: 6px; background: var(--panel-2); border-radius: 4px; margin-top: 5px; overflow: hidden; clear: both; }
+.q-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s; }
+.q-fill.full { background: var(--danger); }
+
+
+/* ---------- پنجره ابزار پایان‌نامه و تحلیل آماری ---------- */
+#acadOverlay, #statsOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px;
+}
+#acadOverlay.show, #statsOverlay.show { display: flex; }
+.acad-tools, #statsTools {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+  padding: 4px 22px 22px;
+}
+.acad-t, .stat-t {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 10px; color: var(--text);
+  font-size: 13.5px; text-align: center; transition: all .15s; line-height: 1.7;
+}
+.acad-t:hover, .stat-t:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.acad-t b, .stat-t b { display: block; font-size: 15px; margin-bottom: 3px; }
+#statsInfo {
+  margin: 0 22px 12px; padding: 10px 14px; font-size: 12.5px; color: var(--muted);
+  background: var(--panel-2); border: 1px dashed var(--border); border-radius: 10px; line-height: 1.9;
+}
+#statsUpBtn { margin: 0 22px 12px; }
+@media (max-width: 480px) {
+  .acad-tools, #statsTools { grid-template-columns: 1fr; }
+}
+
+/* ---------- پنل نوع محتوا (تیک‌دار) ---------- */
+#ctypePanel {
+  display: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+#ctypePanel.show { display: block; animation: fadeUp .2s ease; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.ctype-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; font-size: 13px; color: var(--muted);
+}
+.ctype-head button {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 8px; padding: 3px 10px; font-size: 12px;
+}
+.ctype-head button:hover { color: var(--danger); border-color: var(--danger); }
+.ctype-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;
+}
+.ctype-grid label {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 11px; font-size: 13px; cursor: pointer;
+  transition: all .15s;
+}
+.ctype-grid label:hover { border-color: var(--accent); }
+.ctype-grid input:checked { accent-color: var(--accent); }
+.ctype-grid label:has(input:checked) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+#ctypeDocOpts {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+}
+.ctype-opts-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ctype-opts-row label { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.ctype-opts-row input[type="number"] { width: 58px; padding: 5px 7px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); }
+.ctype-opts-row select { padding: 5px 7px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 12.5px; }
+.ctype-opts-row .ck { cursor: pointer; }
+
+#ctypeBtn.on { color: var(--accent); font-weight: 700; font-size: 13px; }
+
+@media (max-width: 480px) {
+  .ctype-grid { grid-template-columns: 1fr 1fr; }
 }

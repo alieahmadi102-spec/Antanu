@@ -43,14 +43,22 @@ function renderMD(text) {
     if (u.startsWith("/download/")) imgs.push(u);
     return "";
   });
+  const vids = [];
+  const cleaned2 = cleaned.replace(/\[\[ANTANU_VID:([^\]\s]+)\]\]/g, (m, u) => {
+    if (u.startsWith("/download/")) vids.push(u);
+    return "";
+  });
   let html = "";
-  // اگر همراه عکس فقط خرده‌ریز (بک‌تیک، پرانتز، علائم) آمده، متن را نمایش نده
-  const meaningful = cleaned.replace(/[`'"()\[\]{}\s.,،:؛!؟\-_*#>~|=+]/g, "");
-  if (!imgs.length || meaningful.length > 2) {
-    html = DOMPurify.sanitize(marked.parse(cleaned));
+  // اگر همراه عکس/ویدیو فقط خرده‌ریز (بک‌تیک، پرانتز، علائم) آمده، متن را نمایش نده
+  const meaningful = cleaned2.replace(/[`'"()\[\]{}\s.,،:؛!؟\-_*#>~|=+]/g, "");
+  if ((!imgs.length && !vids.length) || meaningful.length > 2) {
+    html = DOMPurify.sanitize(marked.parse(cleaned2));
   }
   for (const u of imgs) {
     html += `<img src="${u}" class="gen-img" loading="lazy" alt="تصویر تولیدشده">`;
+  }
+  for (const u of vids) {
+    html += `<video src="${u}" class="gen-vid" controls playsinline preload="metadata"></video>`;
   }
   return html;
 }
@@ -133,7 +141,7 @@ $("#attachBtn").addEventListener("click", () => $("#fileInput").click());
 
 $("#fileInput").addEventListener("change", async e => {
   for (const file of e.target.files) {
-    const chip = el(`<span class="chip">⏳ ${escapeHtml(file.name)}</span>`);
+    const chip = el(`<span class="chip"><span class="spin"></span> ${escapeHtml(file.name)}</span>`);
     $("#chips").appendChild(chip);
     const fd = new FormData();
     fd.append("file", file);
@@ -179,14 +187,28 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let micBase = "";
 let micManualStop = false;
 
-/* حذف کلمات تکراری پشت‌سرهم (باگ معروف کروم اندروید: «سلام سلام سلام») */
+/* حذف کلمات و «عبارت‌های» تکراری پشت‌سرهم (باگ کروم اندروید: «سلام خوبی سلام خوبی») */
 function dedupeWords(s) {
+  const w = s.split(/\s+/).filter(Boolean);
   const out = [];
-  for (const w of s.split(/\s+/)) {
-    if (w && w !== out[out.length - 1]) out.push(w);
+  for (let i = 0; i < w.length; ) {
+    let skipped = false;
+    // عبارت‌های ۵ تا ۱ کلمه‌ای تکراری را رد کن
+    for (let n = Math.min(5, out.length); n >= 1; n--) {
+      if (i + n <= w.length) {
+        let same = true;
+        for (let k = 0; k < n; k++) {
+          if (w[i + k] !== out[out.length - n + k]) { same = false; break; }
+        }
+        if (same) { i += n; skipped = true; break; }
+      }
+    }
+    if (!skipped) { out.push(w[i]); i++; }
   }
   return out.join(" ");
 }
+
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
 
 $("#micBtn").addEventListener("click", () => {
   if (!SR) { toast("مرورگر شما میکروفون را پشتیبانی نمی‌کند (از Chrome استفاده کنید)"); return; }
@@ -195,7 +217,7 @@ $("#micBtn").addEventListener("click", () => {
   recog = new SR();
   recog.lang = "fa-IR";
   recog.interimResults = true;
-  recog.continuous = true;
+  recog.continuous = !IS_ANDROID;  // در اندروید continuous باعث تکرار می‌شود
   micManualStop = false;
   micBase = inputEl.value.trim();
 
@@ -236,10 +258,8 @@ $("#micBtn").addEventListener("click", () => {
 
 let speaking = false;
 function detectLang(text) {
-  // تشخیص ساده زبان از روی نویسه‌ها
   if (/[\u0600-\u06FF]/.test(text)) {
-    // فارسی یا عربی — تفکیک با واژه‌های پرتکرار فارسی
-    if (/[پچژگ]|است|می‌|های|این|را\b/.test(text)) return "fa-IR";
+    if (/[پچژگ]|است|می‌|های|این/.test(text)) return "fa-IR";
     return "ar-SA";
   }
   if (/[\u0400-\u04FF]/.test(text)) return "ru-RU";
@@ -248,19 +268,58 @@ function detectLang(text) {
   return "fa-IR";
 }
 
+/* صداهای دستگاه ممکن است با تأخیر لود شوند */
+let voicesCache = [];
+function loadVoices() { voicesCache = speechSynthesis.getVoices() || []; }
+if (window.speechSynthesis) {
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+
 function speak(text) {
   if (!window.speechSynthesis) { toast("مرورگر شما پخش صدا را پشتیبانی نمی‌کند"); return; }
-  if (speaking) { speechSynthesis.cancel(); speaking = false; return; }
-  const plain = text.replace(/[#*_`>\[\]()-]/g, " ").replace(/\s+/g, " ").trim();
+  if (speaking) { speaking = false; speechSynthesis.cancel(); toast("خواندن متوقف شد"); return; }
+
+  const plain = (text || "")
+    .replace(/\[\[ANTANU_[^\]]+\]\]/g, " ")
+    .replace(/[#*_`>\[\]()|~-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) { toast("متنی برای خواندن نیست"); return; }
+
   const lang = detectLang(plain);
-  const u = new SpeechSynthesisUtterance(plain.slice(0, 3000));
-  u.lang = lang;
-  const voices = speechSynthesis.getVoices();
-  const match = voices.find(v => v.lang === lang) || voices.find(v => v.lang.startsWith(lang.split("-")[0]));
-  if (match) u.voice = match;
-  u.onend = () => (speaking = false);
+  loadVoices();
+  const voice = voicesCache.find(v => v.lang === lang)
+    || voicesCache.find(v => v.lang && v.lang.startsWith(lang.split("-")[0]));
+
+  // تکه‌تکه کردن متن — رفع باگ کروم/اندروید که متن بلند را نمی‌خواند
+  const chunks = [];
+  let cur = "";
+  for (const part of plain.split(/(?<=[.!؟?؛;:])\s+/)) {
+    if ((cur + " " + part).length > 180) {
+      if (cur) chunks.push(cur);
+      cur = part;
+    } else {
+      cur = cur ? cur + " " + part : part;
+    }
+  }
+  if (cur) chunks.push(cur);
+
+  speechSynthesis.cancel();
   speaking = true;
-  speechSynthesis.speak(u);
+  let i = 0;
+  const next = () => {
+    if (!speaking || i >= chunks.length) { speaking = false; return; }
+    const u = new SpeechSynthesisUtterance(chunks[i++]);
+    u.lang = lang;
+    if (voice) u.voice = voice;
+    u.rate = 1;
+    u.onend = next;
+    u.onerror = next;
+    speechSynthesis.speak(u);
+  };
+  next();
+  toast("🔊 در حال خواندن… دوباره بزنید تا متوقف شود");
 }
 
 /* ---------- نمایش پیام‌ها ---------- */
@@ -403,6 +462,16 @@ async function send(textOverride) {
   const text = (typeof textOverride === "string" ? textOverride : inputEl.value).trim();
   if (!text) return;
 
+  // اگر نوع محتوا (مقاله/پروپوزال/...) تیک خورده باشد، صف تولید محتوا اجرا می‌شود
+  const ctypes = (typeof textOverride === "string") ? [] : selectedCtypes();
+  if (ctypes.length) {
+    inputEl.value = "";
+    autosize();
+    $("#ctypePanel").classList.remove("show");
+    await runContentQueue(text, ctypes);
+    return;
+  }
+
   sending = true;
   sendBtn.disabled = true;
   inputEl.value = "";
@@ -441,7 +510,7 @@ async function send(textOverride) {
 
   const aDiv = addMsg("assistant", "");
   const mdEl = aDiv.querySelector(".md");
-  mdEl.innerHTML = '<span class="typing">آنتانو در حال فکر کردن است</span>';
+  mdEl.innerHTML = '<span class="spin"></span> <span class="typing">آنتانو در حال فکر کردن است</span>';
 
   abortCtrl = new AbortController();
   setStopMode(true);
@@ -494,6 +563,142 @@ async function send(textOverride) {
     inputEl.focus();
   }
 }
+
+/* ---------- صف تولید محتوا (چند نوع باهم) ---------- */
+
+// استریم یک درخواست چت و نمایش در حباب — برای ابزارهای پایان‌نامه
+async function streamChat(promptText, label) {
+  addMsg("user", label);
+  const aDiv = addMsg("assistant", "");
+  const mdEl = aDiv.querySelector(".md");
+  mdEl.innerHTML = '<span class="spin"></span> <span class="typing">در حال ساخت ' + label + "</span>";
+  abortCtrl = new AbortController();
+  try {
+    const resp = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: currentConv,
+        message: promptText,
+        models: selected,
+        web: webOn,
+        attachments: attachments.map(a => a.id),
+      }),
+      signal: abortCtrl.signal,
+    });
+    if (resp.status === 401) { location.href = "/login"; return; }
+    if (!resp.ok) {
+      const e2 = await resp.json().catch(() => ({}));
+      mdEl.innerHTML = renderMD("⚠️ " + (e2.detail || "خطا"));
+      return;
+    }
+    const cid = resp.headers.get("X-Conversation-Id");
+    if (cid) currentConv = Number(cid);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let full = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      full += dec.decode(value, { stream: true });
+      mdEl.innerHTML = renderMD(full);
+      aDiv.dataset.raw = full;
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
+  } catch (err) {
+    if (err.name !== "AbortError")
+      mdEl.innerHTML = renderMD("⚠️ ارتباط با سرور قطع شد.");
+  }
+}
+
+// ساخت مقاله بلند از پنل نوع محتوا
+async function makeArticleFromPanel(topic) {
+  const pages = Number($("#cPages").value) || 10;
+  const fmt = $("#cFormat").value;
+  const formats = fmt === "both" ? ["docx", "pdf"] : fmt === "all" ? ["docx", "pdf", "xlsx"] : [fmt];
+  addMsg("user", `📄 درخواست مقاله ${pages} صفحه‌ای: ${topic}`);
+  const aDiv = addMsg("assistant", "");
+  const mdEl = aDiv.querySelector(".md");
+  mdEl.innerHTML = '<span class="spin"></span> <span class="typing">شروع ساخت مقاله</span>';
+  abortCtrl = new AbortController();
+  try {
+    const resp = await fetch("/api/longdoc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        topic, pages,
+        font: $("#cFont").value, size: Number($("#cSize").value) || 14,
+        align: $("#cAlign").value, formats,
+        attachments: attachments.map(a => a.id),
+        use_web: $("#cWeb").checked,
+      }),
+      signal: abortCtrl.signal,
+    });
+    if (!resp.ok) {
+      const e2 = await resp.json().catch(() => ({}));
+      mdEl.innerHTML = renderMD("⚠️ " + (e2.detail || "خطا"));
+      return;
+    }
+    const cid = resp.headers.get("X-Conversation-Id");
+    if (cid) currentConv = Number(cid);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let full = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      full += dec.decode(value, { stream: true });
+      mdEl.innerHTML = renderMD(full);
+      aDiv.dataset.raw = full;
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
+  } catch (err) {
+    if (err.name !== "AbortError")
+      mdEl.innerHTML = renderMD("⚠️ ارتباط با سرور قطع شد.");
+  }
+}
+
+async function runContentQueue(topic, ctypes) {
+  sending = true;
+  sendBtn.disabled = true;
+  setStopMode(true);
+
+  // ترتیب منطقی: موضوع → پروپوزال → فهرست → مبانی → پیشینه → فرضیه → منبع → داور → مقاله → آماری
+  const order = ["موضوع", "پروپوزال", "فهرست", "مبانی", "پیشینه", "فرضیه", "منبع", "داور", "مقاله", "آماری"];
+  const chosen = order.filter(t => ctypes.includes(t));
+
+  try {
+    for (const t of chosen) {
+      if (t === "مقاله") {
+        await makeArticleFromPanel(topic);
+      } else if (t === "آماری") {
+        // تحلیل آماری نیاز به فایل داده دارد → پنجره اختصاصی باز می‌شود
+        toast("برای تحلیل آماری، فایل داده را در پنجره باز شده آپلود کنید");
+        $("#statsOverlay").classList.add("show");
+      } else {
+        const fn = ACAD_PROMPTS[t];
+        if (fn) await streamChat(fn(topic), CTYPE_LABELS[t] || t);
+      }
+    }
+    clearChips();
+    loadConvs();
+  } finally {
+    sending = false;
+    abortCtrl = null;
+    setStopMode(false);
+    // تیک‌ها را پاک کن
+    document.querySelectorAll(".ctype").forEach(c => (c.checked = false));
+    $("#ctypeDocOpts").style.display = "none";
+    updateCtypeBtn();
+    inputEl.focus();
+  }
+}
+
+const CTYPE_LABELS = {
+  "موضوع": "💡 موضوع‌یابی", "پروپوزال": "📋 پروپوزال", "فهرست": "📑 فهرست پایان‌نامه",
+  "پیشینه": "📚 پیشینه پژوهش", "مبانی": "🧠 مبانی نظری", "فرضیه": "🎯 فرضیه‌سازی",
+  "منبع": "🔖 منبع و ارجاع", "داور": "⚖️ نقد داور علمی",
+};
 
 sendBtn.addEventListener("click", () => {
   if (sending) { stopStreaming(); return; }
@@ -588,6 +793,133 @@ $("#convExportBtn").addEventListener("click", e => {
   openDocOverlay("export", parts.join("\n\n"), null);
 });
 
+/* ---------- ابزار پایان‌نامه ---------- */
+
+const ACAD_PROMPTS = {
+  "موضوع": t => `برای این حوزه ۵ موضوع دقیق و به‌روز پایان‌نامه پیشنهاد بده که قابلیت پژوهش داشته باشند و متغیرهایشان مشخص باشد:\n${t}`,
+  "پروپوزال": t => `یک پروپوزال کامل پایان‌نامه بنویس شامل: بیان مسئله، اهمیت و ضرورت، اهداف، سؤالات و فرضیه‌ها، روش پژوهش و جامعه آماری. موضوع:\n${t}`,
+  "فهرست": t => `فهرست کامل و استاندارد یک پایان‌نامه (۵ فصل با همه زیربخش‌ها) برای این موضوع بنویس:\n${t}`,
+  "پیشینه": t => `پیشینه پژوهش (پژوهش‌های داخلی و خارجی مرتبط) برای این موضوع بنویس با ذکر نویسنده و سال و یافته اصلی هر پژوهش:\n${t}`,
+  "مبانی": t => `مبانی نظری کامل و دانشگاهی برای این موضوع بنویس شامل تعاریف، نظریه‌های پایه و چارچوب نظری:\n${t}`,
+  "فرضیه": t => `برای این موضوع فرضیه‌های اصلی و فرعی پژوهش را به‌صورت علمی و آزمون‌پذیر بنویس:\n${t}`,
+  "منبع": t => `برای این موضوع ۱۰ منبع علمی معتبر به سبک APA بنویس (فارسی و انگلیسی) و نحوه ارجاع درون‌متنی هرکدام را نشان بده:\n${t}`,
+  "داور": t => `تو یک داور سخت‌گیر مجله علمی هستی. این متن/موضوع را نقد کن: منطق استدلال‌ها، کافی بودن ارجاعات، رعایت لحن آکادمیک. ایرادات را موردی لیست کن:\n${t}`,
+};
+
+$("#acadBtn")?.addEventListener("click", () => $("#acadOverlay").classList.add("show"));
+$("#acadOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "acadOverlay" || e.target.classList.contains("close"))
+    $("#acadOverlay").classList.remove("show");
+});
+document.querySelectorAll(".acad-t").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const topic = $("#acadTopic").value.trim();
+    if (!topic) { toast("موضوع یا متغیرهای پژوهش را بنویسید"); return; }
+    const fn = ACAD_PROMPTS[btn.dataset.t];
+    if (!fn) return;
+    $("#acadOverlay").classList.remove("show");
+    send(fn(topic));
+  });
+});
+
+/* ---------- تحلیل آماری ---------- */
+
+let statsFileName = null;
+
+$("#statsBtn")?.addEventListener("click", () => $("#statsOverlay").classList.add("show"));
+$("#statsOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "statsOverlay" || e.target.classList.contains("close"))
+    $("#statsOverlay").classList.remove("show");
+});
+$("#statsUpBtn")?.addEventListener("click", () => $("#statsFile").click());
+$("#statsFile")?.addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  $("#statsInfo").innerHTML = '<span class="spin"></span> در حال خواندن داده…';
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch("/api/stats/upload", { method: "POST", body: fd });
+    if (!r.ok) {
+      const er = await r.json().catch(() => ({}));
+      $("#statsInfo").textContent = "❌ " + (er.detail || "خطا در آپلود");
+      return;
+    }
+    const d = await r.json();
+    statsFileName = d.file;
+    const o = d.overview;
+    $("#statsInfo").innerHTML =
+      `✅ داده خوانده شد: <b>${o.rows}</b> ردیف، <b>${o.cols}</b> متغیر` +
+      (o.total_missing ? ` — ${o.total_missing} داده گمشده` : "") +
+      `<br><span style="color:var(--muted);font-size:12px">متغیرها: ${o.columns.join("، ")}</span>`;
+    $("#statsTools").style.display = "flex";
+  } catch { $("#statsInfo").textContent = "❌ خطا در آپلود"; }
+  e.target.value = "";
+});
+
+document.querySelectorAll(".stat-t").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    if (!statsFileName) { toast("ابتدا فایل داده را آپلود کنید"); return; }
+    const analysis = btn.dataset.a;
+    let params = {};
+    // برای تحلیل‌هایی که متغیر لازم دارند، از کاربر بپرس
+    if (analysis === "regression") {
+      const dep = prompt("نام متغیر وابسته (دقیقاً مثل ستون داده):");
+      if (!dep) return;
+      const inds = prompt("متغیرهای مستقل (با کاما جدا کنید):");
+      if (!inds) return;
+      params = { dependent: dep.trim(), independents: inds.split(",").map(s => s.trim()) };
+    } else if (analysis === "mediation") {
+      const x = prompt("متغیر مستقل (X):"); if (!x) return;
+      const m = prompt("متغیر میانجی (M):"); if (!m) return;
+      const y = prompt("متغیر وابسته (Y):"); if (!y) return;
+      params = { x: x.trim(), m: m.trim(), y: y.trim() };
+    } else if (analysis === "anova") {
+      const dep = prompt("متغیر وابسته (عددی):"); if (!dep) return;
+      const fac = prompt("متغیر گروه‌بندی:"); if (!fac) return;
+      params = { dependent: dep.trim(), factor: fac.trim() };
+    } else if (analysis === "sem_pls" || analysis === "sem_cfa") {
+      const raw = prompt(
+        "سازه‌ها و گویه‌هایشان را وارد کنید.\nهر سازه در یک خط: نام سازه = گویه۱، گویه۲، ...\n\nمثال:\nکیفیت = q1, q2, q3\nرضایت = s1, s2",
+      );
+      if (!raw) return;
+      const factors = {};
+      raw.split("\n").forEach(line => {
+        const [name, items] = line.split("=");
+        if (name && items) factors[name.trim()] = items.split(/[,،]/).map(s => s.trim()).filter(Boolean);
+      });
+      if (!Object.keys(factors).length) { toast("قالب سازه‌ها نامعتبر بود"); return; }
+      params = { factors };
+      if (analysis === "sem_pls") {
+        const st = prompt("مسیرهای ساختاری (اختیاری) — هر مسیر: مستقل ← وابسته\nمثال:\nکیفیت ← رضایت\nرضایت ← وفاداری", "");
+        if (st) {
+          params.structural = st.split("\n").map(l => l.split(/←|->|<-/).map(s => s.trim())).filter(p => p.length === 2 && p[0] && p[1]);
+        }
+      }
+    }
+    $("#statsOverlay").classList.remove("show");
+    const aDiv = addMsg("assistant", "");
+    const mdEl = aDiv.querySelector(".md");
+    mdEl.innerHTML = '<span class="spin"></span> در حال تحلیل آماری…';
+    try {
+      const r = await fetch("/api/stats/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: statsFileName, analysis, params }),
+      });
+      const d = await r.json();
+      if (d.result && d.result.error) {
+        mdEl.innerHTML = renderMD("⚠️ " + d.result.error);
+        return;
+      }
+      let out = "## 📊 نتیجه تحلیل: " + btn.textContent.trim() + "\n\n";
+      out += "```\n" + JSON.stringify(d.result, null, 2) + "\n```\n\n";
+      if (d.interpretation) out += "### 📝 تفسیر دانشگاهی\n\n" + d.interpretation;
+      mdEl.innerHTML = renderMD(out);
+      aDiv.dataset.raw = out;
+    } catch { mdEl.innerHTML = renderMD("⚠️ خطا در تحلیل"); }
+  });
+});
+
 /* ---------- تحقیق گروهی ---------- */
 
 $("#researchBtn").addEventListener("click", () => {
@@ -614,16 +946,27 @@ function openDocOverlay(mode, content = "", msgEl = null) {
   $("#topicField").style.display = isExport ? "none" : "block";
   $("#pagesField").style.display = isExport ? "none" : "block";
   $("#docSrcField").style.display = isExport ? "none" : "block";
+  const hub = document.getElementById("docHubTools");
+  if (hub) hub.style.display = isExport ? "none" : "grid";
   $("#docHint").style.display = isExport ? "none" : "block";
   $("#docStart").textContent = isExport ? "ساخت فایل" : "شروع ساخت";
   $("#docOverlay").classList.add("show");
 }
 
+/* شورت‌کات ابزار پایان‌نامه و تحلیل آماری داخل پنجره مقاله بلند */
+document.getElementById("docHubTools")?.addEventListener("click", e => {
+  const b = e.target.closest("[data-hub]");
+  if (!b) return;
+  $("#docOverlay").classList.remove("show");
+  if (b.dataset.hub === "acad") $("#acadOverlay").classList.add("show");
+  else $("#statsOverlay").classList.add("show");
+});
+
 /* آپلود منابع پنجره مقاله بلند */
 $("#docAttachBtn").addEventListener("click", () => $("#docFileInput").click());
 $("#docFileInput").addEventListener("change", async e => {
   for (const file of e.target.files) {
-    const chip = el(`<span class="chip">⏳ ${escapeHtml(file.name)}</span>`);
+    const chip = el(`<span class="chip"><span class="spin"></span> ${escapeHtml(file.name)}</span>`);
     $("#docChips").appendChild(chip);
     const fd = new FormData();
     fd.append("file", file);
@@ -648,7 +991,31 @@ $("#docFileInput").addEventListener("change", async e => {
   e.target.value = "";
 });
 
-$("#docBtn").addEventListener("click", () => openDocOverlay("longdoc"));
+/* ---------- پنل نوع محتوا (تیک‌دار) ---------- */
+$("#ctypeBtn")?.addEventListener("click", () => {
+  $("#ctypePanel").classList.toggle("show");
+});
+$("#ctypeClear")?.addEventListener("click", () => {
+  document.querySelectorAll(".ctype").forEach(c => (c.checked = false));
+  $("#ctypeDocOpts").style.display = "none";
+  updateCtypeBtn();
+});
+function selectedCtypes() {
+  return [...document.querySelectorAll(".ctype:checked")].map(c => c.value);
+}
+function updateCtypeBtn() {
+  const n = selectedCtypes().length;
+  $("#ctypeBtn").classList.toggle("on", n > 0);
+  $("#ctypeBtn").textContent = n > 0 ? "✍️" + n : "✍️";
+}
+document.querySelectorAll(".ctype").forEach(c => {
+  c.addEventListener("change", () => {
+    // تنظیمات خروجی فقط وقتی «مقاله بلند» تیک خورده
+    const wantsDoc = document.querySelector('.ctype[value="مقاله"]').checked;
+    $("#ctypeDocOpts").style.display = wantsDoc ? "block" : "none";
+    updateCtypeBtn();
+  });
+});
 
 $("#docOverlay").addEventListener("click", e => {
   if (e.target.id === "docOverlay" || e.target.classList.contains("close"))
@@ -662,20 +1029,51 @@ function docFormats() {
   return [v];
 }
 
+async function makePptx(content, msgEl) {
+  const r = await fetch("/api/pptx", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!r.ok) { toast("خطا در ساخت پاورپوینت"); return; }
+  const data = await r.json();
+  const links = data.files.map(f => `[${f.label}](${f.url})`).join("  ");
+  if (msgEl) {
+    const box = document.createElement("div");
+    box.className = "dl-links";
+    data.files.forEach(f => {
+      const a = document.createElement("a");
+      a.href = f.url; a.textContent = f.label; a.className = "dl-link";
+      box.appendChild(a);
+    });
+    msgEl.querySelector(".bubble").appendChild(box);
+  } else {
+    addMsg("assistant", "📊 پاورپوینت آماده شد:\n\n" + links);
+  }
+  toast("پاورپوینت آماده شد ✅");
+}
+
 $("#docStart").addEventListener("click", async () => {
   const font = $("#docFont").value;
   const size = Number($("#docSize").value) || 14;
 
   if (docMode === "export") {
-    $("#docOverlay").classList.remove("show");
-    toast("در حال ساخت فایل…");
+    const btn = $("#docStart");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> در حال ساخت فایل…';
+    const restore = () => { btn.disabled = false; btn.textContent = "ساخت فایل"; $("#docOverlay").classList.remove("show"); };
+    if ($("#docFormat").value === "pptx") {
+      restore();
+      await makePptx(exportContent, exportMsgEl);
+      return;
+    }
     const r = await fetch("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: exportContent, font, size, align: $("#docAlign").value, formats: docFormats() }),
     });
-    if (!r.ok) { toast("خطا در ساخت فایل"); return; }
+    if (!r.ok) { restore(); toast("خطا در ساخت فایل"); return; }
     const data = await r.json();
+    restore();
     if (!exportMsgEl) {
       const links = data.files.map(f => `[${f.label}](${f.url})`).join("  |  ");
       addMsg("assistant", "📄 خروجی گفتگو آماده شد:\n\n" + links);
@@ -713,7 +1111,7 @@ $("#docStart").addEventListener("click", async () => {
   addMsg("user", `📄 درخواست مقاله ${pages} صفحه‌ای: ${topic}`);
   const aDiv = addMsg("assistant", "");
   const mdEl = aDiv.querySelector(".md");
-  mdEl.innerHTML = '<span class="typing">شروع ساخت مقاله</span>';
+  mdEl.innerHTML = '<span class="spin"></span> <span class="typing">شروع ساخت مقاله</span>';
 
   abortCtrl = new AbortController();
   sending = true;
@@ -765,7 +1163,7 @@ $("#docStart").addEventListener("click", async () => {
   }
 });
 
-/* ---------- جستجوی گفتگوها ---------- */
+/* ---------- جستجوی گفتگوها (عنوان فوری + تمام‌متن با تأخیر) ---------- */
 
 function filterConvs() {
   const q = ($("#convSearch")?.value || "").trim();
@@ -773,7 +1171,40 @@ function filterConvs() {
     c.style.display = !q || c.querySelector(".t").textContent.includes(q) ? "" : "none";
   });
 }
-$("#convSearch")?.addEventListener("input", filterConvs);
+
+let searchDebounce = null;
+$("#convSearch")?.addEventListener("input", () => {
+  filterConvs(); // فیلتر فوری بر اساس عنوان
+  const q = $("#convSearch").value.trim();
+  clearTimeout(searchDebounce);
+  if (q.length < 2) { loadConvs(); return; }
+  searchDebounce = setTimeout(() => searchConvs(q), 350);
+});
+
+async function searchConvs(q) {
+  let results;
+  try {
+    const r = await fetch(`/api/conversations/search?q=${encodeURIComponent(q)}`);
+    if (!r.ok) return;
+    results = await r.json();
+  } catch { return; }
+  // اگر کاربر در این فاصله چیز دیگری تایپ کرده، این نتایج قدیمی را نادیده بگیر
+  if ($("#convSearch").value.trim() !== q) return;
+
+  convListEl.innerHTML = "";
+  if (!results.length) {
+    convListEl.appendChild(el(`<div class="conv-empty">چیزی با «${escapeHtml(q)}» پیدا نشد</div>`));
+    return;
+  }
+  results.forEach(rres => {
+    const item = el(`
+      <div class="conv search-hit ${rres.id === currentConv ? "active" : ""}" data-id="${rres.id}">
+        <span class="t">${escapeHtml(rres.title)}</span>
+        <div class="hit-snip">${escapeHtml(rres.snippet)}</div>
+      </div>`);
+    convListEl.appendChild(item);
+  });
+}
 
 /* ---------- بنر اطلاع‌رسانی (با یک بار بستن، دیگر نمایش داده نمی‌شود تا پیام عوض شود) ---------- */
 
@@ -816,12 +1247,22 @@ async function openProfile() {
   if (!r.ok) return;
   const p = await r.json();
   $("#pUser").textContent = p.username;
-  $("#pStars").textContent = "★".repeat(p.stars) + ` (${p.stars} ستاره)`;
+  $("#pStars").textContent = p.unlimited
+    ? "مدیر — نامحدود ∞"
+    : "★".repeat(p.stars) + ` (${p.stars} ستاره)`;
   $("#pJoined").textContent = p.joined || "—";
-  $("#pUsage").textContent = p.daily_limit
-    ? `${p.used_today} از ${p.daily_limit} پیام`
-    : `${p.used_today} پیام (نامحدود)`;
-  setProfileAvatar(p.avatar);
+  // اعتبار اشتراک
+  const exp = $("#pExpire");
+  if (p.unlimited) {
+    exp.textContent = "همیشگی";
+    exp.style.color = "";
+  } else if (!p.sub_active) {
+    exp.textContent = `⛔ منقضی شده (${p.end_date || "—"}) — برای تمدید به مدیر پیام دهید`;
+    exp.style.color = "var(--danger)";
+  } else {
+    exp.textContent = `${p.days_left} روز دیگر (تا ${p.end_date || "—"})`;
+    exp.style.color = p.days_left <= 5 ? "var(--danger)" : "";
+  }
   $("#pOld").value = ""; $("#pNew").value = ""; $("#pMsg").textContent = "";
   closeSidebar();
   $("#profileOverlay").classList.add("show");
@@ -834,6 +1275,7 @@ $("#profileOverlay")?.addEventListener("click", e => {
 });
 
 $("#pAvatarBtn")?.addEventListener("click", () => $("#pAvatarInput").click());
+
 $("#pAvatarInput")?.addEventListener("change", async e => {
   const file = e.target.files[0];
   if (!file) return;
