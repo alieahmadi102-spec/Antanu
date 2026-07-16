@@ -2751,6 +2751,27 @@ async def admin_generate_codes(request: Request):
     return {"codes": new_codes, "stars": stars}
 
 
+@app.post("/admin/delete_code")
+async def admin_delete_code(request: Request):
+    """حذف یک کد ثبت‌نام (یا همه‌ی کدهای استفاده‌نشده) توسط مدیر"""
+    require_admin(request)
+    body = await request.json()
+    db = get_db()
+    if body.get("all_unused"):
+        cur = db.execute("DELETE FROM codes WHERE used = 0")
+        n = cur.rowcount
+    else:
+        code_id = body.get("code_id")
+        if code_id is None:
+            db.close()
+            raise HTTPException(400, "شناسه کد مشخص نشده")
+        cur = db.execute("DELETE FROM codes WHERE id = ?", (int(code_id),))
+        n = cur.rowcount
+    db.commit()
+    db.close()
+    return {"ok": True, "deleted": n}
+
+
 @app.post("/admin/create_user")
 async def admin_create_user(request: Request):
     """ساخت دستی کاربر توسط ادمین (بدون نیاز به کد)"""

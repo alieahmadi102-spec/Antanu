@@ -146,11 +146,14 @@
   <!-- کدها -->
   <div class="card">
     <h2>کدهای ثبت‌نام (۵۰۰ کد آخر)</h2>
-    <input type="text" id="codeSearch" class="tbl-search" placeholder="🔍 جستجوی کد یا نام استفاده‌کننده…">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="codeSearch" class="tbl-search" placeholder="🔍 جستجوی کد یا نام استفاده‌کننده…" style="flex:1">
+      <button class="mini danger" id="delUnusedCodes" type="button">🗑 حذف همه کدهای استفاده‌نشده</button>
+    </div>
     <div class="table-wrap">
       <table class="data" id="codesTable">
         <thead>
-          <tr><th>#</th><th>کد</th><th>ستاره</th><th>وضعیت</th><th>استفاده‌کننده</th></tr>
+          <tr><th>#</th><th>کد</th><th>ستاره</th><th>وضعیت</th><th>استفاده‌کننده</th><th>عملیات</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -215,10 +218,24 @@ async function loadData() {
         <button class="mini" onclick="navigator.clipboard.writeText('${esc(c.code)}')">کپی</button></td>
       <td>${"★".repeat(c.stars)}</td>
       <td>${c.used ? '<span class="tag no">استفاده شده</span>' : '<span class="tag ok">فعال</span>'}</td>
-      <td>${esc(c.used_by || "—")}</td>`;
+      <td>${esc(c.used_by || "—")}</td>
+      <td><button class="mini danger" onclick="delCode(${c.id})">حذف</button></td>`;
     cb.appendChild(tr);
   });
 }
+
+async function delCode(id) {
+  if (!confirm("این کد برای همیشه حذف شود؟")) return;
+  await post("/admin/delete_code", { code_id: id });
+  loadData();
+}
+
+$("#delUnusedCodes").addEventListener("click", async () => {
+  if (!confirm("همه‌ی کدهای «استفاده‌نشده» حذف شوند؟ (کدهای استفاده‌شده باقی می‌مانند)")) return;
+  const r = await post("/admin/delete_code", { all_unused: true });
+  alert(`${r.deleted} کد استفاده‌نشده حذف شد`);
+  loadData();
+});
 
 $("#genBtn").addEventListener("click", async () => {
   const res = await post("/admin/codes", {

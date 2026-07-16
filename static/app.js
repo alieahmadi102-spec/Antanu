@@ -117,12 +117,38 @@ function updateModelUI() {
   $("#modelAll").checked = selected.length === models.length;
 }
 
+/* منوی مدل‌ها را با مختصات ثابت (fixed) بالای دکمه می‌گذارد تا در موبایل
+   داخل نوار افقیِ اسکرول‌دار (overflow) بریده و پنهان نشود */
+function positionModelPanel() {
+  const panel = $("#modelPanel");
+  const btn = $("#modelBtn");
+  const r = btn.getBoundingClientRect();
+  const w = Math.min(300, window.innerWidth - 20);
+  panel.style.position = "fixed";
+  panel.style.width = w + "px";
+  panel.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  panel.style.top = "auto";
+  let right = window.innerWidth - r.right;
+  right = Math.max(10, Math.min(right, window.innerWidth - w - 10));
+  panel.style.right = right + "px";
+  panel.style.left = "auto";
+  panel.style.maxHeight = "55vh";
+  panel.style.overflowY = "auto";
+}
+
 $("#modelBtn").addEventListener("click", e => {
   e.stopPropagation();
-  $("#modelPanel").classList.toggle("show");
+  const panel = $("#modelPanel");
+  const willShow = !panel.classList.contains("show");
+  panel.classList.toggle("show");
+  if (willShow) positionModelPanel();
+});
+window.addEventListener("resize", () => {
+  if ($("#modelPanel").classList.contains("show")) positionModelPanel();
 });
 document.addEventListener("click", e => {
-  if (!e.target.closest(".model-wrap")) $("#modelPanel").classList.remove("show");
+  if (!e.target.closest(".model-wrap") && !e.target.closest("#modelPanel"))
+    $("#modelPanel").classList.remove("show");
 });
 $("#modelPanel").addEventListener("change", e => {
   if (e.target.id === "modelAll") {
