@@ -497,65 +497,86 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
 
     pdf = FPDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(18, 18, 18)
     pdf.add_page()
     pdf.add_font("Vazir", "", font)
+    epw = pdf.w - pdf.l_margin - pdf.r_margin
 
     blocks, fn_notes = _flatten_footnotes(blocks)
+    # شماره‌گذاری سرفصل‌ها هماهنگ با نسخه‌ی Word
+    heads = compute_headings(blocks, numbering=True)
+    _hi = iter(heads)
 
-    if title:
-        pdf.set_font("Vazir", size=font_size + 8)
-        pdf.multi_cell(0, (font_size + 8) * 0.62, shape(title), align="C")
-        pdf.ln(3)
+    def write_par(text, size, align_code="R"):
+        """یک پاراگراف را می‌نویسد و همیشه مکان‌نما را به ابتدای خط برمی‌گرداند
+        تا خطای «فضای افقی کافی نیست» رخ ندهد و محتوا ناقص نشود."""
+        pdf.set_font("Vazir", size=size)
+        # هر تکه‌ی متن که با \n جدا شده، جداگانه (برای جلوگیری از سرریز)
+        for chunk in str(text).split("\n"):
+            pdf.set_x(pdf.l_margin)          # ← رفع باگ ناقص شدن PDF
+            try:
+                pdf.multi_cell(epw, size * 0.72, shape(chunk), align=align_code)
+            except Exception:
+                # اگر باز هم فضای کافی نبود، واژه‌به‌واژه بشکن
+                pdf.set_x(pdf.l_margin)
+                try:
+                    pdf.multi_cell(epw, size * 0.72, shape(chunk[:200]), align=align_code)
+                except Exception:
+                    pass
 
     def draw_table(rows):
         if not rows:
             return
         ncol = len(rows[0])
-        epw = pdf.w - pdf.l_margin - pdf.r_margin
         cw = epw / ncol
         tsize = max(8, font_size - 3)
-        lh = tsize * 0.95
+        lh = tsize * 1.1
         pdf.set_font("Vazir", size=tsize)
-        for ri, row in enumerate(rows):
-            # ستون‌ها راست‌به‌چپ نمایش داده می‌شوند
-            disp = list(reversed(row))
+        for row in rows:
+            disp = list(reversed(row))  # ستون‌ها راست‌به‌چپ
             if pdf.get_y() + lh > pdf.h - pdf.b_margin:
                 pdf.add_page()
+            pdf.set_x(pdf.l_margin)
             for val in disp:
-                txt = shape(str(val))
-                border = 1
                 try:
-                    pdf.cell(cw, lh, txt, border=border, align="C")
+                    pdf.cell(cw, lh, shape(str(val)), border=1, align="C")
                 except Exception:
-                    pdf.cell(cw, lh, "", border=border)
+                    pdf.cell(cw, lh, "", border=1)
             pdf.ln(lh)
         pdf.ln(2)
 
+    body_code = {"right": "R", "left": "L", "center": "C", "justify": "J"}.get(align, "R")
+
+    if title:
+        write_par(title, font_size + 8, "C")
+        pdf.ln(3)
+
     for kind, txt in blocks:
+        if kind == "footnotes":
+            continue
         if kind == "table":
             draw_table(txt)
             continue
-        size = font_size + (8 if kind == "h1" else 4 if kind == "h2" else 2 if kind == "h3" else 0)
-        pdf.set_font("Vazir", size=size)
-        text = ("• " + txt) if kind == "li" else txt
-        pdf_align = {"right": "R", "left": "L", "center": "C", "justify": "J"}.get(align, "R")
-        try:
-            pdf.multi_cell(0, size * 0.62, shape(text), align=pdf_align)
-        except Exception:
-            continue
         if kind in ("h1", "h2", "h3"):
+            he = next(_hi, None)
+            if he:
+                _, txt, _ = he
+            size = font_size + (8 if kind == "h1" else 4 if kind == "h2" else 2)
+            pdf.ln(2)
+            write_par(txt, size, "R")
             pdf.ln(1)
+        elif kind == "li":
+            write_par("• " + txt, font_size, body_code)
+        elif kind == "quote":
+            write_par("❝ " + txt, font_size, body_code)
+        else:
+            write_par(txt, font_size, body_code)
 
     if fn_notes:
-        pdf.ln(3)
-        pdf.set_font("Vazir", size=font_size + 1)
-        pdf.multi_cell(0, (font_size + 1) * 0.62, shape("پانوشت‌ها"), align="R")
-        pdf.set_font("Vazir", size=max(9, font_size - 2))
+        pdf.ln(4)
+        write_par("پانوشت‌ها", font_size + 1, "R")
         for num, note in fn_notes:
-            try:
-                pdf.multi_cell(0, (font_size - 2) * 0.7, shape(f"{_to_fa_digits_mod(num)}. {note}"), align="R")
-            except Exception:
-                continue
+            write_par(f"{_to_fa_digits_mod(num)}. {note}", max(9, font_size - 2), "R")
 
     name = _new_name("pdf")
     pdf.output(os.path.join(EXPORT_DIR, name))
