@@ -645,6 +645,7 @@ async function makeArticleFromPanel(topic) {
         align: $("#cAlign").value, formats,
         attachments: attachments.map(a => a.id),
         use_web: $("#cWeb").checked,
+        smart_design: true, style: "auto",
       }),
       signal: abortCtrl.signal,
     });
@@ -1401,9 +1402,13 @@ function docFormats() {
 }
 
 async function makePptx(content, msgEl) {
+  const firstLine = (content.split("\n").find(l => l.trim()) || "ارائه آنتانو")
+    .replace(/^#+\s*/, "").slice(0, 80);
   const r = await fetch("/api/pptx", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, title: firstLine,
+      smart_design: $("#docSmart") ? $("#docSmart").checked : true,
+      style: $("#docStyle") ? $("#docStyle").value : "auto" }),
   });
   if (!r.ok) { toast("خطا در ساخت پاورپوینت"); return; }
   const data = await r.json();
@@ -1440,7 +1445,9 @@ $("#docStart").addEventListener("click", async () => {
     const r = await fetch("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: exportContent, font, size, align: $("#docAlign").value, formats: docFormats(), toc: $("#docToc").checked, numbering: $("#docNumbering").checked }),
+      body: JSON.stringify({ content: exportContent, font, size, align: $("#docAlign").value,
+        formats: docFormats(), toc: $("#docToc").checked, numbering: $("#docNumbering").checked,
+        smart_design: $("#docSmart").checked, style: $("#docStyle").value }),
     });
     if (!r.ok) { restore(); toast("خطا در ساخت فایل"); return; }
     const data = await r.json();
@@ -1498,6 +1505,7 @@ $("#docStart").addEventListener("click", async () => {
         formats: docFormats(),
         attachments: docAttachments.map(a => a.id),
         use_web: $("#docWeb").checked,
+        smart_design: $("#docSmart").checked, style: $("#docStyle").value,
       }),
       signal: abortCtrl.signal,
     });

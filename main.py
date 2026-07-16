@@ -2083,22 +2083,66 @@ async def stats_run(request: Request):
 
 FONT_CHOICES = ["Vazirmatn", "B Nazanin", "B Zar", "IRANSans", "B Titr", "Tahoma", "Times New Roman", "Calibri", "Arial"]
 
+DESIGN_STYLES = ("auto", "tech", "medical", "finance", "education", "kids", "academic", "creative")
+
+
+async def make_design_spec(topic: str, style: str = "auto", smart: bool = True):
+    """طرح اختصاصی می‌سازد. اگر هوشمند و سبک=auto باشد، هوش مصنوعی بهترین سبک و پالت را انتخاب می‌کند."""
+    import design_engine
+    overrides = None
+    if style not in DESIGN_STYLES:
+        style = "auto"
+    if smart and style == "auto":
+        catalog = get_ai_catalog()
+        c = catalog[0]
+        if c.get("key"):
+            prompt = (
+                "بر اساس این موضوع، بهترین سبک طراحی سند/ارائه و یک پالت رنگ حرفه‌ای انتخاب کن. "
+                "فقط JSON خام برگردان (بدون توضیح): "
+                '{"style":"tech|medical|finance|education|kids|academic|creative",'
+                '"primary":"#RRGGBB","secondary":"#RRGGBB","accent":"#RRGGBB"}\n'
+                "راهنما: فناوری→مدرن تیره، پزشکی→سفید و آبی، مالی→رسمی مینیمال، آموزشی→رنگی، کودک→شاد، دانشگاهی→کلاسیک، بازاریابی→خلاق.\n\n"
+                f"موضوع: {topic[:300]}"
+            )
+            try:
+                out = await _call_model_once(c, prompt, max_tokens=160)
+                m = re.search(r"\{.*\}", out or "", re.DOTALL)
+                if m:
+                    data = json.loads(m.group(0))
+                    style = (data.get("style") or "auto").strip()
+                    overrides = {k: data.get(k) for k in ("primary", "secondary", "accent") if data.get(k)}
+            except Exception:
+                pass
+    return design_engine.build_spec(style, topic, overrides)
+
 
 @app.post("/api/pptx")
 async def api_pptx(request: Request):
-    """تبدیل متن به ارائه پاورپوینت"""
+    """تبدیل متن به ارائه پاورپوینت (با طراحی هوشمند اختصاصی در صورت درخواست)"""
     user = require_user(request)
     check_subscription(user)
     body = await request.json()
     content = (body.get("content") or "").strip()
     title = (body.get("title") or "ارائه آنتانو").strip()
+    subtitle = (body.get("subtitle") or "").strip()
+    smart_design = body.get("smart_design", True)
+    style = (body.get("style") or "auto").strip()
     if not content:
         raise HTTPException(400, "متنی برای ساخت ارائه نیست")
     try:
         import export_utils
     except ImportError as _e:
         raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
-    name = await run_in_threadpool(export_utils.build_pptx, content, title)
+    if smart_design:
+        try:
+            import design_engine
+            spec = await make_design_spec(title + " " + content[:200], style, True)
+            name = await run_in_threadpool(design_engine.build_designed_pptx, content, spec, title, subtitle)
+        except Exception as _e:
+            print("[ANTANU] designed pptx failed, fallback:", _e)
+            name = await run_in_threadpool(export_utils.build_pptx, content, title)
+    else:
+        name = await run_in_threadpool(export_utils.build_pptx, content, title)
     return {"files": [{"label": "📊 دانلود پاورپوینت", "url": f"/download/{name}"}]}
 
 
@@ -2178,6 +2222,9 @@ async def api_export(request: Request):
     title = (body.get("title") or "").strip() or None
     toc = bool(body.get("toc"))
     numbering = bool(body.get("numbering"))
+    smart_design = bool(body.get("smart_design"))
+    style = (body.get("style") or "auto").strip()
+    subtitle = (body.get("subtitle") or "").strip()
 
     try:
         import export_utils
@@ -2185,8 +2232,16 @@ async def api_export(request: Request):
         raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
     blocks = export_utils.md_to_blocks(content)
     files, notes = [], []
+    design_spec = None
+    if smart_design:
+        design_spec = await make_design_spec((title or "") + " " + content[:200], style, True)
     if "docx" in formats:
-        name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align, toc, numbering)
+        if smart_design and design_spec:
+            import design_engine
+            name = await run_in_threadpool(design_engine.build_designed_docx, blocks, design_spec,
+                                           title, subtitle, size, align, toc, numbering)
+        else:
+            name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align, toc, numbering)
         files.append({"label": "📄 دانلود Word", "url": f"/download/{name}"})
     if "pdf" in formats:
         name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, title, align)
@@ -2253,6 +2308,8 @@ async def api_longdoc(request: Request):
     align = body.get("align") if body.get("align") in ("right", "left", "center", "justify") else "right"
     attachment_ids = body.get("attachments") or []
     use_web = bool(body.get("use_web"))
+    ld_smart = bool(body.get("smart_design"))
+    ld_style = (body.get("style") or "auto").strip()
 
     catalog = get_ai_catalog()
     c = catalog[0]
@@ -2407,7 +2464,13 @@ async def api_longdoc(request: Request):
             links = []
             if "docx" in formats:
                 # مقاله‌ی بلند: فهرست خودکار + شماره‌گذاری سرفصل‌ها (سبک پایان‌نامه)
-                name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
+                if ld_smart:
+                    import design_engine
+                    spec = await make_design_spec(topic, ld_style, True)
+                    name = await run_in_threadpool(design_engine.build_designed_docx, blocks, spec,
+                                                   topic, "", size, align, True, True)
+                else:
+                    name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
                 links.append(f"[📄 دانلود Word](/download/{name})")
             if "pdf" in formats:
                 name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, topic, align)

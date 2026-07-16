@@ -116,6 +116,8 @@ def md_to_blocks(text: str):
             blocks.append(("h2", line[3:].strip()))
         elif line.startswith("# "):
             blocks.append(("h1", line[2:].strip()))
+        elif line.startswith("> "):
+            blocks.append(("quote", _clean_md(line[2:])))
         elif re.match(r"^[-•]\s+", line):
             blocks.append(("li", re.sub(r"^[-•]\s+", "", line)))
         elif re.match(r"^\d+[.)]\s+", line):
