@@ -49,15 +49,58 @@ def ensure_pdf_font() -> str | None:
 
 # ---------------- تبدیل مارک‌داون ساده به بلوک‌ها ----------------
 
+def _clean_md(line: str) -> str:
+    line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+    line = re.sub(r"[*_`]", "", line)
+    return line.strip()
+
+
+def _is_table_sep(line: str) -> bool:
+    """خط جداکننده‌ی جدول مارک‌داون مثل | --- | :---: |"""
+    s = line.strip()
+    if "-" not in s or "|" not in s:
+        return False
+    return bool(re.fullmatch(r"[\s|:\-]+", s))
+
+
+def _table_cells(line: str):
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [_clean_md(c.strip()) for c in s.split("|")]
+
+
 def md_to_blocks(text: str):
-    """('h1'|'h2'|'h3'|'li'|'p', متن) — علامت‌های مارک‌داون حذف می‌شوند"""
+    """('h1'|'h2'|'h3'|'li'|'p'|'table', محتوا) — علامت‌های مارک‌داون حذف می‌شوند.
+    برای 'table' محتوا فهرستی از ردیف‌هاست (هر ردیف فهرست سلول‌ها؛ ردیف اول سرستون)."""
     blocks = []
-    for raw in (text or "").split("\n"):
+    lines = (text or "").split("\n")
+    i = 0
+    n = len(lines)
+    while i < n:
+        raw = lines[i]
         line = raw.strip()
-        if not line or line in ("---", "***"):
+
+        # تشخیص جدول: خط دارای | و خط بعدی جداکننده‌ی --- باشد
+        if "|" in line and i + 1 < n and _is_table_sep(lines[i + 1]):
+            header = _table_cells(line)
+            rows = [header]
+            i += 2
+            while i < n and "|" in lines[i] and lines[i].strip():
+                rows.append(_table_cells(lines[i]))
+                i += 1
+            # هم‌طول‌سازی ستون‌ها
+            ncol = max(len(r) for r in rows)
+            rows = [r + [""] * (ncol - len(r)) for r in rows]
+            blocks.append(("table", rows))
             continue
-        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
-        line = re.sub(r"[*_`]", "", line)
+
+        if not line or line in ("---", "***"):
+            i += 1
+            continue
+        line = _clean_md(line)
         if line.startswith("### "):
             blocks.append(("h3", line[4:].strip()))
         elif line.startswith("## "):
@@ -70,6 +113,7 @@ def md_to_blocks(text: str):
             blocks.append(("li", re.sub(r"^\d+[.)]\s+", "", line)))
         else:
             blocks.append(("p", line))
+        i += 1
     return blocks
 
 
@@ -125,7 +169,33 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         rtl_para(p, WD_ALIGN_PARAGRAPH.CENTER)
         style_run(p.add_run(title), font_size + 10, bold=True, color=(0x0F, 0x76, 0x6E))
 
+    def add_table(rows):
+        if not rows:
+            return
+        ncol = len(rows[0])
+        tbl = doc.add_table(rows=len(rows), cols=ncol)
+        tbl.style = "Table Grid"
+        tbl.alignment = ALIGN_MAP.get("center", WD_ALIGN_PARAGRAPH.CENTER)
+        # جدول راست‌به‌چپ
+        tblPr = tbl._tbl.tblPr
+        bidi = OxmlElement("w:bidiVisual")
+        tblPr.append(bidi)
+        for ri, row in enumerate(rows):
+            for ci, val in enumerate(row):
+                cell = tbl.cell(ri, ncol - 1 - ci)  # ستون‌ها راست‌به‌چپ
+                cell.text = ""
+                cp = cell.paragraphs[0]
+                cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pPr = cp._p.get_or_add_pPr()
+                pPr.append(OxmlElement("w:bidi"))
+                style_run(cp.add_run(str(val)), max(9, font_size - 2), bold=(ri == 0),
+                          color=(0x0F, 0x76, 0x6E) if ri == 0 else None)
+        doc.add_paragraph()
+
     for kind, txt in blocks:
+        if kind == "table":
+            add_table(txt)
+            continue
         p = doc.add_paragraph()
         rtl_para(p, body_align, heading=kind in ("h1", "h2", "h3"))
         if kind == "h1":
@@ -175,7 +245,34 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
         pdf.multi_cell(0, (font_size + 8) * 0.62, shape(title), align="C")
         pdf.ln(3)
 
+    def draw_table(rows):
+        if not rows:
+            return
+        ncol = len(rows[0])
+        epw = pdf.w - pdf.l_margin - pdf.r_margin
+        cw = epw / ncol
+        tsize = max(8, font_size - 3)
+        lh = tsize * 0.95
+        pdf.set_font("Vazir", size=tsize)
+        for ri, row in enumerate(rows):
+            # ستون‌ها راست‌به‌چپ نمایش داده می‌شوند
+            disp = list(reversed(row))
+            if pdf.get_y() + lh > pdf.h - pdf.b_margin:
+                pdf.add_page()
+            for val in disp:
+                txt = shape(str(val))
+                border = 1
+                try:
+                    pdf.cell(cw, lh, txt, border=border, align="C")
+                except Exception:
+                    pdf.cell(cw, lh, "", border=border)
+            pdf.ln(lh)
+        pdf.ln(2)
+
     for kind, txt in blocks:
+        if kind == "table":
+            draw_table(txt)
+            continue
         size = font_size + (8 if kind == "h1" else 4 if kind == "h2" else 2 if kind == "h3" else 0)
         pdf.set_font("Vazir", size=size)
         text = ("• " + txt) if kind == "li" else txt
@@ -203,7 +300,9 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     ws = wb.active
     ws.title = "آنتانو"
     ws.sheet_view.rightToLeft = True
-    ws.column_dimensions["A"].width = 110
+    ws.column_dimensions["A"].width = 55
+
+    from openpyxl.utils import get_column_letter
 
     xl_align = Alignment(
         horizontal={"right": "right", "left": "left", "center": "center"}.get(align, "right"),
@@ -227,8 +326,31 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         cell.fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
         row += 2
 
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    def put_table(rows):
+        nonlocal row
+        ncol = len(rows[0])
+        for ri, r in enumerate(rows):
+            for ci, val in enumerate(r):
+                cell = ws.cell(row=row, column=ci + 1, value=val)
+                cell.font = Font(name=font_name, size=max(9, font_size - 2), bold=(ri == 0),
+                                 color="FFFFFF" if ri == 0 else "1F2937")
+                cell.alignment = center
+                if ri == 0:
+                    cell.fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
+            row += 1
+        # عرض ستون‌های جدول
+        for ci in range(1, ncol + 1):
+            letter = get_column_letter(ci)
+            cur = ws.column_dimensions[letter].width or 0
+            ws.column_dimensions[letter].width = max(cur, 18)
+        row += 1
+
     for kind, txt in blocks:
-        if kind == "h1":
+        if kind == "table":
+            put_table(txt)
+        elif kind == "h1":
             put(txt, font_size + 6, bold=True, color="0F766E")
         elif kind == "h2":
             put(txt, font_size + 3, bold=True, color="B8860B")
@@ -312,6 +434,13 @@ def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
             flush()
             cur_title = txt
             cur_points = []
+        elif kind == "table":
+            # هر ردیف جدول را به یک خط متن تبدیل کن
+            for r in txt:
+                cur_points.append(" | ".join(str(c) for c in r))
+                if len(cur_points) >= 6:
+                    flush()
+                    cur_points = []
         else:
             cur_points.append(txt)
             if len(cur_points) >= 6:  # حداکثر ۶ نکته در هر اسلاید

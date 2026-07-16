@@ -115,6 +115,34 @@ def _split_row(line: str):
     return [c.strip() for c in cells if c.strip() != ""]
 
 
+def _text_fallback_df(lines):
+    """وقتی هیچ ساختار جدولی پیدا نشد: اگر عدد هست یک ستون عددی بساز، وگرنه یک ستون متنی.
+    این تضمین می‌کند فایل‌های بدون جدول هم پذیرفته شوند و آپلود شکست نخورد."""
+    import pandas as pd
+    import re as _re
+    nums = []
+    for ln in lines:
+        for tok in _re.findall(r"-?\d+(?:[.,٫]\d+)?", str(ln)):
+            try:
+                nums.append(float(tok.replace("٫", ".").replace(",", "")))
+            except ValueError:
+                pass
+    if len(nums) >= 3:
+        return pd.DataFrame({"مقدار": nums})
+    clean = [str(ln).strip() for ln in lines if str(ln).strip()]
+    if not clean:
+        raise ValueError("هیچ داده‌ای در فایل پیدا نشد")
+    return pd.DataFrame({"متن": clean})
+
+
+def _rows_to_df_or_text(rows, lines):
+    """اول تلاش برای جدول؛ اگر نشد، بازگشت به تک‌ستونی (پذیرش فایل بدون جدول)"""
+    try:
+        return _rows_to_df(rows)
+    except Exception:
+        return _text_fallback_df(lines)
+
+
 def _pdf_to_df(path: str):
     """استخراج جدول/داده از فایل PDF (حتی اگر جدول واقعی نباشد، از ساختار متن حدس می‌زند)"""
     from pypdf import PdfReader
@@ -134,7 +162,8 @@ def _pdf_to_df(path: str):
     import re as _re
     if Counter(len(r) for r in rows).most_common(1)[0][0] < 2:
         rows = [[c for c in _re.split(r"\s+", ln.strip()) if c] for ln in lines]
-    return _rows_to_df(rows)
+    # اگر جدولی پیدا نشد، فایل را به‌صورت تک‌ستونی بپذیر (نه رد کن)
+    return _rows_to_df_or_text(rows, lines)
 
 
 def _docx_to_df(path: str):
@@ -150,12 +179,12 @@ def _docx_to_df(path: str):
                 rows.append(cells)
         if len(rows) >= 2:
             return _rows_to_df(rows)
-    # ۲) از متن پاراگراف‌ها حدس بزن
+    # ۲) از متن پاراگراف‌ها حدس بزن؛ اگر جدولی نبود، تک‌ستونی بپذیر
     lines = [p.text for p in doc.paragraphs if p.text.strip()]
     if not lines:
-        raise ValueError("جدول یا داده‌ای در فایل Word پیدا نشد")
+        raise ValueError("هیچ متن یا داده‌ای در فایل Word پیدا نشد")
     rows = [_split_row(ln) for ln in lines]
-    return _rows_to_df(rows)
+    return _rows_to_df_or_text(rows, lines)
 
 
 def dataset_overview(path: str) -> dict:

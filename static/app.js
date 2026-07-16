@@ -1019,6 +1019,91 @@ $("#statsFile")?.addEventListener("change", async e => {
   e.target.value = "";
 });
 
+/* برچسب فارسی برای کلیدهای انگلیسی خروجی آماری (برای نمایش زیباتر جدول) */
+const STAT_FA = {
+  rows: "تعداد ردیف", cols: "تعداد متغیر", columns: "متغیرها", numeric_columns: "متغیرهای عددی",
+  describe: "آمار توصیفی", total_missing: "کل داده‌های گمشده", normality: "آزمون نرمال‌بودن (شاپیرو-ویلک)",
+  outliers: "داده‌های پرت", multicollinearity: "هم‌خطی (VIF)", alpha: "آلفای کرونباخ", items: "تعداد گویه",
+  quality: "کیفیت", method: "روش", pairs: "همبستگی جفت‌متغیرها", coefficients: "ضرایب مدل",
+  r2: "ضریب تعیین (R²)", adj_r2: "R² تعدیل‌شده", f_stat: "آماره F", f_sig: "معناداری F",
+  durbin_watson: "دوربین-واتسون", pseudo_r2: "R² شبه", llr_p: "معناداری مدل", kind: "نوع",
+  n: "تعداد نمونه", sig: "سطح معناداری", f: "آماره F", groups: "تعداد گروه", mean: "میانگین",
+  mean1: "میانگین گروه ۱", mean2: "میانگین گروه ۲", t: "آماره t", kmo: "شاخص KMO",
+  bartlett_sig: "معناداری بارتلت", kmo_quality: "کیفیت KMO", loadings: "بارهای عاملی",
+  direct_effect: "اثر مستقیم", indirect_effect: "اثر غیرمستقیم", total_effect: "اثر کل",
+  boot_ci: "بازه اطمینان بوت‌استرپ", indirect_significant: "معناداری اثر غیرمستقیم",
+  mediation_type: "نوع میانجی‌گری", type: "نوع تحلیل", fit_indices: "شاخص‌های برازش",
+  fit_verdict: "ارزیابی برازش", cmin_df: "χ²/df", model_spec: "مدل", constructs: "سازه‌ها",
+  fornell_larcker: "روایی واگرا (فورنل-لارکر)", paths: "ضرایب مسیر", note: "توضیح",
+  CR: "پایایی ترکیبی (CR)", AVE: "میانگین واریانس (AVE)", cronbach_alpha: "آلفای کرونباخ",
+  beta: "ضریب مسیر (β)", from: "از", to: "به",
+};
+function faKey(k) { return STAT_FA[k] || k; }
+
+function mdCell(v) {
+  if (v === null || v === undefined) return "—";
+  if (Array.isArray(v)) return v.join("، ");
+  if (typeof v === "object") return Object.entries(v).map(([k, x]) => `${faKey(k)}: ${x}`).join("، ");
+  return String(v).replace(/\|/g, "/");
+}
+
+/* جدول مارک‌داون از فهرستی از شیءهای تخت */
+function mdTableFromList(list) {
+  const cols = [];
+  list.forEach(o => Object.keys(o).forEach(k => { if (!cols.includes(k)) cols.push(k); }));
+  if (!cols.length) return "";
+  let md = "| " + cols.map(faKey).join(" | ") + " |\n";
+  md += "| " + cols.map(() => "---").join(" | ") + " |\n";
+  list.forEach(o => { md += "| " + cols.map(c => mdCell(o[c])).join(" | ") + " |\n"; });
+  return md + "\n";
+}
+
+/* جدول کلید/مقدار از یک شیء تخت */
+function mdKeyVal(obj) {
+  const keys = Object.keys(obj);
+  if (!keys.length) return "";
+  let md = "| شاخص | مقدار |\n| --- | --- |\n";
+  keys.forEach(k => { md += `| ${faKey(k)} | ${mdCell(obj[k])} |\n`; });
+  return md + "\n";
+}
+
+function isFlat(v) {
+  return v === null || typeof v !== "object" || Array.isArray(v) && v.every(x => typeof x !== "object");
+}
+
+/* هر خروجی آماری (شیء/فهرست تودرتو) را به مارک‌داون با جدول‌های واقعی تبدیل می‌کند */
+function statsResultToMD(node, level = 3) {
+  if (node === null || typeof node !== "object") return String(node) + "\n\n";
+
+  if (Array.isArray(node)) {
+    if (!node.length) return "_(خالی)_\n\n";
+    if (node.every(x => x && typeof x === "object" && !Array.isArray(x))) return mdTableFromList(node);
+    if (node.every(x => Array.isArray(x))) {
+      // فهرستی از ردیف‌ها (مثل ارزیابی برازش)
+      const rows = node.map(r => { const o = {}; r.forEach((c, i) => (o["س" + i] = c)); return o; });
+      let md = "| " + node[0].map((_, i) => (i === 0 ? "شاخص" : i === 1 ? "مقدار" : "وضعیت")).join(" | ") + " |\n";
+      md += "| " + node[0].map(() => "---").join(" | ") + " |\n";
+      node.forEach(r => { md += "| " + r.map(c => mdCell(c)).join(" | ") + " |\n"; });
+      return md + "\n";
+    }
+    return node.map(x => "- " + mdCell(x)).join("\n") + "\n\n";
+  }
+
+  // شیء: مقادیر ساده در یک جدول کلید/مقدار، و بخش‌های پیچیده به‌صورت زیربخش
+  const flat = {}, complex = [];
+  for (const [k, v] of Object.entries(node)) {
+    if (v !== null && typeof v === "object") complex.push([k, v]);
+    else flat[k] = v;
+  }
+  let md = "";
+  if (Object.keys(flat).length) md += mdKeyVal(flat);
+  const h = "#".repeat(Math.min(level, 6));
+  for (const [k, v] of complex) {
+    md += `${h} ${faKey(k)}\n\n` + statsResultToMD(v, level + 1);
+  }
+  return md;
+}
+
 document.querySelectorAll(".stat-t").forEach(btn => {
   btn.addEventListener("click", async () => {
     if (!statsFileName) { toast("ابتدا فایل داده را آپلود کنید"); return; }
@@ -1074,8 +1159,8 @@ document.querySelectorAll(".stat-t").forEach(btn => {
         return;
       }
       let out = "## 📊 نتیجه تحلیل: " + btn.textContent.trim() + "\n\n";
-      out += "```\n" + JSON.stringify(d.result, null, 2) + "\n```\n\n";
-      if (d.interpretation) out += "### 📝 تفسیر دانشگاهی\n\n" + d.interpretation;
+      out += statsResultToMD(d.result);
+      if (d.interpretation) out += "\n\n### 📝 تفسیر دانشگاهی\n\n" + d.interpretation;
       mdEl.innerHTML = renderMD(out);
       aDiv.dataset.raw = out;
     } catch { mdEl.innerHTML = renderMD("⚠️ خطا در تحلیل"); }
