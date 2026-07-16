@@ -72,13 +72,81 @@ def _table_cells(line: str):
     return [_clean_md(c.strip()) for c in s.split("|")]
 
 
+_ORD_WORDS = "اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم"
+_HEAD_NUM_RE = re.compile(r"^([۰-۹0-9]+([.\-)][۰-۹0-9]+){1,4})[.\-)]?\s+(.+)$")
+_CHAPTER_RE = re.compile(r"^(فصل|بخش)\s+(" + _ORD_WORDS + r"|[۰-۹0-9]+)\b")
+_META_TOC_RE = re.compile(r"^(فهرست\s+(مطالب|جداول|نمودار|شکل|علائم|اختصار|منابع)|پیوست‌?ها)")
+
+
+def _strip_leading_number(s: str) -> str:
+    out = re.sub(r"^[۰-۹0-9]+([.\-)][۰-۹0-9]+)*[.\-)]?\s*", "", s).strip()
+    return out or s
+
+
+def _trim_heading(t: str) -> str:
+    """عنوان‌های خیلی بلند را کوتاه می‌کند (توضیح داخل پرانتزِ طولانی را حذف می‌کند)
+    ولی معادل انگلیسی کوتاه را نگه می‌دارد تا سرفصل تمیز بماند."""
+    t = t.strip()
+    if len(t) <= 75:
+        return t
+    idx = t.find(" (")
+    if idx == -1:
+        idx = t.find(" (")
+    if 3 < idx <= 75:
+        return t[:idx].strip()
+    return t[:73].rstrip() + "…"
+
+
+def normalize_structure(text: str) -> str:
+    """ساختار خروجی هوش مصنوعی را یکدست می‌کند تا فهرست کامل و شماره‌گذاری بدون تکرار شود:
+    خطوط «فصل …» و خطوط شماره‌دار (۱-۱، ۱-۲-۳) به سرفصل مارک‌داون با سطح درست تبدیل می‌شوند،
+    شماره‌های دستی حذف می‌شوند (آنتانو خودش یک‌بار شماره می‌زند) و «فهرست …» تکراری حذف می‌شود."""
+    out = []
+    for raw in (text or "").split("\n"):
+        s = raw.strip()
+        if not s:
+            out.append("")
+            continue
+        if "|" in s and s.count("|") >= 2:   # خطوط جدول را دست نزن
+            out.append(raw)
+            continue
+        mmd = re.match(r"^(#{1,6})\s+(.*)$", s)
+        core = (mmd.group(2) if mmd else s).strip()
+        core = re.sub(r"^\*\*(.+?)\*\*$", r"\1", core).strip()  # حذف بولد دور کل خط
+        # ابتدا شماره‌ی ابتدای خط را جدا کن (چه شماره‌ی خود هوش مصنوعی، چه شماره‌ی قبلی آنتانو)
+        mnum = _HEAD_NUM_RE.match(core)
+        if mnum:
+            n_parts = len(re.split(r"[.\-)]", mnum.group(1).rstrip(".-)")))
+            body_txt = mnum.group(3).strip()
+        else:
+            n_parts, body_txt = None, core
+        # «فهرست مطالب/جداول…» حذف می‌شود (آنتانو خودش فهرست می‌سازد)
+        if _META_TOC_RE.match(body_txt):
+            continue
+        # عنوان فصل → سطح ۱
+        if _CHAPTER_RE.match(body_txt) and len(body_txt) < 90:
+            out.append("# " + _trim_heading(body_txt))
+            continue
+        # عنوان شماره‌دار (۲ بخش به بالا) → سطح بر اساس تعداد بخش‌ها
+        if n_parts and n_parts >= 2 and len(body_txt) < 200:
+            level = min(n_parts, 3)
+            out.append("#" * level + " " + _trim_heading(body_txt))
+            continue
+        # سرفصل مارک‌داونِ بدون شماره را حفظ کن
+        if mmd:
+            out.append(mmd.group(1) + " " + body_txt)
+            continue
+        out.append(raw)
+    return "\n".join(out)
+
+
 def md_to_blocks(text: str):
     """('h1'|'h2'|'h3'|'li'|'p'|'table'|'footnotes', محتوا) — علامت‌های مارک‌داون حذف می‌شوند.
     پانوشت‌ها: تعریف با «[^شناسه]: متن» و ارجاع درون‌متنی با «[^شناسه]».
     برای 'table' محتوا فهرستی از ردیف‌هاست؛ برای 'footnotes' دیکشنری {شناسه: متن}."""
     blocks = []
     footnotes = {}
-    lines = (text or "").split("\n")
+    lines = normalize_structure(text).split("\n")
     i = 0
     n = len(lines)
     while i < n:
@@ -150,13 +218,18 @@ def compute_headings(blocks, numbering=True):
         lvl = HLEVEL.get(kind)
         if lvl is None:
             continue
-        if numbering:
-            cnt[lvl] += 1
-            for j in range(lvl + 1, 3):
-                cnt[j] = 0
+        # هیچ سطح والدی نباید صفر بماند (جلوگیری از «۱-۰-۱»)
+        for k in range(lvl):
+            if cnt[k] == 0:
+                cnt[k] = 1
+        cnt[lvl] += 1
+        for j in range(lvl + 1, 3):
+            cnt[j] = 0
+        is_chapter = bool(re.match(r"^\s*(فصل|بخش)\b", str(txt)))
+        if numbering and not (lvl == 0 and is_chapter):
             num = "-".join(_to_fa_digits_mod(cnt[k]) for k in range(lvl + 1)) + "- "
         else:
-            num = ""
+            num = ""  # عنوان «فصل …» بدون پیشوند شماره (ولی شمارنده جلو می‌رود تا زیربخش‌ها درست شوند)
         heads.append((f"_Toc_ant_{hi}", num + str(txt), lvl))
         hi += 1
     return heads
