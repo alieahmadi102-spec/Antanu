@@ -180,8 +180,39 @@ def add_heading_bookmark(paragraph, name, bid):
     p_el.append(end)
 
 
-def add_pageref_run(paragraph, bookmark_name):
-    """یک فیلد PAGEREF می‌سازد که شماره صفحه‌ی واقعی نشانک را نشان می‌دهد."""
+def estimate_heading_pages(blocks, numbering=True, cover=True, chars_per_line=88,
+                           lines_per_page=26):
+    """شماره صفحه‌ی تقریبی هر سرفصل را از روی حجم محتوا برآورد می‌کند (چون بدون
+    رندر واقعی نمی‌توان صفحه‌بندی دقیق داشت). خروجی: فهرست اعداد هم‌ترتیب با سرفصل‌ها."""
+    import math
+    HLEVEL = {"h1": 0, "h2": 1, "h3": 2}
+    heads = [1 for k, _ in blocks if k in HLEVEL]
+    n_head = len(heads)
+    toc_pages = max(1, math.ceil((n_head + 3) / lines_per_page))
+    start_page = (1 if cover else 0) + toc_pages + 1  # کاور + صفحات فهرست + شروع بدنه
+
+    def lines_of(kind, txt):
+        if kind in HLEVEL:
+            return 2  # سرفصل + فاصله
+        if kind == "table":
+            return len(txt) + 1 if isinstance(txt, list) else 2
+        if kind == "footnotes":
+            return 0
+        s = str(txt)
+        return max(1, math.ceil(len(s) / chars_per_line)) + 1
+
+    pages = []
+    cum = 0
+    for kind, txt in blocks:
+        if kind in HLEVEL:
+            pages.append(start_page + cum // lines_per_page)
+        cum += lines_of(kind, txt)
+    return pages
+
+
+def add_pageref_run(paragraph, bookmark_name, placeholder="۱"):
+    """یک فیلد PAGEREF می‌سازد که شماره صفحه‌ی نشانک را نشان می‌دهد.
+    placeholder = شماره‌ی تقریبیِ از پیش‌نوشته که در نمایشگرهای بدون به‌روزرسانی (موبایل) دیده می‌شود."""
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     run = paragraph.add_run()
@@ -189,7 +220,7 @@ def add_pageref_run(paragraph, bookmark_name):
     it = OxmlElement("w:instrText"); it.set(qn("xml:space"), "preserve")
     it.text = f" PAGEREF {bookmark_name} \\h "
     fs = OxmlElement("w:fldChar"); fs.set(qn("w:fldCharType"), "separate")
-    t = OxmlElement("w:t"); t.text = "۱"
+    t = OxmlElement("w:t"); t.text = str(placeholder)
     fe = OxmlElement("w:fldChar"); fe.set(qn("w:fldCharType"), "end")
     for x in (fb, it, fs, t, fe):
         run._r.append(x)
@@ -306,13 +337,15 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     # فهرست از پیش محاسبه‌شده (عنوان‌های شماره‌دار + نشانک)
     _heads = compute_headings(blocks, numbering) if (toc or numbering) else []
 
+    _est_pages = estimate_heading_pages(blocks, numbering, cover=bool(title)) if (toc or numbering) else []
+
     def add_toc(heads):
         """فهرست مطالبِ آماده و چیده‌شده: عنوان (راست) … نقطه‌چین … شماره صفحه (چپ)"""
         from docx.shared import Pt as _Pt
         h = doc.add_paragraph()
         rtl_para(h, WD_ALIGN_PARAGRAPH.CENTER, heading=True)
         style_run(h.add_run("فهرست مطالب"), font_size + 6, bold=True, color=(0x0F, 0x76, 0x6E))
-        for bm, text, lvl in heads:
+        for idx, (bm, text, lvl) in enumerate(heads):
             p = doc.add_paragraph()
             pPr = p._p.get_or_add_pPr()
             pPr.append(OxmlElement("w:bidi"))
@@ -322,7 +355,8 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             color = (0x0F, 0x76, 0x6E) if lvl == 0 else None
             style_run(p.add_run(text), font_size, bold=(lvl == 0), color=color)
             p.add_run("\t")
-            style_run(add_pageref_run(p, bm), font_size, bold=(lvl == 0), color=color)
+            est = _to_fa_digits(_est_pages[idx]) if idx < len(_est_pages) else "۱"
+            style_run(add_pageref_run(p, bm, est), font_size, bold=(lvl == 0), color=color)
         doc.add_page_break()
 
     doc = Document()

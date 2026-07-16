@@ -268,8 +268,9 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
 
     # ---------- فهرست مطالب (آماده و چیده‌شده: عنوان … نقطه‌چین … شماره صفحه) ----------
     from export_utils import (compute_headings, add_heading_bookmark, add_pageref_run,
-                              set_dot_leader_tab, set_update_fields)
+                              set_dot_leader_tab, set_update_fields, estimate_heading_pages)
     _heads = compute_headings(blocks, numbering) if (toc or numbering) else []
+    _est_pages = estimate_heading_pages(blocks, numbering, cover=bool(title)) if (toc or numbering) else []
     if toc and _heads:
         h = doc.add_paragraph()
         rtl(h, WD_ALIGN_PARAGRAPH.CENTER, before=6, after=10)
@@ -279,7 +280,7 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
         pAcc = rtl(acc, WD_ALIGN_PARAGRAPH.CENTER, before=2, after=8)
         shade(pAcc, spec["accent"])
         style_run(acc.add_run(" "), 3)
-        for bm, text, lvl in _heads:
+        for idx, (bm, text, lvl) in enumerate(_heads):
             tp = doc.add_paragraph()
             pPr = rtl(tp, after=4)
             tp.paragraph_format.right_indent = Pt(lvl * 16)
@@ -288,7 +289,8 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
             style_run(tp.add_run(text), font_size, font=head_font if lvl == 0 else body_font,
                       bold=(lvl <= 1), color=col)
             tp.add_run("\t")
-            style_run(add_pageref_run(tp, bm), font_size, bold=(lvl == 0), color=col)
+            est = _fa_digits(_est_pages[idx]) if idx < len(_est_pages) else "۱"
+            style_run(add_pageref_run(tp, bm, est), font_size, bold=(lvl == 0), color=col)
         set_update_fields(doc)
         doc.add_page_break()
     _head_iter = iter(_heads)
