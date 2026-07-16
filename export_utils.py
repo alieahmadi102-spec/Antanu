@@ -73,15 +73,24 @@ def _table_cells(line: str):
 
 
 def md_to_blocks(text: str):
-    """('h1'|'h2'|'h3'|'li'|'p'|'table', محتوا) — علامت‌های مارک‌داون حذف می‌شوند.
-    برای 'table' محتوا فهرستی از ردیف‌هاست (هر ردیف فهرست سلول‌ها؛ ردیف اول سرستون)."""
+    """('h1'|'h2'|'h3'|'li'|'p'|'table'|'footnotes', محتوا) — علامت‌های مارک‌داون حذف می‌شوند.
+    پانوشت‌ها: تعریف با «[^شناسه]: متن» و ارجاع درون‌متنی با «[^شناسه]».
+    برای 'table' محتوا فهرستی از ردیف‌هاست؛ برای 'footnotes' دیکشنری {شناسه: متن}."""
     blocks = []
+    footnotes = {}
     lines = (text or "").split("\n")
     i = 0
     n = len(lines)
     while i < n:
         raw = lines[i]
         line = raw.strip()
+
+        # تعریف پانوشت:  [^۱]: توضیح اصطلاح
+        mfn = re.match(r"^\[\^([^\]]+)\]:\s*(.+)$", line)
+        if mfn:
+            footnotes[mfn.group(1).strip()] = _clean_md(mfn.group(2).strip())
+            i += 1
+            continue
 
         # تشخیص جدول: خط دارای | و خط بعدی جداکننده‌ی --- باشد
         if "|" in line and i + 1 < n and _is_table_sep(lines[i + 1]):
@@ -114,7 +123,49 @@ def md_to_blocks(text: str):
         else:
             blocks.append(("p", line))
         i += 1
+    if footnotes:
+        blocks.append(("footnotes", footnotes))
     return blocks
+
+
+_FN_MARKER_RE = re.compile(r"\[\^([^\]]+)\]")
+
+
+def _to_fa_digits_mod(s) -> str:
+    return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
+def _flatten_footnotes(blocks):
+    """برای خروجی‌های غیر Word: نشانه‌های [^id] را به «(n)» تبدیل می‌کند و فهرست پانوشت‌ها را برمی‌گرداند."""
+    fn_defs = {}
+    for k, t in blocks:
+        if k == "footnotes":
+            fn_defs = t
+    if not fn_defs:
+        return [b for b in blocks if b[0] != "footnotes"], []
+    order, num = [], {}
+
+    def repl(text):
+        def _r(m):
+            fid = m.group(1).strip()
+            if fid not in fn_defs:
+                return ""
+            if fid not in num:
+                order.append(fid)
+                num[fid] = len(order)
+            return f"({_to_fa_digits_mod(num[fid])})"
+        return _FN_MARKER_RE.sub(_r, str(text))
+
+    new = []
+    for k, t in blocks:
+        if k == "footnotes":
+            continue
+        if k == "table":
+            new.append((k, [[repl(c) for c in row] for row in t]))
+        else:
+            new.append((k, repl(t)))
+    notes = [(num[f], fn_defs[f]) for f in order]
+    return new, notes
 
 
 def _new_name(ext: str) -> str:
@@ -123,8 +174,13 @@ def _new_name(ext: str) -> str:
 
 # ---------------- ساخت فایل Word (راست‌به‌چپ) ----------------
 
+def _to_fa_digits(s) -> str:
+    return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
 def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
-               title: str | None = None, align: str = "right") -> str:
+               title: str | None = None, align: str = "right",
+               toc: bool = False, numbering: bool = False) -> str:
     from docx import Document
     from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -132,7 +188,7 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     from docx.oxml import OxmlElement
 
     ALIGN_MAP = {"right": WD_ALIGN_PARAGRAPH.RIGHT, "left": WD_ALIGN_PARAGRAPH.LEFT,
-                 "center": WD_ALIGN_PARAGRAPH.CENTER}
+                 "center": WD_ALIGN_PARAGRAPH.CENTER, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
     body_align = ALIGN_MAP.get(align, WD_ALIGN_PARAGRAPH.RIGHT)
 
     def style_run(run, size, bold=False, color=None):
@@ -150,7 +206,7 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         rPr.append(szCs)
         rPr.append(OxmlElement("w:rtl"))
 
-    def rtl_para(p, align=WD_ALIGN_PARAGRAPH.RIGHT, heading=False):
+    def rtl_para(p, align=WD_ALIGN_PARAGRAPH.RIGHT, heading=False, level=None):
         p.alignment = align
         pf = p.paragraph_format
         pf.line_spacing = 1.5
@@ -161,6 +217,42 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             pf.keep_with_next = True
         pPr = p._p.get_or_add_pPr()
         pPr.append(OxmlElement("w:bidi"))
+        # سطح رئوس مطالب تا در فهرست خودکار (TOC) بیاید
+        if level is not None:
+            ol = OxmlElement("w:outlineLvl")
+            ol.set(qn("w:val"), str(level))
+            pPr.append(ol)
+
+    def add_toc():
+        """درج فیلد فهرست مطالب خودکار (با شماره صفحه و نقطه‌چین) — در Word با Update Field پر می‌شود"""
+        h = doc.add_paragraph()
+        rtl_para(h, WD_ALIGN_PARAGRAPH.CENTER, heading=True)
+        style_run(h.add_run("فهرست مطالب"), font_size + 6, bold=True, color=(0x0F, 0x76, 0x6E))
+
+        p = doc.add_paragraph()
+        pPr = p._p.get_or_add_pPr()
+        pPr.append(OxmlElement("w:bidi"))
+        run = p.add_run()
+        fldBegin = OxmlElement("w:fldChar"); fldBegin.set(qn("w:fldCharType"), "begin")
+        instr = OxmlElement("w:instrText"); instr.set(qn("xml:space"), "preserve")
+        instr.text = 'TOC \\o "1-3" \\h \\z \\u'
+        fldSep = OxmlElement("w:fldChar"); fldSep.set(qn("w:fldCharType"), "separate")
+        placeholder = OxmlElement("w:t")
+        placeholder.text = "برای نمایش فهرست: در Word کلیک‌راست روی این کادر ← Update Field (یا Ctrl+A و سپس F9)"
+        fldEnd = OxmlElement("w:fldChar"); fldEnd.set(qn("w:fldCharType"), "end")
+        run._r.append(fldBegin); run._r.append(instr); run._r.append(fldSep)
+        run._r.append(placeholder); run._r.append(fldEnd)
+        doc.add_page_break()
+
+    def set_update_fields_on_open():
+        """به Word می‌گوید هنگام باز شدن فایل، فیلدها (از جمله فهرست) را به‌روز کند"""
+        try:
+            settings = doc.settings.element
+            uf = OxmlElement("w:updateFields")
+            uf.set(qn("w:val"), "true")
+            settings.append(uf)
+        except Exception:
+            pass
 
     doc = Document()
 
@@ -168,6 +260,20 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         p = doc.add_paragraph()
         rtl_para(p, WD_ALIGN_PARAGRAPH.CENTER)
         style_run(p.add_run(title), font_size + 10, bold=True, color=(0x0F, 0x76, 0x6E))
+
+    if toc:
+        add_toc()
+        set_update_fields_on_open()
+
+    # شمارنده‌های شماره‌گذاری سلسله‌مراتبی سرفصل‌ها (۱، ۱-۱، ۱-۱-۱)
+    counters = [0, 0, 0]
+
+    def heading_number(lvl):  # lvl: 0=h1, 1=h2, 2=h3
+        counters[lvl] += 1
+        for j in range(lvl + 1, 3):
+            counters[j] = 0
+        parts = [counters[k] for k in range(lvl + 1)]
+        return "-".join(_to_fa_digits(x) for x in parts) + "- "
 
     def add_table(rows):
         if not rows:
@@ -192,22 +298,72 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
                           color=(0x0F, 0x76, 0x6E) if ri == 0 else None)
         doc.add_paragraph()
 
+    # پانوشت‌ها: شماره‌گذاری به‌ترتیب اولین ظهور در متن
+    fn_defs = {}
     for kind, txt in blocks:
+        if kind == "footnotes":
+            fn_defs = txt
+    fn_order = []        # فهرست شناسه‌ها به‌ترتیب ظهور
+    fn_num = {}          # شناسه → شماره
+
+    def add_run_with_fn(p, text, size, bold=False, color=None, bullet=False):
+        """متن را با تبدیل نشانه‌های [^id] به شماره‌ی بالانویسِ پانوشت درج می‌کند"""
+        if bullet:
+            text = "• " + text
+        pos = 0
+        for m in _FN_MARKER_RE.finditer(text):
+            fid = m.group(1).strip()
+            if fid not in fn_defs:
+                continue
+            before = text[pos:m.start()]
+            if before:
+                style_run(p.add_run(before), size, bold=bold, color=color)
+            if fid not in fn_num:
+                fn_order.append(fid)
+                fn_num[fid] = len(fn_order)
+            sup = p.add_run(_to_fa_digits(fn_num[fid]))
+            style_run(sup, max(8, size - 3), bold=True, color=(0x0F, 0x76, 0x6E))
+            sup.font.superscript = True
+            pos = m.end()
+        rest = text[pos:]
+        if rest or pos == 0:
+            style_run(p.add_run(rest), size, bold=bold, color=color)
+
+    HLEVEL = {"h1": 0, "h2": 1, "h3": 2}
+    for kind, txt in blocks:
+        if kind == "footnotes":
+            continue
         if kind == "table":
             add_table(txt)
             continue
+        lvl = HLEVEL.get(kind)
         p = doc.add_paragraph()
-        rtl_para(p, body_align, heading=kind in ("h1", "h2", "h3"))
+        rtl_para(p, body_align, heading=lvl is not None, level=lvl)
+        if lvl is not None and numbering:
+            txt = heading_number(lvl) + txt
         if kind == "h1":
-            style_run(p.add_run(txt), font_size + 8, bold=True, color=(0x0F, 0x76, 0x6E))
+            add_run_with_fn(p, txt, font_size + 8, bold=True, color=(0x0F, 0x76, 0x6E))
         elif kind == "h2":
-            style_run(p.add_run(txt), font_size + 4, bold=True, color=(0xB8, 0x86, 0x0B))
+            add_run_with_fn(p, txt, font_size + 4, bold=True, color=(0xB8, 0x86, 0x0B))
         elif kind == "h3":
-            style_run(p.add_run(txt), font_size + 2, bold=True)
+            add_run_with_fn(p, txt, font_size + 2, bold=True)
         elif kind == "li":
-            style_run(p.add_run("• " + txt), font_size)
+            add_run_with_fn(p, txt, font_size, bullet=True)
         else:
-            style_run(p.add_run(txt), font_size)
+            add_run_with_fn(p, txt, font_size)
+
+    # بخش پانوشت‌ها در انتهای سند (شماره‌دار، فارسی و انگلیسی)
+    if fn_order:
+        doc.add_paragraph()
+        hp = doc.add_paragraph()
+        rtl_para(hp, body_align, heading=True)
+        style_run(hp.add_run("پانوشت‌ها"), font_size + 3, bold=True, color=(0x0F, 0x76, 0x6E))
+        for fid in fn_order:
+            np = doc.add_paragraph()
+            rtl_para(np, body_align)
+            style_run(np.add_run(f"{_to_fa_digits(fn_num[fid])}. "), max(9, font_size - 1),
+                      bold=True, color=(0x0F, 0x76, 0x6E))
+            style_run(np.add_run(fn_defs[fid]), max(9, font_size - 1))
 
     name = _new_name("docx")
     doc.save(os.path.join(EXPORT_DIR, name))
@@ -239,6 +395,8 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
     pdf.add_font("Vazir", "", font)
+
+    blocks, fn_notes = _flatten_footnotes(blocks)
 
     if title:
         pdf.set_font("Vazir", size=font_size + 8)
@@ -276,13 +434,24 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
         size = font_size + (8 if kind == "h1" else 4 if kind == "h2" else 2 if kind == "h3" else 0)
         pdf.set_font("Vazir", size=size)
         text = ("• " + txt) if kind == "li" else txt
-        pdf_align = {"right": "R", "left": "L", "center": "C"}.get(align, "R")
+        pdf_align = {"right": "R", "left": "L", "center": "C", "justify": "J"}.get(align, "R")
         try:
             pdf.multi_cell(0, size * 0.62, shape(text), align=pdf_align)
         except Exception:
             continue
         if kind in ("h1", "h2", "h3"):
             pdf.ln(1)
+
+    if fn_notes:
+        pdf.ln(3)
+        pdf.set_font("Vazir", size=font_size + 1)
+        pdf.multi_cell(0, (font_size + 1) * 0.62, shape("پانوشت‌ها"), align="R")
+        pdf.set_font("Vazir", size=max(9, font_size - 2))
+        for num, note in fn_notes:
+            try:
+                pdf.multi_cell(0, (font_size - 2) * 0.7, shape(f"{_to_fa_digits_mod(num)}. {note}"), align="R")
+            except Exception:
+                continue
 
     name = _new_name("pdf")
     pdf.output(os.path.join(EXPORT_DIR, name))
@@ -296,6 +465,11 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
 
+    blocks, fn_notes = _flatten_footnotes(blocks)
+    if fn_notes:
+        blocks = list(blocks) + [("h3", "پانوشت‌ها")] + \
+            [("li", f"{_to_fa_digits_mod(n)}. {t}") for n, t in fn_notes]
+
     wb = Workbook()
     ws = wb.active
     ws.title = "آنتانو"
@@ -305,7 +479,8 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     from openpyxl.utils import get_column_letter
 
     xl_align = Alignment(
-        horizontal={"right": "right", "left": "left", "center": "center"}.get(align, "right"),
+        horizontal={"right": "right", "left": "left", "center": "center",
+                    "justify": "justify"}.get(align, "right"),
         vertical="top", wrap_text=True,
     )
     row = 1
@@ -368,11 +543,16 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
 
 # ---------------- ساخت پاورپوینت (راست‌به‌چپ فارسی) ----------------
 
-def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
+def build_pptx(content: str, title: str = "ارائه آنتانو", font: str = "Tahoma") -> str:
     from pptx import Presentation
     from pptx.util import Pt, Inches
     from pptx.enum.text import PP_ALIGN
     from pptx.dml.color import RGBColor
+
+    # فونت‌های امن و رایج که روی همه سیستم‌ها موجودند (تا ارائه به‌هم نریزد)
+    SAFE_FONTS = {"Tahoma", "Arial", "Calibri", "Times New Roman", "Segoe UI", "B Nazanin"}
+    if font not in SAFE_FONTS:
+        font = "Tahoma"
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -396,11 +576,11 @@ def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
     tf.word_wrap = True
     p = tf.paragraphs[0]
     r = p.add_run(); r.text = title
-    r.font.size = Pt(44); r.font.bold = True; r.font.color.rgb = TEAL; r.font.name = "Vazirmatn"
+    r.font.size = Pt(44); r.font.bold = True; r.font.color.rgb = TEAL; r.font.name = font
     p.alignment = PP_ALIGN.CENTER
 
     # تقسیم محتوا به اسلایدها بر اساس عنوان‌ها (خطوط # یا ##)
-    blocks = md_to_blocks(content)
+    blocks, _ = _flatten_footnotes(md_to_blocks(content))
     cur_title = None
     cur_points = []
 
@@ -413,7 +593,7 @@ def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
         ttf = t.text_frame; ttf.word_wrap = True
         tp = ttf.paragraphs[0]
         tr = tp.add_run(); tr.text = cur_title or "•"
-        tr.font.size = Pt(30); tr.font.bold = True; tr.font.color.rgb = GOLD; tr.font.name = "Vazirmatn"
+        tr.font.size = Pt(30); tr.font.bold = True; tr.font.color.rgb = GOLD; tr.font.name = font
         tp.alignment = PP_ALIGN.RIGHT
         set_rtl(ttf)
         # محتوا
@@ -424,7 +604,7 @@ def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
             para = btf.paragraphs[0] if first else btf.add_paragraph()
             first = False
             run = para.add_run(); run.text = "• " + pt
-            run.font.size = Pt(20); run.font.color.rgb = DARK; run.font.name = "Vazirmatn"
+            run.font.size = Pt(20); run.font.color.rgb = DARK; run.font.name = font
             para.alignment = PP_ALIGN.RIGHT
             para.space_after = Pt(10)
         set_rtl(btf)
@@ -451,3 +631,109 @@ def build_pptx(content: str, title: str = "ارائه آنتانو") -> str:
     name = _new_name("pptx")
     prs.save(os.path.join(EXPORT_DIR, name))
     return name
+
+
+# ---------------- استخراج متن از اسناد (برای تبدیل فرمت‌ها) ----------------
+
+def _docx_tables_to_md(table) -> str:
+    rows = []
+    for row in table.rows:
+        cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+        if any(cells):
+            rows.append(cells)
+    if len(rows) < 1:
+        return ""
+    ncol = max(len(r) for r in rows)
+    rows = [r + [""] * (ncol - len(r)) for r in rows]
+    out = ["| " + " | ".join(rows[0]) + " |", "| " + " | ".join(["---"] * ncol) + " |"]
+    for r in rows[1:]:
+        out.append("| " + " | ".join(r) + " |")
+    return "\n".join(out)
+
+
+def extract_markdown(path: str) -> str:
+    """متن یک سند (Word/PDF/PowerPoint/متن) را به مارک‌داون ساده تبدیل می‌کند"""
+    ext = os.path.splitext(path)[1].lower()
+    parts = []
+
+    if ext == ".docx":
+        from docx import Document
+        doc = Document(path)
+        # پاراگراف‌ها و جدول‌ها را به ترتیب بدنه بخوان
+        from docx.oxml.ns import qn
+        body = doc.element.body
+        tbl_iter = iter(doc.tables)
+        para_iter = iter(doc.paragraphs)
+        for child in body.iterchildren():
+            if child.tag == qn("w:p"):
+                try:
+                    p = next(para_iter)
+                except StopIteration:
+                    continue
+                t = p.text.strip()
+                if not t:
+                    continue
+                style = (p.style.name or "").lower() if p.style else ""
+                if "heading 1" in style or "title" in style:
+                    parts.append("# " + t)
+                elif "heading 2" in style:
+                    parts.append("## " + t)
+                elif "heading 3" in style or "heading" in style:
+                    parts.append("### " + t)
+                else:
+                    parts.append(t)
+            elif child.tag == qn("w:tbl"):
+                try:
+                    tb = next(tbl_iter)
+                    md = _docx_tables_to_md(tb)
+                    if md:
+                        parts.append(md)
+                except StopIteration:
+                    continue
+
+    elif ext == ".pdf":
+        from pypdf import PdfReader
+        reader = PdfReader(path)
+        for page in reader.pages:
+            txt = page.extract_text() or ""
+            for ln in txt.split("\n"):
+                if ln.strip():
+                    parts.append(ln.strip())
+
+    elif ext == ".pptx":
+        from pptx import Presentation
+        prs = Presentation(path)
+        for i, slide in enumerate(prs.slides, 1):
+            texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        s = "".join(r.text for r in para.runs).strip()
+                        if s:
+                            texts.append(s)
+            if texts:
+                parts.append("## " + texts[0])        # اولین خط اسلاید = عنوان
+                for t in texts[1:]:
+                    parts.append("- " + t)
+
+    else:  # متن ساده
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            parts = [ln.rstrip() for ln in f]
+
+    return "\n\n".join(parts).strip()
+
+
+def convert_document(src_path: str, target: str, font_name: str = "Vazirmatn",
+                     font_size: int = 14, align: str = "justify", title=None):
+    """تبدیل یک سند به فرمت هدف (docx/pdf/pptx). خروجی: (نام فایل | None، خطا | None)"""
+    md = extract_markdown(src_path)
+    if not md:
+        return None, "متنی برای تبدیل در فایل پیدا نشد (شاید فایل اسکن‌شده یا خالی است)."
+    blocks = md_to_blocks(md)
+    if target == "docx":
+        return build_docx(blocks, font_name, font_size, title, align), None
+    if target == "pdf":
+        return build_pdf(blocks, font_size, title, align)
+    if target == "pptx":
+        return build_pptx(md, title or "ارائه آنتانو"), None
+    return None, "فرمت هدف پشتیبانی نمی‌شود"

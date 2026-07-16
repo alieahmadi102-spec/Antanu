@@ -416,6 +416,20 @@ def clean_foreign(text: str) -> str:
     return _FOREIGN_RE.sub("", text) if text else text
 
 
+# مثل clean_foreign ولی الفبای لاتین (انگلیسی) را نگه می‌دارد — مخصوص ارجاع‌ها و DOI
+_FOREIGN_RE_NONLATIN = re.compile(
+    r"[Ͱ-Ͽ"            # یونانی
+    r"Ѐ-ӿ"             # سیریلیک/روسی
+    r"ऀ-ॿঀ-෿฀-๿"  # هندی، بنگالی، تایلندی
+    r"ᄀ-ᇿ"                              # کره‌ای قدیم
+    r"぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯]+"  # ژاپنی، چینی، کره‌ای
+)
+
+
+def clean_foreign_keep_latin(text: str) -> str:
+    return _FOREIGN_RE_NONLATIN.sub("", text) if text else text
+
+
 # واژه‌هایی که یعنی کاربر اطلاعات «روز» می‌خواهد → جستجوی وب خودکار روشن می‌شود
 AUTO_SEARCH_WORDS = [
     "امروز", "دیروز", "فردا", "اخبار", "خبر", "قیمت", "نرخ", "دلار", "یورو",
@@ -536,7 +550,12 @@ BASE_SYSTEM_PROMPT = (
     "۷) از تکرار واژه‌ها، عبارت‌ها و مطالب پرهیز کن؛ همیشه واژگان متنوع و مطالب تازه به کار ببر. "
     "۸) بسیار مهم: خروجی فقط با حروف فارسی (و در صورت نیاز، معادل انگلیسی داخل پرانتز) باشد؛ "
     "هرگز واژه‌های روسی، هندی، چینی، ویتنامی، فرانسوی، اسپانیایی یا هر زبان دیگری را وسط متن فارسی نیاور. "
-    "اگر واژه‌ای را نمی‌دانی، ساده‌ترین معادل فارسی را بنویس. جمله ناتمام یا شکسته ننویس."
+    "اگر واژه‌ای را نمی‌دانی، ساده‌ترین معادل فارسی را بنویس. جمله ناتمام یا شکسته ننویس. "
+    "۹) نگارش تمیز و مرتب: متن را با ساختار روشن بنویس؛ برای عنوان‌ها از # و ## و ### استفاده کن، "
+    "برای فهرست‌ها از «- »، و جدول‌ها را با قالب استاندارد مارک‌داون (خط سرستون و خط جداکننده |---|) بساز. "
+    "از خطوط خالیِ اضافه، نویسه‌های درهم و کاراکترهای زائد پرهیز کن تا خروجی Word و PDF مرتب باشد. "
+    "۱۰) پانوشت: هر جا لازم شد برای یک اصطلاح تخصصی یا منبع، پانوشت بگذار؛ در متن بعد از واژه بنویس [^۱] "
+    "و در انتها تعریف را در خطی جدا بیاور: «[^۱]: معادل انگلیسی یا توضیح». برای اصطلاحات، معادل انگلیسی را در پانوشت بده."
 )
 
 
@@ -1206,6 +1225,186 @@ async def parse_reference(request: Request):
     except json.JSONDecodeError:
         raise HTTPException(422, "خروجی قابل خواندن نبود؛ فیلدها را دستی وارد کنید")
     return {f: str(data.get(f, "") or "") for f in REF_FIELDS if f != "note"}
+
+
+# ---------------- جست‌وجوی خودکار منابع علمی (Crossref + OpenAlex — رایگان و بدون کلید) ----------------
+
+def _crossref_to_fields(item: dict) -> dict:
+    authors = "؛ ".join(
+        " ".join(p for p in [a.get("given", ""), a.get("family", "")] if p).strip()
+        for a in (item.get("author") or [])
+    )
+    title = (item.get("title") or [""])[0]
+    source = (item.get("container-title") or item.get("publisher") and [item.get("publisher")] or [""])
+    source = source[0] if isinstance(source, list) else (source or "")
+    dt = (item.get("issued") or {}).get("date-parts") or [[None]]
+    year = str(dt[0][0]) if dt and dt[0] and dt[0][0] else ""
+    rtype = "article"
+    t = (item.get("type") or "").lower()
+    if "book" in t:
+        rtype = "book"
+    elif "thesis" in t or "dissertation" in t:
+        rtype = "thesis"
+    elif "proceedings" in t or "conference" in t:
+        rtype = "conference"
+    return {
+        "ref_type": rtype,
+        "authors": authors,
+        "title": title,
+        "year": year,
+        "source": source,
+        "volume": str(item.get("volume") or ""),
+        "issue": str(item.get("issue") or ""),
+        "pages": str(item.get("page") or ""),
+        "url": item.get("DOI") and f"https://doi.org/{item['DOI']}" or (item.get("URL") or ""),
+    }
+
+
+def _openalex_to_fields(w: dict) -> dict:
+    authors = "؛ ".join(
+        (a.get("author") or {}).get("display_name", "")
+        for a in (w.get("authorships") or [])
+    ).strip("؛ ")
+    src = ((w.get("primary_location") or {}).get("source") or {}).get("display_name", "")
+    bib = w.get("biblio") or {}
+    doi = w.get("doi") or ""
+    return {
+        "ref_type": "article" if (w.get("type") or "") == "article" else (w.get("type") or "article"),
+        "authors": authors,
+        "title": w.get("title") or w.get("display_name") or "",
+        "year": str(w.get("publication_year") or ""),
+        "source": src,
+        "volume": str(bib.get("volume") or ""),
+        "issue": str(bib.get("issue") or ""),
+        "pages": "-".join(p for p in [bib.get("first_page"), bib.get("last_page")] if p),
+        "url": doi or (w.get("id") or ""),
+    }
+
+
+async def lookup_reference_online(query: str):
+    """جست‌وجوی متادیتای مقاله در Crossref و سپس OpenAlex — تا ۵ نتیجه برمی‌گرداند"""
+    query = (query or "").strip()
+    if not query:
+        return []
+    results = []
+    is_doi = bool(re.search(r"10\.\d{4,}/\S+", query))
+    headers = {"User-Agent": "Antanu/1.0 (mailto:antanu@example.com)"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10), headers=headers) as client:
+        # Crossref
+        try:
+            if is_doi:
+                doi = re.search(r"10\.\d{4,}/\S+", query).group(0)
+                r = await client.get(f"https://api.crossref.org/works/{doi}")
+                if r.status_code == 200:
+                    results.append(_crossref_to_fields(r.json()["message"]))
+            else:
+                r = await client.get("https://api.crossref.org/works",
+                                     params={"query.bibliographic": query, "rows": 5})
+                if r.status_code == 200:
+                    for it in r.json().get("message", {}).get("items", []):
+                        results.append(_crossref_to_fields(it))
+        except Exception:
+            pass
+        # OpenAlex (پشتیبان / تکمیلی)
+        if len(results) < 3:
+            try:
+                if is_doi:
+                    doi = re.search(r"10\.\d{4,}/\S+", query).group(0)
+                    r = await client.get(f"https://api.openalex.org/works/https://doi.org/{doi}")
+                    if r.status_code == 200:
+                        results.append(_openalex_to_fields(r.json()))
+                else:
+                    r = await client.get("https://api.openalex.org/works",
+                                         params={"search": query, "per-page": 5})
+                    if r.status_code == 200:
+                        for w in r.json().get("results", []):
+                            results.append(_openalex_to_fields(w))
+            except Exception:
+                pass
+    # حذف نتایج بی‌عنوان و تکراری
+    seen, clean = set(), []
+    for it in results:
+        key = (it.get("title") or "").strip().lower()[:80]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        clean.append(it)
+    return clean[:6]
+
+
+@app.post("/api/references/lookup")
+async def references_lookup(request: Request):
+    """جست‌وجوی خودکار منبع بر اساس عنوان یا DOI و تکمیل خودکار فیلدهای APA"""
+    user = require_user(request)
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    if len(query) < 4:
+        raise HTTPException(400, "عنوان مقاله یا DOI را وارد کنید (حداقل ۴ نویسه)")
+    results = await lookup_reference_online(query)
+    if not results:
+        raise HTTPException(404, "منبعی پیدا نشد. عنوان دقیق‌تر یا DOI را امتحان کنید، یا دستی وارد کنید.")
+    return {"results": results}
+
+
+@app.post("/api/references/translate")
+async def references_translate(request: Request):
+    """ترجمه‌ی یک ارجاع انگلیسی به فارسی، بدون به‌هم‌ریختن اعداد، پرانتزها، DOI و سال"""
+    user = require_user(request)
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if len(text) < 5:
+        raise HTTPException(400, "متن ارجاع را وارد کنید")
+    catalog = get_ai_catalog()
+    c = catalog[0]
+    if not c.get("key"):
+        raise HTTPException(400, "برای ترجمه، مدیر باید کلید API را در پنل تنظیم کند")
+    prompt = (
+        "این ارجاع علمی انگلیسی را به فارسی روان و آکادمیک ترجمه کن. قواعد بسیار مهم: "
+        "۱) اعداد (سال، دوره، شماره، صفحات)، DOI و نشانی اینترنتی را دقیقاً و بدون تغییر و بدون جابه‌جایی نگه دار. "
+        "۲) پرانتزها و علائم نگارشی سرجای خود بمانند و به‌هم نریزند. "
+        "۳) نام نویسندگان را به فارسی آوانویسی کن ولی شکل لاتین را داخل پرانتز بیاور. "
+        "۴) عنوان مقاله را ترجمه کن و عنوان اصلی انگلیسی را داخل پرانتز نگه دار. "
+        "فقط خود ارجاع ترجمه‌شده را برگردان، بدون توضیح اضافه.\n\n"
+        f"ارجاع:\n{text[:2000]}"
+    )
+    try:
+        out = await _call_model_once(c, prompt, max_tokens=700)
+    except Exception:
+        raise HTTPException(502, "ترجمه ممکن نشد؛ بعداً تلاش کنید")
+    return {"translated": clean_foreign_keep_latin(out or "")}
+
+
+@app.post("/api/references/import")
+async def references_import(request: Request):
+    """استخراج فهرست منابع از یک فایل آپلودشده (Word/PDF/متن) — خطوطِ شبیه ارجاع را برمی‌گرداند"""
+    user = require_user(request)
+    body = await request.json()
+    upload_id = body.get("upload_id")
+    db = get_db()
+    row = db.execute("SELECT content, kind FROM uploads WHERE id = ? AND user_id = ?",
+                     (int(upload_id), user["id"])).fetchone()
+    db.close()
+    if not row or row["kind"] != "text":
+        raise HTTPException(404, "فایل متنی یافت نشد؛ ابتدا یک فایل Word/PDF/متن آپلود کنید")
+    text = row["content"] or ""
+    lines = [ln.strip() for ln in re.split(r"[\r\n]+", text) if ln.strip()]
+    # خطوطی که شبیه ارجاع‌اند: دارای سال داخل پرانتز یا DOI یا الگوی «نویسنده (سال)»
+    cands = []
+    for ln in lines:
+        if len(ln) < 25:
+            continue
+        if re.search(r"\(\s*\d{4}\s*\)|10\.\d{4,}/|\d{4}\.\s|، \d{4}", ln) or \
+           re.search(r"[A-Z][a-z]+,\s*[A-Z]\.", ln):
+            cands.append(ln[:500])
+    # حذف تکراری‌ها
+    seen, out = set(), []
+    for ln in cands:
+        k = ln[:60].lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(ln)
+    return {"candidates": out[:60], "count": len(out)}
 
 
 @app.post("/api/references/bibliography")
@@ -1903,6 +2102,47 @@ async def api_pptx(request: Request):
     return {"files": [{"label": "📊 دانلود پاورپوینت", "url": f"/download/{name}"}]}
 
 
+@app.post("/api/convert")
+async def api_convert(request: Request, file: UploadFile = File(...), target: str = Form("docx")):
+    """تبدیل سند: Word/PDF/PowerPoint ↔ یکدیگر (بر پایه استخراج متن و بازسازی)"""
+    user = require_user(request)
+    check_subscription(user)
+    target = (target or "docx").lower().strip()
+    if target not in ("docx", "pdf", "pptx"):
+        raise HTTPException(400, "فرمت هدف باید docx، pdf یا pptx باشد")
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل نباید بیشتر از ۲۵ مگابایت باشد")
+    name = file.filename or "file"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in (".docx", ".pdf", ".pptx", ".txt", ".md"):
+        raise HTTPException(400, "فرمت ورودی پشتیبانی‌شده: Word (.docx)، PDF، PowerPoint (.pptx)، متن")
+    if ext.lstrip(".") == target:
+        raise HTTPException(400, "فرمت ورودی و خروجی یکسان است")
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند: pip install -r requirements.txt ({_e})")
+    src = os.path.join(export_utils.EXPORT_DIR, f"src-{secrets.token_hex(6)}{ext}")
+    with open(src, "wb") as f:
+        f.write(raw)
+    title = os.path.splitext(name)[0][:80]
+    try:
+        out_name, err = await run_in_threadpool(export_utils.convert_document, src, target,
+                                                "Vazirmatn", 14, "justify", title)
+    except Exception as e:
+        raise HTTPException(400, f"تبدیل ناموفق بود: {e}")
+    finally:
+        try:
+            os.remove(src)
+        except OSError:
+            pass
+    if not out_name:
+        raise HTTPException(400, err or "تبدیل ناموفق بود")
+    labels = {"docx": "📄 دانلود Word", "pdf": "📕 دانلود PDF", "pptx": "📊 دانلود پاورپوینت"}
+    return {"files": [{"label": labels.get(target, "دانلود"), "url": f"/download/{out_name}"}]}
+
+
 @app.get("/download/{fname}")
 def download_file(fname: str, request: Request):
     require_user(request)
@@ -1934,8 +2174,10 @@ async def api_export(request: Request):
     except (TypeError, ValueError):
         size = 14
     formats = body.get("formats") or ["docx"]
-    align = body.get("align") if body.get("align") in ("right", "left", "center") else "right"
+    align = body.get("align") if body.get("align") in ("right", "left", "center", "justify") else "right"
     title = (body.get("title") or "").strip() or None
+    toc = bool(body.get("toc"))
+    numbering = bool(body.get("numbering"))
 
     try:
         import export_utils
@@ -1944,7 +2186,7 @@ async def api_export(request: Request):
     blocks = export_utils.md_to_blocks(content)
     files, notes = [], []
     if "docx" in formats:
-        name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align)
+        name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align, toc, numbering)
         files.append({"label": "📄 دانلود Word", "url": f"/download/{name}"})
     if "pdf" in formats:
         name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, title, align)
@@ -2008,7 +2250,7 @@ async def api_longdoc(request: Request):
     except (TypeError, ValueError):
         size = 14
     formats = body.get("formats") or ["docx"]
-    align = body.get("align") if body.get("align") in ("right", "left", "center") else "right"
+    align = body.get("align") if body.get("align") in ("right", "left", "center", "justify") else "right"
     attachment_ids = body.get("attachments") or []
     use_web = bool(body.get("use_web"))
 
@@ -2164,7 +2406,8 @@ async def api_longdoc(request: Request):
             blocks = export_utils.md_to_blocks(article)
             links = []
             if "docx" in formats:
-                name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align)
+                # مقاله‌ی بلند: فهرست خودکار + شماره‌گذاری سرفصل‌ها (سبک پایان‌نامه)
+                name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
                 links.append(f"[📄 دانلود Word](/download/{name})")
             if "pdf" in formats:
                 name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, topic, align)

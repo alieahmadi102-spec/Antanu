@@ -283,7 +283,8 @@ def reliability(path: str, cols=None) -> dict:
     alpha = (k / (k - 1)) * (1 - item_var / total_var) if total_var else 0
     quality = ("عالی" if alpha >= 0.9 else "خوب" if alpha >= 0.8
                else "قابل قبول" if alpha >= 0.7 else "ضعیف")
-    return {"alpha": round(float(alpha), 3), "items": int(k), "quality": quality}
+    return {"software": "معادل خروجی SPSS (Reliability — Cronbach's Alpha)",
+            "alpha": round(float(alpha), 3), "items": int(k), "quality": quality}
 
 
 def correlation(path: str, method="pearson", cols=None) -> dict:
@@ -309,7 +310,7 @@ def correlation(path: str, method="pearson", cols=None) -> dict:
                 "ضریب همبستگی": round(float(r), 3), "sig": round(float(p), 3),
                 "معنادار": "بله" if p < 0.05 else "خیر",
             })
-    return {"method": method, "pairs": result}
+    return {"software": "معادل خروجی SPSS (Correlations)", "method": method, "pairs": result}
 
 
 def regression(path: str, dependent: str, independents, kind="linear") -> dict:
@@ -328,26 +329,42 @@ def regression(path: str, dependent: str, independents, kind="linear") -> dict:
     else:
         model = sm.OLS(y, X).fit()
 
+    # بتای استاندارد (مثل ستون Beta در جدول ضرایب SPSS)
+    sy = float(y.std(ddof=1)) or 1.0
     coefs = []
     for name in X.columns:
+        b = float(model.params[name])
+        se = float(model.bse[name])
+        if name == "const":
+            beta = None
+        else:
+            sx = float(data[name].std(ddof=1))
+            beta = round(b * sx / sy, 3)
         coefs.append({
-            "متغیر": "ثابت" if name == "const" else str(name),
-            "ضریب B": round(float(model.params[name]), 4),
-            "آماره t/z": round(float(model.tvalues[name]), 3),
+            "متغیر": "ثابت (Constant)" if name == "const" else str(name),
+            "ضریب B": round(b, 4),
+            "خطای استاندارد": round(se, 4),
+            "بتای استاندارد": beta if beta is not None else "—",
+            "آماره t": round(float(model.tvalues[name]), 3),
             "sig": round(float(model.pvalues[name]), 4),
             "معنادار": "بله" if model.pvalues[name] < 0.05 else "خیر",
         })
 
-    out = {"kind": kind, "n": int(data.shape[0]), "coefficients": coefs}
+    out = {"kind": kind, "n": int(data.shape[0]),
+           "software": "معادل خروجی SPSS / EViews (رگرسیون OLS)",
+           "coefficients": coefs}
     if kind == "logistic":
         out.update({
+            "software": "معادل خروجی SPSS (رگرسیون لجستیک)",
             "pseudo_r2": round(float(model.prsquared), 3),
             "llr_p": round(float(model.llr_pvalue), 4),
         })
     else:
         out.update({
+            "r": round(float(model.rsquared ** 0.5), 3),
             "r2": round(float(model.rsquared), 3),
             "adj_r2": round(float(model.rsquared_adj), 3),
+            "std_error_est": round(float((model.mse_resid) ** 0.5), 4),
             "f_stat": round(float(model.fvalue), 3),
             "f_sig": round(float(model.f_pvalue), 4),
             "durbin_watson": round(float(sm.stats.durbin_watson(model.resid)), 3),
@@ -390,7 +407,8 @@ def anova(path: str, dependent: str, factor: str) -> dict:
     df = _load_dataframe(path)
     groups = [g[dependent].dropna().values for _, g in df.groupby(factor)]
     f, p = stats.f_oneway(*groups)
-    return {"f": round(float(f), 3), "sig": round(float(p), 4),
+    return {"software": "معادل خروجی SPSS (One-Way ANOVA)",
+            "f": round(float(f), 3), "sig": round(float(p), 4),
             "groups": int(len(groups)), "معنادار": "بله" if p < 0.05 else "خیر"}
 
 
@@ -402,7 +420,7 @@ def factor_analysis(path: str, cols=None, n_factors=None) -> dict:
     if cols:
         num = num[[c for c in cols if c in num.columns]]
     data = num.dropna()
-    out = {}
+    out = {"software": "معادل خروجی SPSS (Factor Analysis — KMO / Bartlett / Varimax)"}
     try:
         from factor_analyzer.factor_analyzer import calculate_kmo, calculate_bartlett_sphericity
         chi2, p = calculate_bartlett_sphericity(data)
@@ -462,6 +480,7 @@ def mediation(path: str, x: str, m: str, y: str) -> dict:
     lo, hi = np.percentile(boot, [2.5, 97.5])
     sig = not (lo <= 0 <= hi)
     return {
+        "software": "معادل خروجی PROCESS Macro / SmartPLS (تحلیل میانجی با بوت‌استرپ)",
         "direct_effect": round(float(c_prime), 4),
         "indirect_effect": round(float(indirect), 4),
         "total_effect": round(float(c), 4),

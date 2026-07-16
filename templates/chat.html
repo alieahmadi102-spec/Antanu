@@ -10,7 +10,7 @@
   <meta name="theme-color" content="#0d1017">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
-  <link rel="stylesheet" href="/static/style.css?v=1784320000">
+  <link rel="stylesheet" href="/static/style.css?v=1784400000">
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -35,6 +35,7 @@
         <span class="badge">اشتراک {{ user.stars }} ستاره</span>
       </div>
       <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
+      <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
       <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
@@ -107,6 +108,9 @@
           <label><input type="checkbox" class="ctype" value="موضوع"> 💡 موضوع‌یابی</label>
           <label><input type="checkbox" class="ctype" value="منبع"> 🔖 منبع و ارجاع</label>
           <label><input type="checkbox" class="ctype" value="داور"> ⚖️ نقد داور علمی</label>
+          <label><input type="checkbox" class="ctype" value="پرسشنامه"> 📝 پرسشنامه</label>
+          <label><input type="checkbox" class="ctype" value="دلفی"> 🔢 دلفی فازی</label>
+          <label><input type="checkbox" class="ctype" value="مصاحبه"> 🎤 مصاحبه خبرگان</label>
           <label><input type="checkbox" class="ctype" value="مقاله"> 📄 مقاله بلند</label>
           <label><input type="checkbox" class="ctype" value="آماری"> 📊 تحلیل آماری</label>
         </div>
@@ -124,7 +128,7 @@
             <label>اندازه <input type="number" id="cSize" value="14" min="8" max="36"></label>
             <label>چین
               <select id="cAlign">
-                <option value="right">راست</option><option value="center">وسط</option><option value="left">چپ</option>
+                <option value="justify" selected>هم‌تراز</option><option value="right">راست</option><option value="center">وسط</option><option value="left">چپ</option>
               </select>
             </label>
             <label>خروجی
@@ -221,7 +225,33 @@
           <button class="acad-t" data-t="فرضیه">🎯 فرضیه‌سازی</button>
           <button class="acad-t" data-t="منبع">🔖 منبع و ارجاع (APA)</button>
           <button class="acad-t" data-t="داور">⚖️ نقد داور علمی</button>
+          <button class="acad-t" data-t="پرسشنامه">📝 ساخت پرسشنامه</button>
+          <button class="acad-t" data-t="دلفی">🔢 پرسشنامه دلفی فازی</button>
+          <button class="acad-t" data-t="مصاحبه">🎤 مصاحبه با خبرگان</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره تبدیل فایل -->
+  <div id="convertOverlay">
+    <div class="mem-panel">
+      <header><h3>🔄 تبدیل فایل</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">Word، PDF و PowerPoint را به یکدیگر تبدیل کنید. (تبدیل بر پایه‌ی استخراج متن است؛ متن، عنوان‌ها و جدول‌ها منتقل می‌شوند.)</p>
+        <button id="convUpBtn" class="btn-primary" type="button">📁 انتخاب فایل ورودی</button>
+        <input type="file" id="convFile" accept=".docx,.pdf,.pptx,.txt,.md" hidden>
+        <div id="convFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
+        <div class="doc-field">
+          <label>خروجی به فرمت:</label>
+          <select id="convTarget">
+            <option value="docx">Word (.docx)</option>
+            <option value="pdf">PDF</option>
+            <option value="pptx">PowerPoint (.pptx)</option>
+          </select>
+        </div>
+        <button id="convGoBtn" class="btn-primary" type="button" style="margin-top:12px">🔄 تبدیل کن</button>
+        <div id="convResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
   </div>
@@ -259,10 +289,22 @@
         <p class="model-hint">منابع پژوهش را ذخیره کنید و با یک کلیک فهرست منابع به سبک APA یا IEEE بسازید.</p>
 
         <div class="ref-quickadd">
-          <label>تشخیص خودکار از روی متن ارجاع (اختیاری)</label>
-          <textarea id="refParseText" rows="2" placeholder="ارجاع را از مقاله کپی و اینجا بچسبانید، سپس «تشخیص خودکار» بزنید…"></textarea>
+          <label>🔍 جست‌وجوی خودکار منبع (عنوان مقاله یا DOI) — از پایگاه‌های Crossref و OpenAlex</label>
+          <input type="text" id="refLookupQuery" placeholder="مثلاً: Attention is all you need  یا  10.5555/3295222" style="direction:ltr;width:100%;margin-bottom:6px">
+          <button id="refLookupBtn" class="mini" type="button">🔎 پیدا کن و APA را کامل کن</button>
+          <span id="refLookupMsg" style="font-size:12px"></span>
+          <div id="refLookupResults"></div>
+        </div>
+
+        <div class="ref-quickadd">
+          <label>تشخیص خودکار از روی متن ارجاع، یا ترجمه‌ی ارجاع انگلیسی به فارسی</label>
+          <textarea id="refParseText" rows="2" placeholder="ارجاع را از مقاله کپی و اینجا بچسبانید…"></textarea>
           <button id="refParseBtn" class="mini" type="button">✨ تشخیص خودکار فیلدها</button>
+          <button id="refTranslateBtn" class="mini" type="button">🌐 ترجمه به فارسی</button>
+          <button id="refImportBtn" class="mini" type="button">📄 استخراج منابع از فایل آپلودی</button>
           <span id="refParseMsg" style="font-size:12px"></span>
+          <div id="refTranslateOut" style="display:none;margin-top:8px;font-size:13px;line-height:2"></div>
+          <div id="refImportResults"></div>
         </div>
 
         <div class="ref-form">
@@ -347,7 +389,8 @@
           <div class="doc-field">
             <label>چین متن</label>
             <select id="docAlign">
-              <option value="right" selected>راست‌چین</option>
+              <option value="justify" selected>هم‌تراز (Justify)</option>
+              <option value="right">راست‌چین</option>
               <option value="center">وسط‌چین</option>
               <option value="left">چپ‌چین</option>
             </select>
@@ -376,6 +419,14 @@
           <input type="file" id="docFileInput" multiple
                  accept=".txt,.pdf,.docx,.xlsx,.csv,.md,.json,.jpg,.jpeg,.png,.webp,image/*" hidden>
         </div>
+        <div class="doc-field" id="docExtrasField">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="docToc" checked style="accent-color:var(--accent)"> 📑 ساخت فهرست مطالب خودکار (Word)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;margin-top:6px">
+            <input type="checkbox" id="docNumbering" checked style="accent-color:var(--accent)"> 🔢 شماره‌گذاری سرفصل‌ها (۱-۱-۱)
+          </label>
+        </div>
         <button id="docStart" class="btn-primary" style="margin-top:14px">شروع ساخت</button>
         <p class="model-hint" id="docHint">مقاله‌های بلند بخش‌به‌بخش ساخته می‌شوند؛ هر چه صفحات بیشتر، زمان بیشتر (مثلاً ۲۰۰ صفحه ممکن است چند دقیقه طول بکشد).</p>
       </div>
@@ -383,6 +434,6 @@
   </div>
 
   <script>window.USER_AVATAR = {{ (user.avatar or '')|tojson }};</script>
-  <script src="/static/app.js?v=1784320000"></script>
+  <script src="/static/app.js?v=1784400000"></script>
 </body>
 </html>

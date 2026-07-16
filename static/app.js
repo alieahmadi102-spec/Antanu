@@ -678,7 +678,7 @@ async function runContentQueue(topic, ctypes) {
   setStopMode(true);
 
   // ترتیب منطقی: موضوع → پروپوزال → فهرست → مبانی → پیشینه → فرضیه → منبع → داور → مقاله → آماری
-  const order = ["موضوع", "پروپوزال", "فهرست", "مبانی", "پیشینه", "فرضیه", "منبع", "داور", "مقاله", "آماری"];
+  const order = ["موضوع", "پروپوزال", "فهرست", "مبانی", "پیشینه", "فرضیه", "منبع", "داور", "پرسشنامه", "دلفی", "مصاحبه", "مقاله", "آماری"];
   const chosen = order.filter(t => ctypes.includes(t));
 
   try {
@@ -712,6 +712,7 @@ const CTYPE_LABELS = {
   "موضوع": "💡 موضوع‌یابی", "پروپوزال": "📋 پروپوزال", "فهرست": "📑 فهرست پایان‌نامه",
   "پیشینه": "📚 پیشینه پژوهش", "مبانی": "🧠 مبانی نظری", "فرضیه": "🎯 فرضیه‌سازی",
   "منبع": "🔖 منبع و ارجاع", "داور": "⚖️ نقد داور علمی",
+  "پرسشنامه": "📝 ساخت پرسشنامه", "دلفی": "🔢 پرسشنامه دلفی فازی", "مصاحبه": "🎤 مصاحبه با خبرگان",
 };
 
 sendBtn.addEventListener("click", () => {
@@ -905,6 +906,92 @@ $("#refParseBtn")?.addEventListener("click", async () => {
   } catch { msg.textContent = "❌ خطا در تشخیص"; }
 });
 
+function fillRefForm(d) {
+  if (d.ref_type && REF_TYPE_FA[d.ref_type]) $("#refType").value = d.ref_type;
+  $("#refAuthors").value = d.authors || "";
+  $("#refTitle").value = d.title || "";
+  $("#refYear").value = d.year || "";
+  $("#refSource").value = d.source || "";
+  $("#refVolume").value = d.volume || "";
+  $("#refIssue").value = d.issue || "";
+  $("#refPages").value = d.pages || "";
+  $("#refUrl").value = d.url || "";
+}
+
+/* جست‌وجوی خودکار منبع در Crossref/OpenAlex */
+$("#refLookupBtn")?.addEventListener("click", async () => {
+  const q = $("#refLookupQuery").value.trim();
+  if (q.length < 4) { toast("عنوان مقاله یا DOI را وارد کنید"); return; }
+  const msg = $("#refLookupMsg");
+  msg.innerHTML = '<span class="spin"></span> در حال جست‌وجو…';
+  $("#refLookupResults").innerHTML = "";
+  try {
+    const r = await fetch("/api/references/lookup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.textContent = "❌ " + (d.detail || "منبعی پیدا نشد"); return; }
+    msg.textContent = `✅ ${d.results.length} منبع پیدا شد — یکی را انتخاب کنید:`;
+    const box = $("#refLookupResults");
+    d.results.forEach(ref => {
+      const item = el(`<div class="ref-hit"><b>${escapeHtml(ref.title)}</b>
+        <div class="ref-sub">${escapeHtml([ref.authors, ref.year, ref.source].filter(Boolean).join(" — "))}</div></div>`);
+      item.addEventListener("click", () => {
+        fillRefForm(ref);
+        msg.textContent = "✅ فیلدها پر شد — بررسی و «افزودن» کنید";
+        box.innerHTML = "";
+      });
+      box.appendChild(item);
+    });
+  } catch { msg.textContent = "❌ خطا در جست‌وجو (اتصال اینترنت سرور را بررسی کنید)"; }
+});
+
+/* ترجمه‌ی ارجاع انگلیسی به فارسی */
+$("#refTranslateBtn")?.addEventListener("click", async () => {
+  const text = $("#refParseText").value.trim();
+  if (text.length < 5) { toast("ارجاع انگلیسی را در کادر بچسبانید"); return; }
+  const out = $("#refTranslateOut");
+  out.style.display = "block";
+  out.innerHTML = '<span class="spin"></span> در حال ترجمه…';
+  try {
+    const r = await fetch("/api/references/translate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const d = await r.json();
+    if (!r.ok) { out.textContent = "❌ " + (d.detail || "خطا"); return; }
+    out.innerHTML = `<b>ترجمه:</b><br>${escapeHtml(d.translated)}
+      <br><button class="mini" id="refTrCopy" type="button">📋 کپی</button>`;
+    $("#refTrCopy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(d.translated); toast("کپی شد ✅"); } catch {}
+    });
+  } catch { out.textContent = "❌ خطا در ترجمه"; }
+});
+
+/* استخراج منابع از آخرین فایل آپلودشده */
+$("#refImportBtn")?.addEventListener("click", async () => {
+  const textFile = [...attachments].reverse().find(a => a.kind === "text");
+  if (!textFile) { toast("ابتدا فایل منابع (Word/PDF/متن) را با 📎 آپلود کنید"); return; }
+  const box = $("#refImportResults");
+  box.innerHTML = '<span class="spin"></span> در حال استخراج منابع…';
+  try {
+    const r = await fetch("/api/references/import", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ upload_id: textFile.id }),
+    });
+    const d = await r.json();
+    if (!r.ok) { box.textContent = "❌ " + (d.detail || "خطا"); return; }
+    if (!d.count) { box.textContent = "منبعی در فایل تشخیص داده نشد."; return; }
+    box.innerHTML = `<div style="font-size:12px;color:var(--muted);margin:6px 0">${d.count} منبع پیدا شد — روی هرکدام بزنید تا در کادر تشخیص برود:</div>`;
+    d.candidates.forEach(c => {
+      const item = el(`<div class="ref-hit"><div class="ref-sub" style="direction:ltr">${escapeHtml(c)}</div></div>`);
+      item.addEventListener("click", () => { $("#refParseText").value = c; toast("در کادر تشخیص قرار گرفت"); });
+      box.appendChild(item);
+    });
+  } catch { box.textContent = "❌ خطا در استخراج"; }
+});
+
 $("#refGenBtn")?.addEventListener("click", async () => {
   const r = await fetch("/api/references/bibliography", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -920,6 +1007,39 @@ $("#refGenBtn")?.addEventListener("click", async () => {
 $("#refCopyBib")?.addEventListener("click", async () => {
   try { await navigator.clipboard.writeText($("#refBib").value); toast("فهرست منابع کپی شد ✅"); }
   catch { toast("کپی نشد"); }
+});
+
+/* ---------- تبدیل فایل (Word/PDF/PPT) ---------- */
+
+let convFileObj = null;
+$("#convertBtn")?.addEventListener("click", e => {
+  e.preventDefault();
+  closeSidebar();
+  $("#convertOverlay").classList.add("show");
+});
+$("#convertOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "convertOverlay" || e.target.classList.contains("close"))
+    $("#convertOverlay").classList.remove("show");
+});
+$("#convUpBtn")?.addEventListener("click", () => $("#convFile").click());
+$("#convFile")?.addEventListener("change", e => {
+  convFileObj = e.target.files[0] || null;
+  $("#convFileName").textContent = convFileObj ? "📎 " + convFileObj.name : "";
+});
+$("#convGoBtn")?.addEventListener("click", async () => {
+  if (!convFileObj) { toast("ابتدا فایل ورودی را انتخاب کنید"); return; }
+  const res = $("#convResult");
+  res.innerHTML = '<span class="spin"></span> در حال تبدیل…';
+  const fd = new FormData();
+  fd.append("file", convFileObj);
+  fd.append("target", $("#convTarget").value);
+  try {
+    const r = await fetch("/api/convert", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) { res.textContent = "❌ " + (d.detail || "خطا در تبدیل"); return; }
+    res.innerHTML = "✅ آماده شد: " +
+      d.files.map(f => `<a href="${f.url}" class="dl-link">${escapeHtml(f.label)}</a>`).join(" ");
+  } catch { res.textContent = "❌ خطا در تبدیل"; }
 });
 
 /* ---------- تغییر تم (روشن / تیره) ---------- */
@@ -966,6 +1086,9 @@ const ACAD_PROMPTS = {
   "فرضیه": t => `برای این موضوع فرضیه‌های اصلی و فرعی پژوهش را به‌صورت علمی و آزمون‌پذیر بنویس:\n${t}`,
   "منبع": t => `برای این موضوع ۱۰ منبع علمی معتبر به سبک APA بنویس (فارسی و انگلیسی) و نحوه ارجاع درون‌متنی هرکدام را نشان بده:\n${t}`,
   "داور": t => `تو یک داور سخت‌گیر مجله علمی هستی. این متن/موضوع را نقد کن: منطق استدلال‌ها، کافی بودن ارجاعات، رعایت لحن آکادمیک. ایرادات را موردی لیست کن:\n${t}`,
+  "پرسشنامه": t => `یک پرسشنامه‌ی استاندارد و کامل پژوهشی برای این موضوع طراحی کن:\n${t}\n\nشامل: مقدمه و توضیح هدف، بخش اطلاعات جمعیت‌شناختی، و گویه‌ها را برای هر متغیر/سازه جداگانه و شماره‌دار بنویس. از طیف لیکرت پنج‌گزینه‌ای (کاملاً مخالفم تا کاملاً موافقم) استفاده کن. برای هر سازه دست‌کم ۴ تا ۶ گویه‌ی روا و دقیق بنویس و منبع اقتباس گویه‌ها را در صورت امکان ذکر کن. خروجی را با عنوان‌بندی و جدول‌بندی مرتب ارائه بده.`,
+  "دلفی": t => `یک پرسشنامه‌ی دلفی فازی (Fuzzy Delphi) کامل برای غربال و اعتبارسنجی شاخص‌های این پژوهش طراحی کن:\n${t}\n\nشامل: توضیح روش دلفی فازی برای خبره، فهرست شاخص‌ها/معیارهای پیشنهادی، و برای هر شاخص یک طیف کلامی فازی هفت‌درجه‌ای (بسیار کم، کم، نسبتاً کم، متوسط، نسبتاً زیاد، زیاد، بسیار زیاد) همراه با اعداد فازی مثلثی متناظر هر گزینه در یک جدول. راهنمای تکمیل و معیار توقف (اختلاف میانگین دو مرحله کمتر از ۰٫۱) را هم توضیح بده.`,
+  "مصاحبه": t => `یک راهنمای مصاحبه‌ی نیمه‌ساختاریافته با خبرگان برای این پژوهش طراحی کن:\n${t}\n\nشامل: پروتکل آغاز مصاحبه و بیان هدف و اخلاق پژوهش، پرسش‌های اصلی (باز) دسته‌بندی‌شده بر اساس اهداف/سؤالات پژوهش، پرسش‌های کاوشی (probe) برای عمق بیشتر، و پرسش‌های پایانی. پرسش‌ها را شماره‌دار و حرفه‌ای بنویس و مناسب تحلیل مضمون (تماتیک) باشند.`,
 };
 
 $("#acadBtn")?.addEventListener("click", () => $("#acadOverlay").classList.add("show"));
@@ -1037,6 +1160,7 @@ const STAT_FA = {
   fornell_larcker: "روایی واگرا (فورنل-لارکر)", paths: "ضرایب مسیر", note: "توضیح",
   CR: "پایایی ترکیبی (CR)", AVE: "میانگین واریانس (AVE)", cronbach_alpha: "آلفای کرونباخ",
   beta: "ضریب مسیر (β)", from: "از", to: "به",
+  software: "معادل نرم‌افزار", r: "ضریب همبستگی (R)", std_error_est: "خطای استاندارد برآورد",
 };
 function faKey(k) { return STAT_FA[k] || k; }
 
@@ -1316,7 +1440,7 @@ $("#docStart").addEventListener("click", async () => {
     const r = await fetch("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: exportContent, font, size, align: $("#docAlign").value, formats: docFormats() }),
+      body: JSON.stringify({ content: exportContent, font, size, align: $("#docAlign").value, formats: docFormats(), toc: $("#docToc").checked, numbering: $("#docNumbering").checked }),
     });
     if (!r.ok) { restore(); toast("خطا در ساخت فایل"); return; }
     const data = await r.json();
