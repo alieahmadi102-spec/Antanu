@@ -137,6 +137,84 @@ def _to_fa_digits_mod(s) -> str:
     return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
 
 
+# ---------------- ابزارهای فهرست دستی Word (عنوان … نقطه‌چین … شماره صفحه) ----------------
+
+def compute_headings(blocks, numbering=True):
+    """فهرست سرفصل‌ها را با شماره‌گذاری و نام نشانک (bookmark) از پیش محاسبه می‌کند.
+    خروجی: [(bookmark, numbered_text, level), ...]"""
+    HLEVEL = {"h1": 0, "h2": 1, "h3": 2}
+    cnt = [0, 0, 0]
+    heads = []
+    hi = 0
+    for kind, txt in blocks:
+        lvl = HLEVEL.get(kind)
+        if lvl is None:
+            continue
+        if numbering:
+            cnt[lvl] += 1
+            for j in range(lvl + 1, 3):
+                cnt[j] = 0
+            num = "-".join(_to_fa_digits_mod(cnt[k]) for k in range(lvl + 1)) + "- "
+        else:
+            num = ""
+        heads.append((f"_Toc_ant_{hi}", num + str(txt), lvl))
+        hi += 1
+    return heads
+
+
+def add_heading_bookmark(paragraph, name, bid):
+    """نشانک (bookmark) دور یک پاراگراف سرفصل می‌گذارد تا شماره صفحه‌اش قابل ارجاع باشد."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bid))
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bid))
+    p_el = paragraph._p
+    pPr = p_el.find(qn("w:pPr"))
+    if pPr is not None:
+        pPr.addnext(start)
+    else:
+        p_el.insert(0, start)
+    p_el.append(end)
+
+
+def add_pageref_run(paragraph, bookmark_name):
+    """یک فیلد PAGEREF می‌سازد که شماره صفحه‌ی واقعی نشانک را نشان می‌دهد."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    run = paragraph.add_run()
+    fb = OxmlElement("w:fldChar"); fb.set(qn("w:fldCharType"), "begin")
+    it = OxmlElement("w:instrText"); it.set(qn("xml:space"), "preserve")
+    it.text = f" PAGEREF {bookmark_name} \\h "
+    fs = OxmlElement("w:fldChar"); fs.set(qn("w:fldCharType"), "separate")
+    t = OxmlElement("w:t"); t.text = "۱"
+    fe = OxmlElement("w:fldChar"); fe.set(qn("w:fldCharType"), "end")
+    for x in (fb, it, fs, t, fe):
+        run._r.append(x)
+    return run
+
+
+def set_dot_leader_tab(paragraph, position_cm=15.5):
+    """یک ایست‌تب راست‌چین با نقطه‌چین می‌گذارد تا شماره صفحه در لبه‌ی مقابل بنشیند."""
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    from docx.shared import Cm
+    paragraph.paragraph_format.tab_stops.add_tab_stop(
+        Cm(position_cm), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+
+
+def set_update_fields(doc):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    try:
+        uf = OxmlElement("w:updateFields")
+        uf.set(qn("w:val"), "true")
+        doc.settings.element.append(uf)
+    except Exception:
+        pass
+
+
 def _flatten_footnotes(blocks):
     """برای خروجی‌های غیر Word: نشانه‌های [^id] را به «(n)» تبدیل می‌کند و فهرست پانوشت‌ها را برمی‌گرداند."""
     fn_defs = {}
@@ -225,36 +303,27 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             ol.set(qn("w:val"), str(level))
             pPr.append(ol)
 
-    def add_toc():
-        """درج فیلد فهرست مطالب خودکار (با شماره صفحه و نقطه‌چین) — در Word با Update Field پر می‌شود"""
+    # فهرست از پیش محاسبه‌شده (عنوان‌های شماره‌دار + نشانک)
+    _heads = compute_headings(blocks, numbering) if (toc or numbering) else []
+
+    def add_toc(heads):
+        """فهرست مطالبِ آماده و چیده‌شده: عنوان (راست) … نقطه‌چین … شماره صفحه (چپ)"""
+        from docx.shared import Pt as _Pt
         h = doc.add_paragraph()
         rtl_para(h, WD_ALIGN_PARAGRAPH.CENTER, heading=True)
         style_run(h.add_run("فهرست مطالب"), font_size + 6, bold=True, color=(0x0F, 0x76, 0x6E))
-
-        p = doc.add_paragraph()
-        pPr = p._p.get_or_add_pPr()
-        pPr.append(OxmlElement("w:bidi"))
-        run = p.add_run()
-        fldBegin = OxmlElement("w:fldChar"); fldBegin.set(qn("w:fldCharType"), "begin")
-        instr = OxmlElement("w:instrText"); instr.set(qn("xml:space"), "preserve")
-        instr.text = 'TOC \\o "1-3" \\h \\z \\u'
-        fldSep = OxmlElement("w:fldChar"); fldSep.set(qn("w:fldCharType"), "separate")
-        placeholder = OxmlElement("w:t")
-        placeholder.text = "برای نمایش فهرست: در Word کلیک‌راست روی این کادر ← Update Field (یا Ctrl+A و سپس F9)"
-        fldEnd = OxmlElement("w:fldChar"); fldEnd.set(qn("w:fldCharType"), "end")
-        run._r.append(fldBegin); run._r.append(instr); run._r.append(fldSep)
-        run._r.append(placeholder); run._r.append(fldEnd)
+        for bm, text, lvl in heads:
+            p = doc.add_paragraph()
+            pPr = p._p.get_or_add_pPr()
+            pPr.append(OxmlElement("w:bidi"))
+            p.paragraph_format.space_after = _Pt(4)
+            p.paragraph_format.right_indent = _Pt(lvl * 16)
+            set_dot_leader_tab(p, 15.5)
+            color = (0x0F, 0x76, 0x6E) if lvl == 0 else None
+            style_run(p.add_run(text), font_size, bold=(lvl == 0), color=color)
+            p.add_run("\t")
+            style_run(add_pageref_run(p, bm), font_size, bold=(lvl == 0), color=color)
         doc.add_page_break()
-
-    def set_update_fields_on_open():
-        """به Word می‌گوید هنگام باز شدن فایل، فیلدها (از جمله فهرست) را به‌روز کند"""
-        try:
-            settings = doc.settings.element
-            uf = OxmlElement("w:updateFields")
-            uf.set(qn("w:val"), "true")
-            settings.append(uf)
-        except Exception:
-            pass
 
     doc = Document()
 
@@ -263,19 +332,12 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         rtl_para(p, WD_ALIGN_PARAGRAPH.CENTER)
         style_run(p.add_run(title), font_size + 10, bold=True, color=(0x0F, 0x76, 0x6E))
 
-    if toc:
-        add_toc()
-        set_update_fields_on_open()
+    if toc and _heads:
+        add_toc(_heads)
+        set_update_fields(doc)
 
-    # شمارنده‌های شماره‌گذاری سلسله‌مراتبی سرفصل‌ها (۱، ۱-۱، ۱-۱-۱)
-    counters = [0, 0, 0]
-
-    def heading_number(lvl):  # lvl: 0=h1, 1=h2, 2=h3
-        counters[lvl] += 1
-        for j in range(lvl + 1, 3):
-            counters[j] = 0
-        parts = [counters[k] for k in range(lvl + 1)]
-        return "-".join(_to_fa_digits(x) for x in parts) + "- "
+    # آیتم‌های فهرست به‌ترتیب برای بدنه (نشانک + متن شماره‌دار یکسان با فهرست)
+    _head_iter = iter(_heads)
 
     def add_table(rows):
         if not rows:
@@ -332,6 +394,7 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             style_run(p.add_run(rest), size, bold=bold, color=color)
 
     HLEVEL = {"h1": 0, "h2": 1, "h3": 2}
+    _bid = [100]
     for kind, txt in blocks:
         if kind == "footnotes":
             continue
@@ -341,8 +404,11 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         lvl = HLEVEL.get(kind)
         p = doc.add_paragraph()
         rtl_para(p, body_align, heading=lvl is not None, level=lvl)
-        if lvl is not None and numbering:
-            txt = heading_number(lvl) + txt
+        bm = None
+        if lvl is not None:
+            he = next(_head_iter, None)
+            if he:
+                bm, txt, _ = he  # متن شماره‌دار یکسان با فهرست
         if kind == "h1":
             add_run_with_fn(p, txt, font_size + 8, bold=True, color=(0x0F, 0x76, 0x6E))
         elif kind == "h2":
@@ -353,6 +419,8 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             add_run_with_fn(p, txt, font_size, bullet=True)
         else:
             add_run_with_fn(p, txt, font_size)
+        if bm:
+            add_heading_bookmark(p, bm, _bid[0]); _bid[0] += 1
 
     # بخش پانوشت‌ها در انتهای سند (شماره‌دار، فارسی و انگلیسی)
     if fn_order:

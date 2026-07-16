@@ -266,26 +266,32 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
     run._r.append(_el("w:fldChar", **{"w:fldCharType": "end"}))
     style_run(run, font_size - 4, color=ACCENT, bold=True)
 
-    # ---------- فهرست مطالب ----------
-    if toc:
+    # ---------- فهرست مطالب (آماده و چیده‌شده: عنوان … نقطه‌چین … شماره صفحه) ----------
+    from export_utils import (compute_headings, add_heading_bookmark, add_pageref_run,
+                              set_dot_leader_tab, set_update_fields)
+    _heads = compute_headings(blocks, numbering) if (toc or numbering) else []
+    if toc and _heads:
         h = doc.add_paragraph()
         rtl(h, WD_ALIGN_PARAGRAPH.CENTER, before=6, after=10)
         style_run(h.add_run("فهرست مطالب"), font_size + 6, font=head_font, bold=True, color=PRIMARY)
-        p = doc.add_paragraph()
-        rtl(p)
-        r = p.add_run()
-        r._r.append(_el("w:fldChar", **{"w:fldCharType": "begin"}))
-        instr = _el("w:instrText", **{"xml:space": "preserve"}); instr.text = 'TOC \\o "1-3" \\h \\z \\u'
-        r._r.append(instr)
-        r._r.append(_el("w:fldChar", **{"w:fldCharType": "separate"}))
-        t = _el("w:t"); t.text = "برای نمایش فهرست: در Word کلیک‌راست ← Update Field"
-        r._r.append(t)
-        r._r.append(_el("w:fldChar", **{"w:fldCharType": "end"}))
-        try:
-            doc.settings.element.append(_el("w:updateFields", **{"w:val": "true"}))
-        except Exception:
-            pass
+        # نوار لهجه‌ای زیر عنوان فهرست
+        acc = doc.add_paragraph()
+        pAcc = rtl(acc, WD_ALIGN_PARAGRAPH.CENTER, before=2, after=8)
+        shade(pAcc, spec["accent"])
+        style_run(acc.add_run(" "), 3)
+        for bm, text, lvl in _heads:
+            tp = doc.add_paragraph()
+            pPr = rtl(tp, after=4)
+            tp.paragraph_format.right_indent = Pt(lvl * 16)
+            set_dot_leader_tab(tp, 15.5)
+            col = PRIMARY if lvl == 0 else (SECONDARY if lvl == 1 else TEXT)
+            style_run(tp.add_run(text), font_size, font=head_font if lvl == 0 else body_font,
+                      bold=(lvl <= 1), color=col)
+            tp.add_run("\t")
+            style_run(add_pageref_run(tp, bm), font_size, bold=(lvl == 0), color=col)
+        set_update_fields(doc)
         doc.add_page_break()
+    _head_iter = iter(_heads)
 
     # ---------- پانوشت‌ها ----------
     fn_defs = {}
@@ -316,15 +322,6 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
         if rest or pos == 0:
             style_run(p.add_run(rest), size, font=font, bold=bold, color=color)
 
-    # ---------- شماره‌گذاری سرفصل‌ها ----------
-    counters = [0, 0, 0]
-
-    def hnum(lvl):
-        counters[lvl] += 1
-        for j in range(lvl + 1, 3):
-            counters[j] = 0
-        return "-".join(_fa_digits(counters[k]) for k in range(lvl + 1)) + "- "
-
     def themed_table(rows):
         if not rows:
             return
@@ -350,6 +347,7 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
         doc.add_paragraph()
 
     HLEVEL = {"h1": 0, "h2": 1, "h3": 2}
+    _bid = [100]
     for kind, txt in blocks:
         if kind == "footnotes":
             continue
@@ -366,10 +364,12 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
             continue
         lvl = HLEVEL.get(kind)
         p = doc.add_paragraph()
+        bm = None
         if lvl is not None:
             pPr = rtl(p, before=14, after=6, level=lvl)
-            if numbering:
-                txt = hnum(lvl) + txt
+            he = next(_head_iter, None)
+            if he:
+                bm, txt, _ = he  # متن شماره‌دار یکسان با فهرست
             if kind == "h1":
                 shade(pPr, spec["primary_soft"])
                 side_border(pPr, spec["primary"], "right", 40)
@@ -379,6 +379,8 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
                 add_text_fn(p, txt, font_size + 3, font=head_font, bold=True, color=SECONDARY)
             else:
                 add_text_fn(p, txt, font_size + 1, font=head_font, bold=True, color=TEXT)
+            if bm:
+                add_heading_bookmark(p, bm, _bid[0]); _bid[0] += 1
         elif kind == "li":
             rtl(p)
             add_text_fn(p, txt, font_size, color=TEXT, bullet=True)
