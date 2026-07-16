@@ -54,14 +54,16 @@ input, textarea, select { font-family: var(--font); }
 .auth-body {
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 20px;
+  overflow-y: auto;
   background:
     radial-gradient(600px 300px at 85% 10%, rgba(45,212,191,0.10), transparent),
     radial-gradient(500px 300px at 10% 90%, rgba(99,102,241,0.08), transparent),
     var(--bg);
 }
+/* margin:auto وسط‌چین می‌کند ولی وقتی محتوا بلندتر از صفحه شد، بالای آن بریده و
+   غیرقابل‌اسکرول نمی‌شود (رفع باگِ align-items:center در موبایل) */
+.auth-card { margin: auto; }
 
 .auth-card {
   width: 100%;
@@ -129,19 +131,25 @@ input, textarea, select { font-family: var(--font); }
 }
 
 /* ---- صفحه خرید اشتراک ---- */
-.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 22px 0; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
 .plan {
+  display: block;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px 16px;
+  border-radius: 14px;
+  padding: 12px 10px;
   text-align: center;
+  color: inherit;
+  text-decoration: none;
+  transition: transform .12s, border-color .12s, box-shadow .12s;
 }
+a.plan:hover, a.plan:active { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.25); }
 .plan.best { border-color: var(--gold); }
-.plan .stars { font-size: 22px; color: var(--gold); }
-.plan h3 { font-size: 16px; margin: 8px 0 4px; }
-.plan .price { font-size: 20px; font-weight: 800; color: var(--accent); margin: 4px 0 8px; }
-.plan p { font-size: 13px; color: var(--muted); }
+.plan .stars { font-size: 18px; color: var(--gold); }
+.plan h3 { font-size: 14px; margin: 5px 0 2px; }
+.plan .price { font-size: 18px; font-weight: 800; color: var(--accent); margin: 2px 0 6px; }
+.plan p { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 0; }
+.plan .buy-hint { display: block; margin-top: 7px; font-size: 11.5px; color: var(--accent); font-weight: 600; }
 .contact-box {
   background: var(--accent-soft);
   border: 1px solid rgba(45,212,191,0.3);
@@ -151,6 +159,12 @@ input, textarea, select { font-family: var(--font); }
   font-size: 14.5px;
 }
 .wide { max-width: 760px; }
+.tg-btn {
+  display: inline-block; margin-top: 12px; padding: 10px 22px;
+  background: var(--accent); color: #06251f; font-weight: 800; font-size: 14.5px;
+  border-radius: 12px; text-decoration: none; transition: background .12s, transform .12s;
+}
+.tg-btn:hover { background: var(--accent-dark); transform: translateY(-1px); }
 
 /* ================= صفحه چت ================= */
 

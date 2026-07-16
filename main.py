@@ -112,7 +112,7 @@ API_BASE = os.environ.get("ANTANU_API_BASE", _p["base"]).rstrip("/")
 API_KEY = os.environ.get("ANTANU_API_KEY", "")
 # می‌توان چند مدل را با کاما جدا کرد؛ اگر اولی در دسترس نبود خودکار سراغ بعدی می‌رود
 MODELS = [m.strip() for m in os.environ.get("ANTANU_MODEL", _p["model"]).split(",") if m.strip()]
-ADMIN_CONTACT = os.environ.get("ANTANU_ADMIN_CONTACT", "آیدی تلگرام ادمین: @your_admin_id")
+ADMIN_CONTACT = os.environ.get("ANTANU_ADMIN_CONTACT", "آیدی تلگرام ادمین: @Anuyouka")
 
 # ---------------- فهرست هوش مصنوعی‌های قابل انتخاب توسط کاربر ----------------
 # دو روش تعریف:
