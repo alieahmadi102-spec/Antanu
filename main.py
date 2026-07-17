@@ -291,6 +291,8 @@ def set_setting(key: str, value: str):
 # ۱ دلار توکن ≈ ۱ میلیون توکن ورودی/خروجی برای مدل‌های ارزان — اینجا سخاوتمندانه حساب می‌کنیم
 DOLLAR_TOKENS = 200_000  # هر «دلار» = ۲۰۰ هزار توکن مصرفی (ورودی+خروجی)
 QUOTAS = {
+    # ستاره ۰ = مهمان رایگان (بدون ثبت‌نام): فقط گفتگو، متن و مقاله — بدون ساخت عکس/ویدیو
+    0: {"tokens": DOLLAR_TOKENS // 2, "image": 0, "video": 0, "article": 1},
     1: {"tokens": 1 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 2},
     2: {"tokens": 2 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 3},
     3: {"tokens": 3 * DOLLAR_TOKENS, "image": 10, "video": 1, "article": 4},
@@ -304,7 +306,7 @@ QUOTA_NAMES = {"chat": "پیام", "image": "ساخت عکس", "video": "ساخ�
 # مدت اعتبار اشتراک از لحظه ثبت‌نام/تمدید (روز)
 SUBSCRIPTION_DAYS = 30
 
-MAX_TOKENS = {1: 700, 2: 1000, 3: 1600, 4: 2400}
+MAX_TOKENS = {0: 700, 1: 700, 2: 1000, 3: 1600, 4: 2400}
 
 app = FastAPI(title="ANTANU")
 
@@ -443,6 +445,14 @@ def is_unlimited(user) -> bool:
     return bool(user["is_admin"]) or user["stars"] >= ADMIN_STARS
 
 
+def is_guest(user) -> bool:
+    """کاربر مهمان (رایگان، بدون ثبت‌نام) — ستاره ۰"""
+    try:
+        return int(user["stars"]) == 0
+    except Exception:
+        return False
+
+
 def sub_status(user):
     """وضعیت اشتراک: (فعال؟، روزهای باقی‌مانده، تاریخ پایان شمسی)
     اولویت با expires_at است (که با تمدید ادمین به‌روز می‌شود)"""
@@ -495,6 +505,12 @@ def quota_check(db, user, kind: str):
     limit = QUOTAS.get(user["stars"], QUOTAS[1]).get(qkey, 0)
     used = quota_used(db, user["id"], kind)
     if limit <= 0 and kind in ("image", "video"):
+        if is_guest(user):
+            raise HTTPException(
+                403,
+                f"در حالت رایگان و بدون ثبت‌نام فقط گفتگو، متن و مقاله در دسترس است؛ "
+                f"«{QUOTA_NAMES[kind]}» نیاز به اشتراک دارد. برای تهیه اشتراک — {ADMIN_CONTACT}",
+            )
         raise HTTPException(
             403,
             f"اشتراک {user['stars']} ستاره شما امکان «{QUOTA_NAMES[kind]}» ندارد. "
@@ -755,6 +771,51 @@ def register(
     )
     user_id = cur.lastrowid
     db.execute("UPDATE codes SET used = 1, used_by = ? WHERE id = ?", (username, code_row["id"]))
+    db.commit()
+    db.close()
+
+    token = make_session(user_id)
+    resp = RedirectResponse("/chat", status_code=303)
+    resp.set_cookie("antanu_session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return resp
+
+
+@app.api_route("/guest", methods=["GET", "POST"])
+async def guest_enter(request: Request):
+    """ورود رایگان و بدون ثبت‌نام (حالت مهمان — فعلاً فعال).
+    فقط گفتگو، متن و مقاله در دسترس است؛ ساخت عکس و ویدیو نیاز به اشتراک دارد."""
+    # اگر همین مرورگر از قبل نشست فعال دارد، همان را نگه می‌داریم
+    if current_user(request):
+        return RedirectResponse("/chat", status_code=303)
+
+    fingerprint = ""
+    if request.method == "POST":
+        try:
+            form = await request.form()
+            fingerprint = (form.get("fingerprint") or "").strip()
+        except Exception:
+            fingerprint = ""
+
+    db = get_db()
+    user_id = None
+    # اگر مهمانی با همین اثر انگشت دستگاه قبلاً ساخته شده، همان را دوباره استفاده کن
+    if fingerprint:
+        row = db.execute(
+            "SELECT id FROM users WHERE stars = 0 AND device_fp = ? ORDER BY id DESC LIMIT 1",
+            (fingerprint,),
+        ).fetchone()
+        if row:
+            user_id = row["id"]
+
+    if user_id is None:
+        # نام کاربری یکتا برای مهمان؛ گذرواژه‌ی تصادفیِ غیرقابل‌ورود (بدون امکان لاگین دستی)
+        uname = "مهمان-" + secrets.token_hex(4)
+        cur = db.execute(
+            "INSERT INTO users (username, password, stars, device_fp, code_used, expires_at) "
+            "VALUES (?, ?, 0, ?, 'guest', datetime('now', '+3650 days'))",
+            (uname, hash_pw(secrets.token_hex(24)), fingerprint or None),
+        )
+        user_id = cur.lastrowid
     db.commit()
     db.close()
 
@@ -1547,7 +1608,9 @@ def _search_web_sync(query: str) -> str:
 @app.get("/api/models")
 def list_models(request: Request):
     require_user(request)
-    return [{"id": c["id"], "name": c["name"]} for c in get_ai_catalog()]
+    # مدل‌های واقعی از دید کاربر پنهان است؛ فقط «آنتانو (خودکار)» نمایش داده می‌شود.
+    # درخواست با شناسه‌ی auto به‌صورت خودکار روی بهترین مدل با قابلیت failover اجرا می‌شود.
+    return [{"id": "auto", "name": "آنتانو (خودکار)"}]
 
 
 ALLOWED_TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".html", ".xml", ".log"}
@@ -1968,14 +2031,13 @@ async def api_chat(request: Request):
             # هیچ مدلی پاسخ سالم نداد
             e = last_err
             if images_b64 and e and e.status in (400, 422):
-                note = ("⚠️ هیچ‌کدام از مدل‌های متصل الان توان دیدن این عکس را ندارند. "
-                        "ظرفیت مدل بینا (مثل Gemini) پر شده یا مدل بینایی متصل نیست. "
-                        "پیشنهاد: در پنل مدیریت یک ردیف OpenRouter با مدل google/gemini-2.0-flash-exp:free اضافه کنید.")
+                note = ("⚠️ آنتانو الان توان دیدن این عکس را ندارد. "
+                        "ظرفیت پردازش تصویر پر شده است؛ کمی بعد دوباره تلاش کنید.")
             elif e and e.status in (401, 403):
-                note = "⚠️ کلید API نامعتبر یا منقضی است. مدیر سیستم در پنل مدیریت کلیدها را بررسی کند."
+                note = "⚠️ سرویس آنتانو موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید."
             elif e and e.status == 429:
-                note = ("⚠️ سهمیه رایگان امروزِ سرویس‌های متصل پر شده است. "
-                        "کمی بعد دوباره تلاش کنید (سهمیه Gemini هر شب آزاد می‌شود).")
+                note = ("⚠️ ظرفیت پاسخ‌گویی آنتانو فعلاً پر شده است. "
+                        "کمی بعد دوباره تلاش کنید (ظرفیت هر شب آزاد می‌شود).")
             elif e and e.status == 590:
                 note = "⚠️ مدل‌های متصل پاسخ نامعتبر دادند. مدیر سیستم مدل‌های خراب را از پنل حذف کند."
             else:

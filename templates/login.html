@@ -35,6 +35,14 @@
       <button type="submit" class="btn-primary">ورود</button>
     </form>
 
+    <div class="or-divider"><span>یا</span></div>
+
+    <form method="post" action="/guest">
+      <input type="hidden" name="fingerprint" value="">
+      <button type="submit" class="btn-guest">🚀 استفاده رایگان بدون ثبت‌نام</button>
+    </form>
+    <p class="guest-note">فعلاً رایگان — گفتگو، متن و مقاله (بدون ساخت عکس و ویدیو)</p>
+
     <details class="forgot">
       <summary>رمز خود را فراموش کرده‌اید؟</summary>
       <p>با ادمین تماس بگیرید تا رمز جدید برایتان بسازد و بفرستد:<br><b>{{ contact }}</b></p>

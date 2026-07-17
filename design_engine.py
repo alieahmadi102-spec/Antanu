@@ -178,7 +178,10 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
     ACCENT = _hex_to_rgb(spec["accent"])
     TEXT = _hex_to_rgb(spec["text"])
 
-    ALIGN_MAP = {"right": WD_ALIGN_PARAGRAPH.RIGHT, "left": WD_ALIGN_PARAGRAPH.LEFT,
+    # پاراگراف‌ها w:bidi هستند؛ در RTL مقدار jc="right" به لبه‌ی فیزیکی چپ و
+    # jc="left" به لبه‌ی فیزیکی راست نگاشت می‌شود. پس راست/چپ را جابه‌جا می‌کنیم
+    # تا انتخاب کاربر با سمت نمایش هم‌خوان باشد.
+    ALIGN_MAP = {"right": WD_ALIGN_PARAGRAPH.LEFT, "left": WD_ALIGN_PARAGRAPH.RIGHT,
                  "center": WD_ALIGN_PARAGRAPH.CENTER, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
     body_align = ALIGN_MAP.get(align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
@@ -333,7 +336,8 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
         tbl._tbl.tblPr.append(_el("w:bidiVisual"))
         for ri, row in enumerate(rows):
             for ci, val in enumerate(row):
-                cell = tbl.cell(ri, ncol - 1 - ci)
+                # w:bidiVisual جدول را خودکار راست‌به‌چپ می‌کند؛ ستون‌ها طبیعی پر می‌شوند.
+                cell = tbl.cell(ri, ci)
                 cell.text = ""
                 if ri == 0:
                     cell._tc.get_or_add_tcPr().append(
@@ -344,7 +348,7 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
                 cp = cell.paragraphs[0]
                 cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cp._p.get_or_add_pPr().append(_el("w:bidi"))
-                style_run(cp.add_run(str(val)), max(9, font_size - 2), bold=(ri == 0),
+                style_run(cp.add_run(_fa_digits(str(val))), max(9, font_size - 2), bold=(ri == 0),
                           color=(255, 255, 255) if ri == 0 else TEXT)
         doc.add_paragraph()
 
@@ -594,8 +598,9 @@ def build_designed_pptx(content, spec, title="ارائه آنتانو", subtitle
                                             Inches(11.9), Inches(0.5 * nrow)).table
                 for ri, row in enumerate(rows):
                     for ci, val in enumerate(row):
+                        # جدول پاورپوینت mirror خودکار ندارد؛ ستون‌ها دستی معکوس می‌شوند.
                         cell = gt.cell(ri, ncol - 1 - ci)
-                        cell.text = str(val)
+                        cell.text = _fa_digits(str(val))
                         para = cell.text_frame.paragraphs[0]
                         para.alignment = PP_ALIGN.CENTER
                         para._p.get_or_add_pPr().set("rtl", "1")

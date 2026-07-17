@@ -116,6 +116,23 @@ input, textarea, select { font-family: var(--font); }
 .btn-primary:hover { background: var(--accent-dark); }
 .btn-primary:disabled { opacity: .5; cursor: wait; }
 
+.or-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--muted); font-size: 13px; }
+.or-divider::before, .or-divider::after { content: ""; flex: 1; height: 1px; background: var(--border, rgba(128,128,128,.25)); }
+.btn-guest {
+  width: 100%;
+  padding: 13px;
+  background: transparent;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+}
+.btn-guest:hover { background: var(--accent); color: #06251f; }
+.guest-note { text-align: center; font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+
 .auth-links { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--muted); }
 .auth-links a { color: var(--accent); text-decoration: none; }
 .auth-links a:hover { text-decoration: underline; }

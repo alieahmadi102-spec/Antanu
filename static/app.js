@@ -93,6 +93,9 @@ async function loadModels() {
     </div>`);
     list.appendChild(item);
   });
+  // با یک گزینه‌ی واحد، ردیف «انتخاب همه» بی‌معناست
+  const allRow = document.querySelector("#modelPanel .model-item.all");
+  if (allRow) allRow.style.display = models.length > 1 ? "" : "none";
   updateModelUI();
 }
 

@@ -371,9 +371,13 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
 
-    ALIGN_MAP = {"right": WD_ALIGN_PARAGRAPH.RIGHT, "left": WD_ALIGN_PARAGRAPH.LEFT,
+    # همه‌ی پاراگراف‌ها w:bidi (راست‌به‌چپ) دارند. در پاراگراف RTL، مقدار
+    # w:jc="right" به لبه‌ی «پایان» (فیزیکی چپ) و w:jc="left" به لبه‌ی «شروع»
+    # (فیزیکی راست) نگاشت می‌شود. برای اینکه انتخاب کاربر «راست/چپ» دقیقاً همان
+    # سمت فیزیکی نمایش داده شود، راست و چپ را جابه‌جا می‌کنیم.
+    ALIGN_MAP = {"right": WD_ALIGN_PARAGRAPH.LEFT, "left": WD_ALIGN_PARAGRAPH.RIGHT,
                  "center": WD_ALIGN_PARAGRAPH.CENTER, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
-    body_align = ALIGN_MAP.get(align, WD_ALIGN_PARAGRAPH.RIGHT)
+    body_align = ALIGN_MAP.get(align, WD_ALIGN_PARAGRAPH.LEFT)
 
     def style_run(run, size, bold=False, color=None):
         run.font.name = font_name
@@ -459,14 +463,16 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         tblPr.append(bidi)
         for ri, row in enumerate(rows):
             for ci, val in enumerate(row):
-                cell = tbl.cell(ri, ncol - 1 - ci)  # ستون‌ها راست‌به‌چپ
+                # با w:bidiVisual جدول به‌طور خودکار راست‌به‌چپ نمایش داده می‌شود؛
+                # پس ستون‌ها را به‌ترتیب طبیعی پر می‌کنیم (بدون معکوس‌سازی دستی).
+                cell = tbl.cell(ri, ci)
                 cell.text = ""
                 cp = cell.paragraphs[0]
                 cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 pPr = cp._p.get_or_add_pPr()
                 pPr.append(OxmlElement("w:bidi"))
-                style_run(cp.add_run(str(val)), max(9, font_size - 2), bold=(ri == 0),
-                          color=(0x0F, 0x76, 0x6E) if ri == 0 else None)
+                style_run(cp.add_run(_to_fa_digits_mod(str(val))), max(9, font_size - 2),
+                          bold=(ri == 0), color=(0x0F, 0x76, 0x6E) if ri == 0 else None)
         doc.add_paragraph()
 
     # پانوشت‌ها: شماره‌گذاری به‌ترتیب اولین ظهور در متن
@@ -612,7 +618,7 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
             pdf.set_x(pdf.l_margin)
             for val in disp:
                 try:
-                    pdf.cell(cw, lh, shape(str(val)), border=1, align="C")
+                    pdf.cell(cw, lh, shape(_to_fa_digits_mod(str(val))), border=1, align="C")
                 except Exception:
                     pdf.cell(cw, lh, "", border=1)
             pdf.ln(lh)
