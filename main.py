@@ -782,6 +782,93 @@ def buy_page(request: Request):
     return render("buy.html", contact=ADMIN_CONTACT)
 
 
+import html as _html
+
+
+def render_markdown_html(md: str) -> str:
+    """تبدیل مارک‌داون راهنما به HTML امن در سمت سرور (بدون نیاز به CDN)"""
+    def inline(t):
+        t = _html.escape(t)
+        t = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
+                   r'<a href="\2" target="_blank" rel="noopener">\1</a>', t)
+        t = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+        return t
+
+    lines = (md or "").split("\n")
+    out, i, n, in_code = [], 0, len(md.split("\n")) if md else 0, False
+    while i < len(lines):
+        line = lines[i]
+        s = line.strip()
+        if s.startswith("```"):
+            out.append("<pre><code>" if not in_code else "</code></pre>")
+            in_code = not in_code
+            i += 1
+            continue
+        if in_code:
+            out.append(_html.escape(line))
+            i += 1
+            continue
+        if not s:
+            i += 1
+            continue
+        if s in ("---", "***"):
+            out.append("<hr>")
+            i += 1
+            continue
+        if "|" in s and i + 1 < len(lines) and set(lines[i + 1].strip()) <= set("|:- ") and "-" in lines[i + 1]:
+            header = [c.strip() for c in s.strip().strip("|").split("|")]
+            rows, j = [], i + 2
+            while j < len(lines) and "|" in lines[j] and lines[j].strip():
+                rows.append([c.strip() for c in lines[j].strip().strip("|").split("|")])
+                j += 1
+            th = "".join(f"<th>{inline(c)}</th>" for c in header)
+            trs = "".join("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in r) + "</tr>" for r in rows)
+            out.append(f"<table><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>")
+            i = j
+            continue
+        mh = re.match(r"^(#{1,6})\s+(.*)$", s)
+        if mh:
+            lvl = len(mh.group(1))
+            out.append(f"<h{lvl}>{inline(mh.group(2))}</h{lvl}>")
+            i += 1
+            continue
+        if s.startswith("> "):
+            out.append(f"<blockquote>{inline(s[2:])}</blockquote>")
+            i += 1
+            continue
+        if re.match(r"^[-*]\s+", s):
+            items = []
+            while i < len(lines) and re.match(r"^[-*]\s+", lines[i].strip()):
+                items.append(inline(re.sub(r"^[-*]\s+", "", lines[i].strip())))
+                i += 1
+            out.append("<ul>" + "".join(f"<li>{it}</li>" for it in items) + "</ul>")
+            continue
+        if s.startswith("<div") or s == "</div>":
+            i += 1
+            continue
+        out.append(f"<p>{inline(s)}</p>")
+        i += 1
+    if in_code:
+        out.append("</code></pre>")
+    return "\n".join(out)
+
+
+@app.get("/help", response_class=HTMLResponse)
+def help_page(request: Request):
+    """راهنمای کامل استفاده — عمومی، بدون نیاز به ورود"""
+    content = "# راهنما\nفعلاً در دسترس نیست."
+    for path in ("راهنمای-کاربران.md", "راهنما.md"):
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    content = f.read()
+                break
+            except Exception:
+                pass
+    return render("help.html", content_html=render_markdown_html(content))
+
+
 @app.get("/chat", response_class=HTMLResponse)
 def chat_page(request: Request):
     user = current_user(request)

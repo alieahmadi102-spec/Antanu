@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>راهنمای استفاده | آنتانو</title>
+  <link rel="icon" href="/static/logo.png">
+  <meta name="theme-color" content="#0d1017">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+  <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="chat-page help-page">
+  <main style="margin:0 auto;max-width:820px">
+    <header>
+      <a href="/chat" style="text-decoration:none"><button id="menuBtn">→</button></a>
+      <img src="/static/logo.png" class="logo-sm" alt="ANTANU" width="34" height="34" style="width:34px;height:34px;border-radius:50%">
+      <h1>آنتانو <span>ANTANU</span></h1>
+      <span class="limit-note">راهنمای استفاده</span>
+    </header>
+
+    <div id="messages" style="padding:24px 18px">
+      <div class="md help-content">{{ content_html|safe }}</div>
+      <div class="shared-foot">
+        <a href="/chat">→ بازگشت به گفتگو</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
