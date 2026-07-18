@@ -1,0 +1,22 @@
+# اجرای آنتانو روی هر سرور لینوکسی (Oracle Always Free و…)
+# راه‌اندازی:  cp .env.example .env   →  ویرایش .env   →  docker compose up -d --build
+services:
+  antanu:
+    build: .
+    container_name: antanu
+    restart: unless-stopped
+    ports:
+      - "80:8080"            # سایت روی پورت 80 (HTTP). برای HTTPS به README نگاه کن.
+    env_file:
+      - .env                 # رمز ادمین، آیدی پشتیبانی و کلیدهای API (اگر بخواهی) از اینجا خوانده می‌شوند
+    environment:
+      # این‌ها همیشه ثابت‌اند تا داده‌ها روی دیسک ماندگار /data بمانند
+      ANTANU_DB: /data/antanu.db
+      ANTANU_EXPORT_DIR: /data/exports
+      ANTANU_BACKUP_DIR: /data/backups
+      PORT: "8080"
+    volumes:
+      - antanu_data:/data     # دیسک ماندگار: دیتابیس + خروجی‌ها + بکاپ‌ها اینجا می‌مانند
+
+volumes:
+  antanu_data:

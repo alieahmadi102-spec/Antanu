@@ -356,6 +356,60 @@ init_db()
 
 import datetime as _dt
 
+
+# ---------- پشتیبان‌گیری خودکار شبانه از پایگاه داده ----------
+# روی سرورهای رایگان (که ممکن است ری‌استارت شوند) هر شب یک نسخه‌ی سالم از
+# antanu.db کنار گذاشته می‌شود و فقط چند نسخه‌ی آخر نگه داشته می‌شود.
+def _backup_db_now() -> str | None:
+    """یک نسخه‌ی سازگار (hot backup) از پایگاه داده می‌سازد و مسیرش را برمی‌گرداند."""
+    import sqlite3
+    if not os.path.exists(DB_PATH):
+        return None
+    backup_dir = os.environ.get(
+        "ANTANU_BACKUP_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".", "backups"),
+    )
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_path = os.path.join(backup_dir, f"antanu-backup-{stamp}.db")
+    src = sqlite3.connect(DB_PATH)
+    dst = sqlite3.connect(out_path)
+    try:
+        with dst:
+            src.backup(dst)
+    finally:
+        src.close()
+        dst.close()
+    # فقط N نسخه‌ی آخر را نگه دار
+    keep = int(os.environ.get("ANTANU_BACKUP_KEEP", "7"))
+    files = sorted(
+        f for f in os.listdir(backup_dir)
+        if f.startswith("antanu-backup-") and f.endswith(".db")
+    )
+    for old in files[:-keep] if keep > 0 else []:
+        try:
+            os.remove(os.path.join(backup_dir, old))
+        except Exception:
+            pass
+    return out_path
+
+
+async def _auto_backup_loop():
+    """هر ۲۴ ساعت یک‌بار پشتیبان می‌گیرد (قابل خاموش‌کردن با ANTANU_AUTO_BACKUP=0)."""
+    interval = int(os.environ.get("ANTANU_BACKUP_INTERVAL_HOURS", "24")) * 3600
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await run_in_threadpool(_backup_db_now)
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+async def _start_auto_backup():
+    if os.environ.get("ANTANU_AUTO_BACKUP", "1") != "0":
+        asyncio.create_task(_auto_backup_loop())
+
 # ---------- تاریخ و ساعت زنده (شمسی + میلادی، به وقت ایران) ----------
 
 _J_MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",

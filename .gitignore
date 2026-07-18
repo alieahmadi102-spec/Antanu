@@ -19,3 +19,4 @@ exports/
 
 # فونت PDF که هنگام اولین خروجی خودکار دانلود می‌شود
 static/fonts/
+backups/
