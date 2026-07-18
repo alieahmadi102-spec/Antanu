@@ -1,0 +1,29 @@
+# پیکربندی Fly.io برای آنتانو
+# پیش از دیپلوی، نام app را یکتا کن (یا بگذار «fly launch» خودش بسازد).
+app = "antanu"
+primary_region = "fra"          # نزدیک ایران: fra (فرانکفورت) یا cdg (پاریس)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # دیتابیس و فایل‌ها روی دیسک ماندگار /data ذخیره می‌شوند تا با ری‌استارت پاک نشوند
+  ANTANU_DB = "/data/antanu.db"
+  ANTANU_EXPORT_DIR = "/data/exports"
+  PORT = "8080"
+
+# دیسک ماندگار برای SQLite و خروجی‌ها
+[[mounts]]
+  source = "antanu_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"     # برای صرفه‌جویی؛ اگر می‌خواهی همیشه روشن باشد "off" بگذار
+  auto_start_machines = true
+  min_machines_running = 0         # 1 = همیشه بیدار (مصرف بیشتر)
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"                 # LibreOffice به رم نیاز دارد؛ اگر PDF خطا داد به 1024mb ببر

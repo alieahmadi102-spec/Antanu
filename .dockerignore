@@ -1,0 +1,11 @@
+.git
+__pycache__
+*/__pycache__
+*.pyc
+exports
+antanu.db
+*.db
+.venv
+venv
+*.zip
+.DS_Store
