@@ -696,7 +696,11 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
                       status_code=429, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
 
     db = get_db()
-    user = db.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+    # ورود با نام کاربری یا ایمیل (مهمان‌های رایگان با ایمیل ثبت‌نام می‌کنند)
+    ident = username.strip()
+    user = db.execute(
+        "SELECT * FROM users WHERE username = ? OR email = ?", (ident, ident.lower())
+    ).fetchone()
 
     def fail(msg):
         db.close()
@@ -780,42 +784,55 @@ def register(
     return resp
 
 
-@app.api_route("/guest", methods=["GET", "POST"])
-async def guest_enter(request: Request):
-    """ورود رایگان و بدون ثبت‌نام (حالت مهمان — فعلاً فعال).
-    فقط گفتگو، متن و مقاله در دسترس است؛ ساخت عکس و ویدیو نیاز به اشتراک دارد."""
-    # اگر همین مرورگر از قبل نشست فعال دارد، همان را نگه می‌داریم
-    if current_user(request):
-        return RedirectResponse("/chat", status_code=303)
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
-    fingerprint = ""
-    if request.method == "POST":
-        try:
-            form = await request.form()
-            fingerprint = (form.get("fingerprint") or "").strip()
-        except Exception:
-            fingerprint = ""
+
+@app.get("/guest", response_class=HTMLResponse)
+def guest_page(request: Request):
+    """صفحه‌ی ثبت‌نام رایگان مهمان (با ایمیل)."""
+    if current_user(request):
+        return RedirectResponse("/chat")
+    return render("guest.html", error=None, version=get_setting("app_version", "1.0"))
+
+
+@app.post("/guest", response_class=HTMLResponse)
+def guest_register(
+    request: Request,
+    email: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    """ثبت‌نام رایگان مهمان با ایمیل — بدون کد. هر ایمیل فقط یک‌بار.
+    فقط گفتگو، متن و مقاله در دسترس است؛ ساخت عکس و ویدیو نیاز به اشتراک دارد."""
+    email = (email or "").strip().lower()
+    username = (username or "").strip()
+    password = password or ""
+
+    def fail(msg):
+        return render("guest.html", error=msg, status_code=400,
+                      version=get_setting("app_version", "1.0"))
+
+    if not EMAIL_RE.match(email):
+        return fail("ایمیل معتبر وارد کنید (مثلاً name@example.com).")
+    if len(username) < 3:
+        return fail("نام کاربری باید حداقل ۳ نویسه باشد.")
+    if len(password) < 6:
+        return fail("گذرواژه باید حداقل ۶ نویسه باشد.")
 
     db = get_db()
-    user_id = None
-    # اگر مهمانی با همین اثر انگشت دستگاه قبلاً ساخته شده، همان را دوباره استفاده کن
-    if fingerprint:
-        row = db.execute(
-            "SELECT id FROM users WHERE stars = 0 AND device_fp = ? ORDER BY id DESC LIMIT 1",
-            (fingerprint,),
-        ).fetchone()
-        if row:
-            user_id = row["id"]
+    if db.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
+        db.close()
+        return fail("این ایمیل قبلاً استفاده شده است. با همین ایمیل وارد شوید یا ایمیل دیگری بزنید.")
+    if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        db.close()
+        return fail("این نام کاربری قبلاً گرفته شده است؛ نام دیگری انتخاب کنید.")
 
-    if user_id is None:
-        # نام کاربری یکتا برای مهمان؛ گذرواژه‌ی تصادفیِ غیرقابل‌ورود (بدون امکان لاگین دستی)
-        uname = "مهمان-" + secrets.token_hex(4)
-        cur = db.execute(
-            "INSERT INTO users (username, password, stars, device_fp, code_used, expires_at) "
-            "VALUES (?, ?, 0, ?, 'guest', datetime('now', '+3650 days'))",
-            (uname, hash_pw(secrets.token_hex(24)), fingerprint or None),
-        )
-        user_id = cur.lastrowid
+    cur = db.execute(
+        "INSERT INTO users (username, password, email, stars, code_used, expires_at) "
+        "VALUES (?, ?, ?, 0, 'guest', datetime('now', '+3650 days'))",
+        (username, hash_pw(password), email),
+    )
+    user_id = cur.lastrowid
     db.commit()
     db.close()
 
@@ -841,6 +858,43 @@ def logout(request: Request):
 @app.get("/buy", response_class=HTMLResponse)
 def buy_page(request: Request):
     return render("buy.html", contact=ADMIN_CONTACT)
+
+
+# ---------------- صندوق ایده‌ها و نظرات کاربران ----------------
+
+FEEDBACK_CATS = {"idea", "bug", "feature", "other"}
+
+
+@app.post("/api/feedback")
+async def api_feedback(request: Request):
+    """ثبت ایده/نظر کاربر برای پیشرفت آنتانو (همه‌ی کاربران — از جمله مهمان‌ها)."""
+    user = require_user(request)
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    category = (body.get("category") or "idea").strip()
+    if category not in FEEDBACK_CATS:
+        category = "idea"
+    if len(content) < 3:
+        raise HTTPException(400, "متن نظر خیلی کوتاه است.")
+    if len(content) > 4000:
+        content = content[:4000]
+    # جلوگیری از ارسال سیل‌آسا: حداکثر ۵ نظر در ساعت برای هر کاربر
+    db = get_db()
+    recent = db.execute(
+        "SELECT COUNT(*) AS c FROM feedback WHERE user_id = ? "
+        "AND created_at > datetime('now', '-1 hour')",
+        (user["id"],),
+    ).fetchone()["c"]
+    if recent >= 5:
+        db.close()
+        raise HTTPException(429, "نظرهای زیادی ثبت کرده‌اید؛ کمی بعد دوباره تلاش کنید.")
+    db.execute(
+        "INSERT INTO feedback (user_id, username, category, content) VALUES (?, ?, ?, ?)",
+        (user["id"], user["username"], category, content),
+    )
+    db.commit()
+    db.close()
+    return {"ok": True, "message": "🙏 نظر شما ثبت شد و به دست تیم آنتانو می‌رسد. سپاسگزاریم!"}
 
 
 import html as _html
@@ -1715,7 +1769,17 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
 # ---------------- API چت (استریم — چندمدلی + جستجوی وب + فایل) ----------------
 
-def build_system_prompt(user, memories) -> str:
+# لحن و سبک پاسخ که کاربر از نوار ابزار انتخاب می‌کند
+TONE_INSTRUCTIONS = {
+    "academic": "لحن پاسخ را رسمی، علمی و دانشگاهی نگه دار؛ از اصطلاحات دقیق و ساختار منظم استفاده کن.",
+    "simple": "پاسخ را با زبان ساده، روان و خودمانی بنویس تا برای همه قابل‌فهم باشد؛ از اصطلاحات پیچیده پرهیز کن.",
+    "concise": "پاسخ را کوتاه، مختصر و مستقیم بده؛ فقط نکات کلیدی و بدون حاشیه.",
+    "detailed": "پاسخ را کامل، مفصل و با جزئیات، مثال و توضیح گام‌به‌گام ارائه بده.",
+    "creative": "پاسخ را خلاقانه، جذاب و با نگاه تازه بنویس؛ در صورت تناسب از تشبیه و مثال‌های ملموس استفاده کن.",
+}
+
+
+def build_system_prompt(user, memories, tone: str | None = None) -> str:
     prompt = BASE_SYSTEM_PROMPT
     prompt += (f"\n\nتاریخ و ساعت کنونی: {now_string()}. "
                "هر جا درباره تاریخ، روز، سال یا ساعت پرسیده شد، دقیقاً از همین استفاده کن و نگو که نمی‌دانی.")
@@ -1723,6 +1787,8 @@ def build_system_prompt(user, memories) -> str:
         prompt += " پاسخ‌ها را نسبتاً خلاصه و مفید ارائه بده."
     else:
         prompt += " پاسخ‌ها را کامل، عمیق و جامع ارائه بده."
+    if tone and tone in TONE_INSTRUCTIONS:
+        prompt += "\n\nسبک پاسخ (خواسته‌ی کاربر): " + TONE_INSTRUCTIONS[tone]
     if memories:
         prompt += "\n\nحافظه بلندمدت این کاربر (همیشه در نظر بگیر):\n"
         prompt += "\n".join(f"- {m['content']}" for m in memories)
@@ -1812,6 +1878,7 @@ async def api_chat(request: Request):
     selected_ids = body.get("models") or ["auto"]
     web_on = bool(body.get("web"))
     research = bool(body.get("research"))
+    tone = (body.get("tone") or "").strip()
     attachment_ids = body.get("attachments") or []
     if not message:
         raise HTTPException(400, "پیام خالی است")
@@ -1964,7 +2031,7 @@ async def api_chat(request: Request):
 
     # دانش خودآموز: پاسخ‌های مشابه قبلی از پایگاه دانش آنتانو
     kb = search_knowledge(message, limit=2)
-    sys_content = build_system_prompt(user, memories)
+    sys_content = build_system_prompt(user, memories, tone)
     if kb:
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
@@ -2384,20 +2451,32 @@ async def api_export(request: Request):
     design_spec = None
     if smart_design:
         design_spec = await make_design_spec((title or "") + " " + content[:200], style, True)
-    if "docx" in formats:
+
+    async def _make_docx():
+        """ساخت فایل Word (با طراحی هوشمند در صورت انتخاب) و برگرداندن نام آن."""
         if smart_design and design_spec:
             import design_engine
-            name = await run_in_threadpool(design_engine.build_designed_docx, blocks, design_spec,
+            return await run_in_threadpool(design_engine.build_designed_docx, blocks, design_spec,
                                            title, subtitle, size, align, toc, numbering)
-        else:
-            name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align, toc, numbering)
-        files.append({"label": "📄 دانلود Word", "url": f"/download/{name}"})
+        return await run_in_threadpool(export_utils.build_docx, blocks, font, size, title, align, toc, numbering)
+
+    docx_name = None
+    if "docx" in formats or "pdf" in formats:
+        docx_name = await _make_docx()
+    if "docx" in formats and docx_name:
+        files.append({"label": "📄 دانلود Word", "url": f"/download/{docx_name}"})
     if "pdf" in formats:
-        name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, title, align)
-        if name:
-            files.append({"label": "📕 دانلود PDF", "url": f"/download/{name}"})
-        elif err:
-            notes.append(err)
+        # PDF را از روی همان فایل Wordِ تمیز می‌سازیم تا ظاهرش دقیقاً مثل Word باشد
+        pdf_name = None
+        if docx_name:
+            pdf_name, _cerr = await run_in_threadpool(export_utils.docx_to_pdf, docx_name)
+        if not pdf_name:
+            # اگر تبدیل Word→PDF ممکن نبود، به روش مستقیم برمی‌گردیم
+            pdf_name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, title, align)
+            if err:
+                notes.append(err)
+        if pdf_name:
+            files.append({"label": "📕 دانلود PDF", "url": f"/download/{pdf_name}"})
     if "xlsx" in formats:
         name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, title, align)
         files.append({"label": "📊 دانلود Excel", "url": f"/download/{name}"})
@@ -2611,22 +2690,32 @@ async def api_longdoc(request: Request):
                 raise HTTPException(500, f"کتابخانه‌های ساخت فایل نصب نیستند. دستور را اجرا کنید: pip install -r requirements.txt (جزئیات: {_e})")
             blocks = export_utils.md_to_blocks(article)
             links = []
-            if "docx" in formats:
+
+            async def _make_article_docx():
                 # مقاله‌ی بلند: فهرست خودکار + شماره‌گذاری سرفصل‌ها (سبک پایان‌نامه)
                 if ld_smart:
                     import design_engine
                     spec = await make_design_spec(topic, ld_style, True)
-                    name = await run_in_threadpool(design_engine.build_designed_docx, blocks, spec,
+                    return await run_in_threadpool(design_engine.build_designed_docx, blocks, spec,
                                                    topic, "", size, align, True, True)
-                else:
-                    name = await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
-                links.append(f"[📄 دانلود Word](/download/{name})")
+                return await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
+
+            article_docx = None
+            if "docx" in formats or "pdf" in formats:
+                article_docx = await _make_article_docx()
+            if "docx" in formats and article_docx:
+                links.append(f"[📄 دانلود Word](/download/{article_docx})")
             if "pdf" in formats:
-                name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, topic, align)
-                if name:
-                    links.append(f"[📕 دانلود PDF](/download/{name})")
-                elif err:
-                    yield log(f"⚠️ {err}\n")
+                # PDF از روی همان Word تمیز ساخته می‌شود تا ظاهرش یکسان باشد
+                pdf_name = None
+                if article_docx:
+                    pdf_name, _ = await run_in_threadpool(export_utils.docx_to_pdf, article_docx)
+                if not pdf_name:
+                    pdf_name, err = await run_in_threadpool(export_utils.build_pdf, blocks, size, topic, align)
+                    if err:
+                        yield log(f"⚠️ {err}\n")
+                if pdf_name:
+                    links.append(f"[📕 دانلود PDF](/download/{pdf_name})")
             if "xlsx" in formats:
                 name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, topic, align)
                 links.append(f"[📊 دانلود Excel](/download/{name})")
@@ -2759,6 +2848,37 @@ def admin_kb_clear(request: Request):
     require_admin(request)
     db = get_db()
     db.execute("DELETE FROM knowledge")
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.get("/admin/feedback")
+def admin_feedback_list(request: Request):
+    """فهرست ایده‌ها و نظرات کاربران برای مدیر."""
+    require_admin(request)
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, username, category, content, status, created_at "
+        "FROM feedback ORDER BY (status='new') DESC, id DESC LIMIT 300"
+    ).fetchall()
+    new_count = db.execute("SELECT COUNT(*) AS c FROM feedback WHERE status='new'").fetchone()["c"]
+    db.close()
+    return {"items": [dict(r) for r in rows], "new_count": new_count}
+
+
+@app.post("/admin/feedback_status")
+async def admin_feedback_status(request: Request):
+    """به‌روزرسانی وضعیت یک نظر (seen/done) یا حذف آن."""
+    require_admin(request)
+    body = await request.json()
+    fid = int(body.get("id", 0))
+    action = (body.get("action") or "").strip()
+    db = get_db()
+    if action == "delete":
+        db.execute("DELETE FROM feedback WHERE id = ?", (fid,))
+    elif action in ("seen", "done", "new"):
+        db.execute("UPDATE feedback SET status = ? WHERE id = ?", (action, fid))
     db.commit()
     db.close()
     return {"ok": True}

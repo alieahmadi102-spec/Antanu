@@ -544,6 +544,7 @@ async function send(textOverride) {
     models: selected,
     web: webOn,
     research: researchOn,
+    tone: ($("#toneSelect") && $("#toneSelect").value) || "",
     attachments: attachments.map(a => a.id),
   };
   clearChips();
@@ -1051,6 +1052,46 @@ $("#convertOverlay")?.addEventListener("click", e => {
   if (e.target.id === "convertOverlay" || e.target.classList.contains("close"))
     $("#convertOverlay").classList.remove("show");
 });
+/* ---------- صندوق ایده‌ها و نظرات ---------- */
+$("#feedbackBtn")?.addEventListener("click", e => {
+  e.preventDefault();
+  closeSidebar();
+  $("#fbResult").textContent = "";
+  $("#feedbackOverlay").classList.add("show");
+});
+$("#feedbackOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "feedbackOverlay" || e.target.classList.contains("close"))
+    $("#feedbackOverlay").classList.remove("show");
+});
+$("#fbSendBtn")?.addEventListener("click", async () => {
+  const content = $("#fbContent").value.trim();
+  const category = $("#fbCategory").value;
+  const res = $("#fbResult");
+  if (content.length < 3) { res.style.color = "var(--danger,#e06)"; res.textContent = "لطفاً متن نظر را بنویسید."; return; }
+  $("#fbSendBtn").disabled = true;
+  res.style.color = "var(--muted)";
+  res.textContent = "در حال ارسال…";
+  try {
+    const r = await fetch("/api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, category }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      res.style.color = "var(--accent)";
+      res.textContent = d.message || "🙏 نظر شما ثبت شد.";
+      $("#fbContent").value = "";
+    } else {
+      res.style.color = "var(--danger,#e06)";
+      res.textContent = d.detail || "خطا در ارسال نظر.";
+    }
+  } catch (err) {
+    res.style.color = "var(--danger,#e06)";
+    res.textContent = "خطای شبکه؛ دوباره تلاش کنید.";
+  }
+  $("#fbSendBtn").disabled = false;
+});
+
 $("#convUpBtn")?.addEventListener("click", () => $("#convFile").click());
 $("#convFile")?.addEventListener("change", e => {
   convFileObj = e.target.files[0] || null;
@@ -1320,6 +1361,18 @@ document.querySelectorAll(".stat-t").forEach(btn => {
     } catch { mdEl.innerHTML = renderMD("⚠️ خطا در تحلیل"); }
   });
 });
+
+/* ---------- لحن و سبک پاسخ (به‌خاطر سپردن انتخاب کاربر) ---------- */
+(() => {
+  const sel = $("#toneSelect");
+  if (!sel) return;
+  const saved = localStorage.getItem("antanu_tone");
+  if (saved) sel.value = saved;
+  sel.addEventListener("change", () => {
+    localStorage.setItem("antanu_tone", sel.value);
+    if (sel.value) toast("🎨 لحن پاسخ تغییر کرد");
+  });
+})();
 
 /* ---------- تحقیق گروهی ---------- */
 

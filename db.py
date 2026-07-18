@@ -136,6 +136,18 @@ CREATE TABLE IF NOT EXISTS bib_refs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bib ON bib_refs(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    username    TEXT,                             -- نام کاربری در لحظه ثبت
+    category    TEXT NOT NULL DEFAULT 'idea',     -- idea | bug | feature | other
+    content     TEXT NOT NULL,                    -- متن ایده/نظر کاربر
+    status      TEXT NOT NULL DEFAULT 'new',      -- new | seen | done
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback ON feedback(status, created_at);
 """
 
 
@@ -163,6 +175,18 @@ def init_db():
         pass
     try:
         conn.execute("ALTER TABLE conversations ADD COLUMN share_token TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    except Exception:
+        pass
+    # جلوگیری از ثبت‌نام دوباره با یک ایمیل (یکتا بودن ایمیل‌های واقعی)
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+            "ON users(email) WHERE email IS NOT NULL AND email <> ''"
+        )
     except Exception:
         pass
 

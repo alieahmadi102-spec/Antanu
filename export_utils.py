@@ -927,6 +927,62 @@ def extract_markdown(path: str) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _find_soffice():
+    """یافتن مسیر LibreOffice/soffice برای تبدیل Word→PDF."""
+    import shutil
+    for cand in ("soffice", "libreoffice"):
+        p = shutil.which(cand)
+        if p:
+            return p
+    for p in ("/usr/bin/soffice", "/usr/bin/libreoffice",
+              "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+              r"C:\Program Files\LibreOffice\program\soffice.exe"):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def docx_to_pdf(docx_name: str):
+    """تبدیل یک فایل Wordِ ازپیش‌ساخته‌شده در EXPORT_DIR به PDF با حفظ کاملِ ظاهر
+    (همان چیدمان، جدول، فهرست و راست‌به‌چپ که در Word ساخته شد).
+    خروجی: (نام‌فایل PDF | None، خطا | None). اگر None برگردد، فراخواننده به روش fpdf برمی‌گردد."""
+    import subprocess
+    src = os.path.join(EXPORT_DIR, docx_name)
+    if not os.path.exists(src):
+        return None, "فایل Word برای تبدیل پیدا نشد"
+    pdf_name = os.path.splitext(docx_name)[0] + ".pdf"
+    pdf_path = os.path.join(EXPORT_DIR, pdf_name)
+
+    # ۱) LibreOffice/soffice — بهترین حفظ ظاهرِ Word
+    soffice = _find_soffice()
+    if soffice:
+        try:
+            env = dict(os.environ)
+            env.setdefault("HOME", EXPORT_DIR)
+            profile = "file://" + os.path.join(EXPORT_DIR, ".lo_profile")
+            subprocess.run(
+                [soffice, "--headless", "-env:UserInstallation=" + profile,
+                 "--convert-to", "pdf:writer_pdf_Export", "--outdir", EXPORT_DIR, src],
+                check=True, timeout=180, env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if os.path.exists(pdf_path):
+                return pdf_name, None
+        except Exception:
+            pass
+
+    # ۲) docx2pdf — روی ویندوز/مک با Microsoft Word نصب‌شده
+    try:
+        from docx2pdf import convert as _d2p
+        _d2p(src, pdf_path)
+        if os.path.exists(pdf_path):
+            return pdf_name, None
+    except Exception:
+        pass
+
+    return None, None  # تبدیل ممکن نشد → استفاده از روش fpdf
+
+
 def convert_document(src_path: str, target: str, font_name: str = "Vazirmatn",
                      font_size: int = 14, align: str = "justify", title=None):
     """تبدیل یک سند به فرمت هدف (docx/pdf/pptx). خروجی: (نام فایل | None، خطا | None)"""

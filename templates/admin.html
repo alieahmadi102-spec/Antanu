@@ -94,6 +94,20 @@
     </div>
   </div>
 
+  <!-- ایده‌ها و نظرات کاربران -->
+  <div class="card" style="border-color:#f59e0b55">
+    <h2>💡 ایده‌ها و نظرات کاربران <span id="fbNewBadge" class="tag ok" style="display:none"></span></h2>
+    <p class="sub" style="margin-bottom:12px">پیشنهادها، نیازها و گزارش‌های کاربران برای پیشرفت آنتانو.</p>
+    <div class="table-wrap">
+      <table class="data" id="feedbackTable">
+        <thead>
+          <tr><th>#</th><th>کاربر</th><th>نوع</th><th>متن</th><th>وضعیت</th><th>تاریخ</th><th>عملیات</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- تولید کد ثبت‌نام -->
   <div class="card">
     <h2>تولید کد ثبت‌نام ۵۰ رقمی</h2>
@@ -415,6 +429,46 @@ async function loadKb() {
   const r = await fetch("/admin/knowledge_stats");
   if (r.ok) { const s = await r.json(); $("#kbCount").textContent = `${s.count} پرسش‌وپاسخ در حافظه ذخیره شده`; }
 }
+
+/* ---------- ایده‌ها و نظرات کاربران ---------- */
+const FB_CAT = { idea: "💡 ایده", feature: "✨ قابلیت", bug: "🐞 مشکل", other: "💬 نظر" };
+const FB_STATUS = { new: '<span class="tag ok">جدید</span>', seen: '<span class="tag">دیده شد</span>', done: '<span class="tag no">انجام شد</span>' };
+
+async function loadFeedback() {
+  const r = await fetch("/admin/feedback");
+  if (!r.ok) return;
+  const data = await r.json();
+  const badge = $("#fbNewBadge");
+  if (data.new_count > 0) { badge.style.display = ""; badge.textContent = data.new_count + " جدید"; }
+  else badge.style.display = "none";
+  const tb = $("#feedbackTable tbody");
+  tb.innerHTML = "";
+  if (!data.items.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">هنوز نظری ثبت نشده</td></tr>';
+    return;
+  }
+  data.items.forEach(f => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${f.id}</td>
+      <td>${esc(f.username || "—")}</td>
+      <td>${FB_CAT[f.category] || f.category}</td>
+      <td style="max-width:340px;white-space:pre-wrap">${esc(f.content)}</td>
+      <td>${FB_STATUS[f.status] || f.status}</td>
+      <td class="ltr">${esc((f.created_at || "").slice(0, 16))}</td>
+      <td>
+        <button class="mini" onclick="fbStatus(${f.id},'seen')">دیده شد</button>
+        <button class="mini" onclick="fbStatus(${f.id},'done')">انجام شد</button>
+        <button class="mini danger" onclick="fbStatus(${f.id},'delete')">حذف</button>
+      </td>`;
+    tb.appendChild(tr);
+  });
+}
+async function fbStatus(id, action) {
+  if (action === "delete" && !confirm("این نظر حذف شود؟")) return;
+  await post("/admin/feedback_status", { id, action });
+  loadFeedback();
+}
 $("#kbClear").addEventListener("click", async () => {
   if (!confirm("کل پایگاه دانش آنتانو پاک شود؟ این کار برگشت‌ناپذیر است.")) return;
   await post("/admin/knowledge_clear", {});
@@ -513,6 +567,7 @@ loadAppSettings();
 loadAiSettings();
 loadData();
 loadAnalytics();
+loadFeedback();
 </script>
 </body>
 </html>

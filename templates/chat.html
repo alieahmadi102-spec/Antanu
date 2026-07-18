@@ -35,6 +35,7 @@
         <span class="badge">اشتراک {{ user.stars }} ستاره</span>
       </div>
       <a href="/help" target="_blank" class="side-link">❓ راهنمای استفاده</a>
+      <a href="#" id="feedbackBtn" class="side-link">💡 ایده‌ها و نظرات شما</a>
       <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
       <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
@@ -92,6 +93,14 @@
             <p class="model-hint">می‌توانید یک یا چند هوش مصنوعی را همزمان انتخاب کنید</p>
           </div>
         </div>
+        <select id="toneSelect" class="tool-chip" title="لحن و سبک پاسخ آنتانو">
+          <option value="">🎨 لحن: پیش‌فرض</option>
+          <option value="academic">🎓 رسمی و دانشگاهی</option>
+          <option value="simple">💬 ساده و روان</option>
+          <option value="concise">⚡ کوتاه و مختصر</option>
+          <option value="detailed">📖 کامل و مفصل</option>
+          <option value="creative">✨ خلاقانه</option>
+        </select>
       </div>
 
       <!-- پنل انتخاب نوع محتوا (تیک‌دار) -->
@@ -253,6 +262,29 @@
         </div>
         <button id="convGoBtn" class="btn-primary" type="button" style="margin-top:12px">🔄 تبدیل کن</button>
         <div id="convResult" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره ایده‌ها و نظرات کاربران -->
+  <div id="feedbackOverlay">
+    <div class="mem-panel">
+      <header><h3>💡 ایده‌ها و نظرات شما</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">هر ایده، نیاز یا نظری برای پیشرفت آنتانو دارید بنویسید — تیم ما همه را می‌خواند. 🙌</p>
+        <div class="doc-field">
+          <label>نوع پیام:</label>
+          <select id="fbCategory">
+            <option value="idea">💡 ایده / پیشنهاد</option>
+            <option value="feature">✨ قابلیت جدیدی که نیاز دارم</option>
+            <option value="bug">🐞 گزارش مشکل</option>
+            <option value="other">💬 نظر دیگر</option>
+          </select>
+        </div>
+        <textarea id="fbContent" rows="5" placeholder="نظر یا ایده‌ی خود را اینجا بنویسید…"
+                  style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
+        <button id="fbSendBtn" class="btn-primary" type="button" style="margin-top:12px">ارسال نظر</button>
+        <div id="fbResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
   </div>

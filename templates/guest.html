@@ -6,7 +6,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ورود | آنتانو</title>
+  <title>ثبت‌نام رایگان | آنتانو</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css">
@@ -15,40 +15,36 @@
   <div class="auth-card">
     <img src="/static/logo.png" class="logo-auth" alt="ANTANU" width="90" height="90" style="display:block;width:90px;height:90px;border-radius:50%;margin:0 auto 10px">
     <div class="logo">آنتانو<small>ANTANU</small></div>
-    <h2>ورود به حساب کاربری</h2>
+    <h2>🚀 ثبت‌نام رایگان با ایمیل</h2>
+
+    <p class="guest-note" style="margin-bottom:16px">فعلاً رایگان — گفتگو، نوشتن متن و مقاله در دسترس است<br>(ساخت عکس و ویدیو نیاز به اشتراک دارد)</p>
 
     {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
 
-    <form method="post" action="/login">
+    <form method="post" action="/guest">
       <div class="field">
-        <label>نام کاربری یا ایمیل</label>
-        <input type="text" name="username" class="ltr" required autocomplete="username">
+        <label>ایمیل</label>
+        <input type="email" name="email" class="ltr" required autocomplete="email" placeholder="name@example.com">
       </div>
       <div class="field">
-        <label>گذرواژه</label>
+        <label>نام کاربری دلخواه</label>
+        <input type="text" name="username" class="ltr" required minlength="3" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>گذرواژه (حداقل ۶ حرف)</label>
         <div class="pw-wrap">
-          <input type="password" name="password" class="ltr" required autocomplete="current-password">
+          <input type="password" name="password" class="ltr" required minlength="6" autocomplete="new-password">
           <button type="button" class="pw-toggle" tabindex="-1" title="نمایش گذرواژه">👁</button>
         </div>
       </div>
-      <input type="hidden" name="fingerprint" value="">
-      <button type="submit" class="btn-primary">ورود</button>
+      <button type="submit" class="btn-primary">ثبت‌نام و شروع رایگان</button>
     </form>
 
-    <div class="or-divider"><span>یا</span></div>
-
-    <a href="/guest" class="btn-guest" style="display:block;text-align:center;text-decoration:none">🚀 ثبت‌نام رایگان با ایمیل</a>
-    <p class="guest-note">فعلاً رایگان — گفتگو، متن و مقاله (بدون ساخت عکس و ویدیو)</p>
-
-    <details class="forgot">
-      <summary>رمز خود را فراموش کرده‌اید؟</summary>
-      <p>با ادمین تماس بگیرید تا رمز جدید برایتان بسازد و بفرستد:<br><b>{{ contact }}</b></p>
-    </details>
-
     <div class="auth-links">
-      حساب ندارید؟ <a href="/register">ثبت‌نام با کد</a>
+      ⚠️ هر ایمیل فقط یک‌بار قابل ثبت‌نام است.<br>
+      حساب دارید؟ <a href="/login">ورود</a>
       &nbsp;•&nbsp;
-      <a href="/buy">خرید اشتراک</a>
+      امکانات بیشتر؟ <a href="/buy">خرید اشتراک</a>
     </div>
     <p class="ver-line" style="text-align:center;margin-top:14px">نسخه {{ version }}</p>
   </div>
