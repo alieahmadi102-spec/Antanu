@@ -94,6 +94,16 @@
     </div>
   </div>
 
+  <!-- پشتیبان‌گیری تلگرام -->
+  <div class="card">
+    <h2>📤 پشتیبان‌گیری خودکار در تلگرام</h2>
+    <p class="sub" style="margin-bottom:12px">هر ۲۴ ساعت یک نسخه از پایگاه داده خودکار به کانال تلگرام شما ارسال می‌شود. برای فعال‌سازی، <b>ANTANU_TG_BOT_TOKEN</b> و <b>ANTANU_TG_BACKUP_CHAT</b> را در فایل <code>.env</code> تنظیم کنید (راهنما در README-DEPLOY).</p>
+    <div class="row">
+      <button class="mini" id="tgBackupTest" type="button">📤 ارسال آزمایشی الان</button>
+      <span id="tgBackupResult" style="font-size:12.5px"></span>
+    </div>
+  </div>
+
   <!-- ایده‌ها و نظرات کاربران -->
   <div class="card" style="border-color:#f59e0b55">
     <h2>💡 ایده‌ها و نظرات کاربران <span id="fbNewBadge" class="tag ok" style="display:none"></span></h2>
@@ -429,6 +439,21 @@ async function loadKb() {
   const r = await fetch("/admin/knowledge_stats");
   if (r.ok) { const s = await r.json(); $("#kbCount").textContent = `${s.count} پرسش‌وپاسخ در حافظه ذخیره شده`; }
 }
+
+/* ---------- پشتیبان‌گیری تلگرام ---------- */
+$("#tgBackupTest").addEventListener("click", async () => {
+  const out = $("#tgBackupResult");
+  out.style.color = "var(--muted)";
+  out.textContent = "در حال ساخت و ارسال پشتیبان…";
+  try {
+    const r = await post("/admin/backup_telegram", {});
+    out.style.color = r.ok ? "#2dd4bf" : "#e06";
+    out.textContent = (r.ok ? "✅ " : "⚠️ ") + r.message;
+  } catch (e) {
+    out.style.color = "#e06";
+    out.textContent = "خطا در ارسال.";
+  }
+});
 
 /* ---------- ایده‌ها و نظرات کاربران ---------- */
 const FB_CAT = { idea: "💡 ایده", feature: "✨ قابلیت", bug: "🐞 مشکل", other: "💬 نظر" };

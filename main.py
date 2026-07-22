@@ -414,13 +414,41 @@ def _backup_db_now() -> str | None:
     return out_path
 
 
+def _send_backup_to_telegram(path: str | None) -> tuple[bool, str]:
+    """ارسال فایل پشتیبان به کانال/چت تلگرام (اگر توکن ربات و آیدی چت تنظیم شده باشد).
+    برای فعال‌سازی: ANTANU_TG_BOT_TOKEN و ANTANU_TG_BACKUP_CHAT را در .env بگذار."""
+    token = os.environ.get("ANTANU_TG_BOT_TOKEN", "").strip()
+    chat = os.environ.get("ANTANU_TG_BACKUP_CHAT", "").strip()
+    if not token or not chat:
+        return False, "توکن ربات یا آیدی چت تنظیم نشده (ANTANU_TG_BOT_TOKEN و ANTANU_TG_BACKUP_CHAT)."
+    if not path or not os.path.exists(path):
+        return False, "فایل پشتیبان پیدا نشد."
+    try:
+        caption = "🗄 پشتیبان خودکار آنتانو — " + _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+        with open(path, "rb") as f:
+            r = httpx.post(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data={"chat_id": chat, "caption": caption},
+                files={"document": (os.path.basename(path), f, "application/octet-stream")},
+                timeout=httpx.Timeout(180, connect=15),
+            )
+        if r.status_code == 200 and r.json().get("ok"):
+            return True, "پشتیبان با موفقیت به تلگرام ارسال شد."
+        return False, f"تلگرام خطا داد ({r.status_code}): {r.text[:200]}"
+    except Exception as e:
+        return False, f"ارسال به تلگرام ناموفق بود: {e}"
+
+
 async def _auto_backup_loop():
-    """هر ۲۴ ساعت یک‌بار پشتیبان می‌گیرد (قابل خاموش‌کردن با ANTANU_AUTO_BACKUP=0)."""
+    """هر ۲۴ ساعت یک‌بار پشتیبان می‌گیرد (قابل خاموش‌کردن با ANTANU_AUTO_BACKUP=0)
+    و در صورت تنظیم بودن تلگرام، یک نسخه هم به کانال تلگرام می‌فرستد."""
     interval = int(os.environ.get("ANTANU_BACKUP_INTERVAL_HOURS", "24")) * 3600
     while True:
         await asyncio.sleep(interval)
         try:
-            await run_in_threadpool(_backup_db_now)
+            path = await run_in_threadpool(_backup_db_now)
+            if path:
+                await run_in_threadpool(_send_backup_to_telegram, path)
         except Exception:
             pass
 
@@ -3068,6 +3096,15 @@ def admin_backup(request: Request):
         src.close()
         dst.close()
     return FileResponse(out_path, filename=out_name, media_type="application/octet-stream")
+
+
+@app.post("/admin/backup_telegram")
+async def admin_backup_telegram(request: Request):
+    """همین حالا یک پشتیبان بساز و به کانال تلگرام بفرست (برای تست تنظیمات)."""
+    require_admin(request)
+    path = await run_in_threadpool(_backup_db_now)
+    ok, msg = await run_in_threadpool(_send_backup_to_telegram, path)
+    return {"ok": ok, "message": msg}
 
 
 @app.get("/admin/data")
