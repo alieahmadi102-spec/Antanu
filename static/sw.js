@@ -1,5 +1,7 @@
-/* آنتانو — سرویس‌ورکر برای نصب‌پذیری و بارگذاری سریع‌تر (PWA) */
-const CACHE = "antanu-v1";
+/* آنتانو — سرویس‌ورکر (PWA)
+   استراتژی: «شبکه اول» برای فایل‌های ثابت تا هر آپدیت بلافاصله دیده شود؛
+   کش فقط برای حالت آفلاین استفاده می‌شود. با هر تغییر نسخه، کش قدیمی پاک می‌شود. */
+const CACHE = "antanu-v3";
 const ASSETS = [
   "/static/style.css",
   "/static/app.js",
@@ -27,26 +29,23 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-  // فقط منابع همین دامنه را مدیریت کن؛ CDN و سرویس‌های بیرونی دست‌نخورده بمانند
+  // فقط منابع همین دامنه؛ CDN و سرویس‌های بیرونی دست‌نخورده بمانند
   if (url.origin !== location.origin) return;
 
   // مسیرهای پویا و محرمانه هرگز کش نمی‌شوند (چت، پنل، ورود، دانلود، اشتراک)
-  if (/^\/(api|admin|login|logout|register|download|share)(\/|$)/.test(url.pathname)) return;
+  if (/^\/(api|admin|login|logout|register|guest|download|share)(\/|$)/.test(url.pathname)) return;
 
-  // فایل‌های ثابت: اول از کش (سریع)، بعد شبکه
-  if (url.pathname.startsWith("/static/")) {
-    e.respondWith(
-      caches.match(req, { ignoreSearch: true }).then(hit =>
-        hit || fetch(req).then(res => {
+  // فایل‌های ثابت و صفحه‌ها: «شبکه اول» — همیشه تازه‌ترین نسخه؛ اگر آفلاین بودیم از کش
+  e.respondWith(
+    fetch(req)
+      .then(res => {
+        // فقط پاسخ‌های سالمِ همین دامنه را کش کن
+        if (res && res.status === 200 && url.pathname.startsWith("/static/")) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy));
-          return res;
-        })
-      )
-    );
-    return;
-  }
-
-  // ناوبری صفحات: اول شبکه، اگر آفلاین بودیم از کش
-  e.respondWith(fetch(req).catch(() => caches.match(req, { ignoreSearch: true })));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req, { ignoreSearch: true }))
+  );
 });
