@@ -347,6 +347,26 @@ _jinja = Environment(
 )
 
 
+def _compute_asset_ver() -> str:
+    """نسخه‌ی خودکار فایل‌های استاتیک بر پایه‌ی محتوای آن‌ها.
+    با هر تغییر در app.js یا style.css این مقدار عوض می‌شود، پس مرورگر کاربر
+    بدون نیاز به پاک‌کردن کش، خودکار نسخه‌ی جدید را می‌گیرد."""
+    import hashlib
+    h = hashlib.md5()
+    for f in ("static/app.js", "static/style.css"):
+        try:
+            with open(f, "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:10]
+
+
+# یک‌بار هنگام شروع محاسبه می‌شود؛ چون هر دیپلوی کانتینر را از نو می‌سازد،
+# همان لحظه نسخه‌ی تازه محاسبه و به همه‌ی صفحه‌ها تزریق می‌شود.
+_jinja.globals["asset_ver"] = _compute_asset_ver()
+
+
 def render(name: str, status_code: int = 200, **context) -> HTMLResponse:
     html = _jinja.get_template(name).render(**context)
     return HTMLResponse(html, status_code=status_code)
