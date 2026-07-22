@@ -417,10 +417,11 @@ def _backup_db_now() -> str | None:
 def _send_backup_to_telegram(path: str | None) -> tuple[bool, str]:
     """ارسال فایل پشتیبان به کانال/چت تلگرام (اگر توکن ربات و آیدی چت تنظیم شده باشد).
     برای فعال‌سازی: ANTANU_TG_BOT_TOKEN و ANTANU_TG_BACKUP_CHAT را در .env بگذار."""
-    token = os.environ.get("ANTANU_TG_BOT_TOKEN", "").strip()
-    chat = os.environ.get("ANTANU_TG_BACKUP_CHAT", "").strip()
+    # اول از تنظیمات پنل مدیریت (پایگاه داده) می‌خوانیم، بعد از متغیرهای محیطی
+    token = (get_setting("tg_bot_token", "") or os.environ.get("ANTANU_TG_BOT_TOKEN", "")).strip()
+    chat = (get_setting("tg_backup_chat", "") or os.environ.get("ANTANU_TG_BACKUP_CHAT", "")).strip()
     if not token or not chat:
-        return False, "توکن ربات یا آیدی چت تنظیم نشده (ANTANU_TG_BOT_TOKEN و ANTANU_TG_BACKUP_CHAT)."
+        return False, "توکن ربات یا آیدی کانال تنظیم نشده — در پنل مدیریت وارد و ذخیره کنید."
     if not path or not os.path.exists(path):
         return False, "فایل پشتیبان پیدا نشد."
     try:
@@ -3096,6 +3097,29 @@ def admin_backup(request: Request):
         src.close()
         dst.close()
     return FileResponse(out_path, filename=out_name, media_type="application/octet-stream")
+
+
+@app.get("/admin/telegram_settings")
+def admin_telegram_get(request: Request):
+    """خواندن تنظیمات پشتیبان‌گیری تلگرام (توکن به‌صورت پنهان برنمی‌گردد)."""
+    require_admin(request)
+    token = get_setting("tg_bot_token", "") or os.environ.get("ANTANU_TG_BOT_TOKEN", "")
+    chat = get_setting("tg_backup_chat", "") or os.environ.get("ANTANU_TG_BACKUP_CHAT", "")
+    return {"has_token": bool(token.strip()), "chat": chat}
+
+
+@app.post("/admin/telegram_settings")
+async def admin_telegram_set(request: Request):
+    """ذخیره‌ی توکن ربات و آیدی کانال تلگرام از پنل مدیریت (بدون نیاز به .env)."""
+    require_admin(request)
+    body = await request.json()
+    token = (body.get("token") or "").strip()
+    chat = (body.get("chat") or "").strip()
+    # اگر توکن خالی فرستاده شد، توکن قبلی را نگه دار (تا با ذخیره‌ی دوباره پاک نشود)
+    if token:
+        set_setting("tg_bot_token", token)
+    set_setting("tg_backup_chat", chat)
+    return {"ok": True, "message": "✅ تنظیمات تلگرام ذخیره شد."}
 
 
 @app.post("/admin/backup_telegram")

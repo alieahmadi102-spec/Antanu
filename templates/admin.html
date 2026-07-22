@@ -97,7 +97,16 @@
   <!-- پشتیبان‌گیری تلگرام -->
   <div class="card">
     <h2>📤 پشتیبان‌گیری خودکار در تلگرام</h2>
-    <p class="sub" style="margin-bottom:12px">هر ۲۴ ساعت یک نسخه از پایگاه داده خودکار به کانال تلگرام شما ارسال می‌شود. برای فعال‌سازی، <b>ANTANU_TG_BOT_TOKEN</b> و <b>ANTANU_TG_BACKUP_CHAT</b> را در فایل <code>.env</code> تنظیم کنید (راهنما در README-DEPLOY).</p>
+    <p class="sub" style="margin-bottom:12px">هر ۲۴ ساعت یک نسخه از پایگاه داده خودکار به کانال تلگرام شما ارسال می‌شود. توکن ربات و آیدی کانال را همین‌جا وارد و ذخیره کنید (نیازی به فایل نیست).</p>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="tgToken" placeholder="توکن ربات (از @BotFather) — مثلاً 123456:AAE..." style="direction:ltr;flex:1;min-width:240px">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="tgChat" placeholder="آیدی کانال — مثلاً -1001234567890 یا @channel" style="direction:ltr;flex:1;min-width:220px">
+      <button id="tgSave" type="button">💾 ذخیره</button>
+      <span id="tgSaveResult" style="font-size:12.5px"></span>
+    </div>
+    <p class="sub" style="margin:4px 0 10px">راهنما: ربات را در کانال <b>Admin</b> کن. آیدی عددی کانال را با فوروارد یک پیام از کانال به <b>@getidsbot</b> بگیر.</p>
     <div class="row">
       <button class="mini" id="tgBackupTest" type="button">📤 ارسال آزمایشی الان</button>
       <span id="tgBackupResult" style="font-size:12.5px"></span>
@@ -441,6 +450,24 @@ async function loadKb() {
 }
 
 /* ---------- پشتیبان‌گیری تلگرام ---------- */
+async function loadTelegram() {
+  const r = await fetch("/admin/telegram_settings");
+  if (!r.ok) return;
+  const s = await r.json();
+  $("#tgChat").value = s.chat || "";
+  if (s.has_token) $("#tgToken").placeholder = "توکن ذخیره شده ✓ — برای تغییر، توکن جدید وارد کنید";
+}
+$("#tgSave").addEventListener("click", async () => {
+  const out = $("#tgSaveResult");
+  out.style.color = "var(--muted)"; out.textContent = "در حال ذخیره…";
+  const r = await post("/admin/telegram_settings", {
+    token: $("#tgToken").value.trim(),
+    chat: $("#tgChat").value.trim(),
+  });
+  out.style.color = "#2dd4bf"; out.textContent = r.message || "ذخیره شد";
+  $("#tgToken").value = "";
+  loadTelegram();
+});
 $("#tgBackupTest").addEventListener("click", async () => {
   const out = $("#tgBackupResult");
   out.style.color = "var(--muted)";
@@ -593,6 +620,7 @@ loadAiSettings();
 loadData();
 loadAnalytics();
 loadFeedback();
+loadTelegram();
 </script>
 </body>
 </html>
