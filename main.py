@@ -2590,6 +2590,12 @@ async def api_export(request: Request):
     if "xlsx" in formats:
         name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, title, align)
         files.append({"label": "📊 دانلود Excel", "url": f"/download/{name}"})
+    if "txt" in formats:
+        name = await run_in_threadpool(export_utils.build_txt, blocks, title)
+        files.append({"label": "📃 دانلود متن (TXT)", "url": f"/download/{name}"})
+    if "md" in formats:
+        name = await run_in_threadpool(export_utils.build_md, blocks, title)
+        files.append({"label": "📝 دانلود Markdown", "url": f"/download/{name}"})
     return {"files": files, "notes": notes}
 
 
@@ -2829,6 +2835,12 @@ async def api_longdoc(request: Request):
             if "xlsx" in formats:
                 name = await run_in_threadpool(export_utils.build_xlsx, blocks, font, size, topic, align)
                 links.append(f"[📊 دانلود Excel](/download/{name})")
+            if "txt" in formats:
+                name = await run_in_threadpool(export_utils.build_txt, blocks, topic)
+                links.append(f"[📃 دانلود متن](/download/{name})")
+            if "md" in formats:
+                name = await run_in_threadpool(export_utils.build_md, blocks, topic)
+                links.append(f"[📝 دانلود Markdown](/download/{name})")
             yield log(f"\n✅ **مقاله آماده شد!** ({len(done_titles)} بخش)\n\n" + "  |  ".join(links))
         except ModelError as e:
             yield log(f"\n⚠️ سرویس هوش مصنوعی خطا داد (کد {e.status}). کمی بعد دوباره تلاش کنید.")

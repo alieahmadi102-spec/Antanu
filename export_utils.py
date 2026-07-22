@@ -745,6 +745,80 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     return name
 
 
+# ---------------- ساخت فایل متنی ساده (.txt) ----------------
+
+def build_txt(blocks, title: str | None = None) -> str:
+    """خروجی متن ساده — بدون قالب‌بندی، مناسب کپی و ویرایش سریع."""
+    blocks2, notes = _flatten_footnotes(blocks)
+    lines = []
+    if title:
+        t = str(title)
+        lines += [t, "═" * min(len(t), 48), ""]
+    for kind, txt in blocks2:
+        if kind == "table":
+            for row in txt:
+                lines.append("   ".join(str(c) for c in row))
+            lines.append("")
+        elif kind in ("h1", "h2", "h3"):
+            lines += ["", str(txt), ""]
+        elif kind == "li":
+            lines.append("• " + str(txt))
+        elif kind == "quote":
+            lines.append("❝ " + str(txt))
+        else:
+            lines += [str(txt), ""]
+    if notes:
+        lines += ["", "پانوشت‌ها:"]
+        for n, note in notes:
+            lines.append(f"{_to_fa_digits_mod(n)}. {note}")
+    name = _new_name("txt")
+    with open(os.path.join(EXPORT_DIR, name), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines).strip() + "\n")
+    return name
+
+
+# ---------------- ساخت فایل مارک‌داون (.md) ----------------
+
+def build_md(blocks, title: str | None = None) -> str:
+    """خروجی مارک‌داون — عنوان‌ها، فهرست‌ها، جدول‌ها و پانوشت‌ها با قالب استاندارد."""
+    fn_defs = {}
+    lines = []
+    if title:
+        lines += [f"# {title}", ""]
+    for kind, txt in blocks:
+        if kind == "footnotes":
+            fn_defs = txt
+            continue
+        if kind == "table":
+            if txt:
+                ncol = len(txt[0])
+                lines.append("| " + " | ".join(str(c) for c in txt[0]) + " |")
+                lines.append("| " + " | ".join("---" for _ in range(ncol)) + " |")
+                for row in txt[1:]:
+                    lines.append("| " + " | ".join(str(c) for c in row) + " |")
+                lines.append("")
+        elif kind == "h1":
+            lines += ["", f"# {txt}", ""]
+        elif kind == "h2":
+            lines += ["", f"## {txt}", ""]
+        elif kind == "h3":
+            lines += ["", f"### {txt}", ""]
+        elif kind == "li":
+            lines.append(f"- {txt}")
+        elif kind == "quote":
+            lines.append(f"> {txt}")
+        else:
+            lines += [str(txt), ""]
+    if fn_defs:
+        lines.append("")
+        for fid, d in fn_defs.items():
+            lines.append(f"[^{fid}]: {d}")
+    name = _new_name("md")
+    with open(os.path.join(EXPORT_DIR, name), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines).strip() + "\n")
+    return name
+
+
 # ---------------- ساخت پاورپوینت (راست‌به‌چپ فارسی) ----------------
 
 def build_pptx(content: str, title: str = "ارائه آنتانو", font: str = "Tahoma") -> str:
