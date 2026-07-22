@@ -334,6 +334,25 @@ header h1 span { font-size: 11px; color: var(--muted); letter-spacing: 3px; marg
   margin: 10px 0;
 }
 .md pre code { background: none; border: none; padding: 0; }
+.code-wrap { position: relative; }
+.code-wrap pre { padding-top: 36px; }
+.code-copy {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 2;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.code-copy:hover { color: var(--accent); border-color: var(--accent); }
 .md table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 14px; }
 .md th, .md td { border: 1px solid var(--border); padding: 7px 10px; }
 .md th { background: var(--panel-2); }

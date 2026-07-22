@@ -54,6 +54,24 @@ function renderMD(text) {
   if ((!imgs.length && !vids.length) || meaningful.length > 2) {
     html = DOMPurify.sanitize(marked.parse(cleaned2));
   }
+  // دکمه‌ی «کپی» فقط برای بلوک‌های کد (‌pre‌) تا کاربر کل کد را یک‌جا کپی کند
+  if (html.includes("<pre")) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    tmp.querySelectorAll("pre").forEach(pre => {
+      if (pre.parentElement && pre.parentElement.classList.contains("code-wrap")) return;
+      const wrap = document.createElement("div");
+      wrap.className = "code-wrap";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "code-copy";
+      btn.textContent = "📋 کپی";
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(btn);
+      wrap.appendChild(pre);
+    });
+    html = tmp.innerHTML;
+  }
   for (const u of imgs) {
     html += `<img src="${u}" class="gen-img" loading="lazy" alt="تصویر تولیدشده">`;
   }
@@ -62,6 +80,23 @@ function renderMD(text) {
   }
   return html;
 }
+
+// کپی کل کد یک بلوک با کلیک روی دکمه‌ی «کپی» (event delegation برای همه‌ی پیام‌ها)
+document.addEventListener("click", e => {
+  const btn = e.target.closest(".code-copy");
+  if (!btn) return;
+  const pre = btn.parentElement.querySelector("pre");
+  if (!pre) return;
+  const codeEl = pre.querySelector("code") || pre;
+  const text = codeEl.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = "✓ کپی شد";
+    setTimeout(() => (btn.textContent = "📋 کپی"), 1500);
+  }).catch(() => {
+    btn.textContent = "خطا";
+    setTimeout(() => (btn.textContent = "📋 کپی"), 1500);
+  });
+});
 
 let toastTimer = null;
 function toast(msg) {
@@ -751,7 +786,8 @@ sendBtn.addEventListener("click", () => {
   send();
 });
 inputEl.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  // Enter = رفتن به خط بعد (پیش‌فرض textarea). ارسال فقط با دکمه ارسال یا Ctrl/Cmd+Enter.
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
 });
 
 function autosize() {
