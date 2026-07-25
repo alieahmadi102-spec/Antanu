@@ -899,11 +899,11 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 
 
 /* ---------- پنجره ابزار پایان‌نامه و تحلیل آماری ---------- */
-#acadOverlay, #statsOverlay, #convertOverlay, #feedbackOverlay, #translateOverlay, #footnoteOverlay, #songOverlay {
+#acadOverlay, #statsOverlay, #convertOverlay, #feedbackOverlay, #translateOverlay, #footnoteOverlay, #songOverlay, #converseOverlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px;
 }
-#acadOverlay.show, #statsOverlay.show, #convertOverlay.show, #feedbackOverlay.show, #translateOverlay.show, #footnoteOverlay.show, #songOverlay.show { display: flex; }
+#acadOverlay.show, #statsOverlay.show, #convertOverlay.show, #feedbackOverlay.show, #translateOverlay.show, #footnoteOverlay.show, #songOverlay.show, #converseOverlay.show { display: flex; }
 /* پنل داخلی این پنجره‌ها باید بلندی‌اش محدود و قابل اسکرول باشد تا همه دکمه‌ها دیده شوند */
 #acadOverlay .mem-panel, #statsOverlay .mem-panel, #feedbackOverlay .mem-panel, #translateOverlay .mem-panel { max-height: 88vh; }
 #acadOverlay .doc-form, #statsOverlay .doc-form, #feedbackOverlay .doc-form, #translateOverlay .doc-form { overflow-y: auto; }

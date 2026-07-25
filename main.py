@@ -1396,6 +1396,191 @@ def phone_status(request: Request):
     return {"configured": _twilio_configured(), "phone": get_setting("twilio_phone", "")}
 
 
+# ---------------- ربات گفتگوی نوبتی (صوتی/متنی) — منشی درون‌برنامه‌ای ----------------
+
+@app.post("/api/converse")
+async def api_converse(request: Request, file: UploadFile | None = File(None),
+                       text: str = Form(""), persona: str = Form(""),
+                       history: str = Form("[]"), voice: str = Form("self"),
+                       lang: str = Form("auto")):
+    """یک نوبت از گفتگوی صوتی/متنی با منشی هوشمند.
+    ورودی: صدای کاربر (یا متن) + دستور شخصیت (persona) + تاریخچه‌ی گفتگو.
+    خروجی: متنِ گفته‌ی کاربر، پاسخ منشی، و صدای پاسخ (در صورت فعال بودن TTS).
+    شروع/پایان و مدت گفتگو را سمت کاربر مدیریت می‌کند؛ این مسیر فقط یک نوبت را جلو می‌برد."""
+    user = require_user(request)
+    check_subscription(user)
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    # ۱) گفته‌ی کاربر: از صدا یا از متن
+    said = (text or "").strip()
+    if file is not None:
+        raw = await file.read()
+        if len(raw) > 25 * 1024 * 1024:
+            raise HTTPException(400, "حجم فایل صوتی زیاد است (حداکثر ۲۵ مگابایت).")
+        if raw:
+            said = await _stt_transcribe(raw, file.filename or "turn.webm",
+                                         file.content_type or "audio/webm",
+                                         "" if lang == "auto" else lang)
+    if not said:
+        raise HTTPException(400, "چیزی نگفتید؛ دوباره تلاش کنید.")
+
+    # ۲) ساخت پیام‌ها با شخصیت دلخواه و تاریخچه
+    try:
+        hist = json.loads(history) if history else []
+        if not isinstance(hist, list):
+            hist = []
+    except Exception:
+        hist = []
+    persona = (persona or "").strip() or \
+        "تو «منشی هوشمند آنتانو» هستی؛ مؤدب، خلاصه‌گو و کمک‌کننده. کوتاه و طبیعی پاسخ بده."
+    messages = [{"role": "system", "content": BASE_SYSTEM_PROMPT + "\n\n" + persona}]
+    for m in hist[-12:]:
+        role = m.get("role") if isinstance(m, dict) else None
+        content = (m.get("content") if isinstance(m, dict) else "") or ""
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": str(content)[:2000]})
+    messages.append({"role": "user", "content": said})
+
+    # ۳) پاسخ مدل
+    catalog = get_ai_catalog()
+    c = next((x for x in catalog if x.get("key")), None)
+    if not c:
+        raise HTTPException(503, "سرویس گفتگو موقتاً در دسترس نیست.")
+    reply = await _call_model_once(c, messages=messages, max_tokens=600)
+    reply = (reply or "").strip() or "متوجه نشدم، می‌شود دوباره بگویید؟"
+
+    dbq = get_db()
+    quota_add(dbq, user, "chat", 1200)
+    dbq.commit(); dbq.close()
+
+    # ۴) صدای پاسخ (اختیاری)
+    audio_url = await _tts_generate(reply, voice)
+    return {"you_said": said, "reply": reply, "audio_url": audio_url}
+
+
+# ---------------- صدای حیوانات (اسکلت افزونه‌ای — برای اپ آینده) ----------------
+
+@app.get("/api/animal_sounds")
+def animal_sounds(request: Request):
+    """فهرست صداهای حیوانات که مدیر در پنل تعریف کرده (JSON: {"گربه":"/download/cat.mp3", ...}).
+    اگر چیزی تعریف نشده باشد، فهرست خالی و پیام آماده‌سازی برمی‌گرداند."""
+    require_user(request)
+    raw = get_setting("animal_sounds", "").strip()
+    try:
+        mapping = json.loads(raw) if raw else {}
+        if not isinstance(mapping, dict):
+            mapping = {}
+    except Exception:
+        mapping = {}
+    return {"ready": bool(mapping), "sounds": mapping,
+            "note": "" if mapping else "هنوز صدایی تعریف نشده؛ مدیر می‌تواند از پنل اضافه کند."}
+
+
+# ---------------- دوبله/ترجمه‌ی ویدیو (اسکلت — نیازمند ffmpeg + کلیدها) ----------------
+
+def _ffmpeg_available() -> bool:
+    import shutil
+    return bool(shutil.which("ffmpeg"))
+
+
+@app.get("/api/video_dub/status")
+def video_dub_status(request: Request):
+    """آیا زیرساخت دوبله‌ی ویدیو آماده است؟ (ffmpeg + STT + TTS)"""
+    require_user(request)
+    stt_ready = bool((get_setting("stt_key", "") or os.environ.get("ANTANU_STT_KEY", "")).strip())
+    tts_ready = bool((get_setting("elevenlabs_key", "") or os.environ.get("ELEVENLABS_API_KEY", "")).strip())
+    ff = _ffmpeg_available()
+    return {"ready": ff and stt_ready and tts_ready,
+            "ffmpeg": ff, "stt": stt_ready, "tts": tts_ready,
+            "note": "برای فعال‌شدن دوبله، ffmpeg روی سرور و کلیدهای Whisper/ElevenLabs لازم است."}
+
+
+@app.post("/api/video_dub")
+async def api_video_dub(request: Request, file: UploadFile = File(...),
+                        target: str = Form("fa"), source: str = Form("auto"),
+                        voice: str = Form("self")):
+    """دوبله‌ی پایه‌ی ویدیو: استخراج صدا → متن → ترجمه → صدای جدید → چسباندن روی ویدیو.
+    اگر ffmpeg/کلیدها آماده نباشند، پیام روشن می‌دهد (بدون خطای ۵۰۰)."""
+    user = require_user(request)
+    check_subscription(user)
+    if not _ffmpeg_available():
+        raise HTTPException(400, "دوبله‌ی ویدیو هنوز روی سرور فعال نیست (نیازمند ffmpeg).")
+    if not (get_setting("stt_key", "") or os.environ.get("ANTANU_STT_KEY", "")).strip():
+        raise HTTPException(400, "برای دوبله، مدیر باید کلید تبدیل صدا به متن را در پنل بگذارد.")
+
+    import translate_engine as te, export_utils, subprocess, tempfile
+    raw = await file.read()
+    if len(raw) > 200 * 1024 * 1024:
+        raise HTTPException(400, "حجم ویدیو زیاد است (حداکثر ۲۰۰ مگابایت).")
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    workdir = tempfile.mkdtemp()
+    try:
+        src_path = os.path.join(workdir, "in" + (os.path.splitext(file.filename or "")[1] or ".mp4"))
+        with open(src_path, "wb") as f:
+            f.write(raw)
+        # ۱) استخراج صدا
+        wav_path = os.path.join(workdir, "audio.wav")
+        subprocess.run(["ffmpeg", "-y", "-i", src_path, "-vn", "-ac", "1", "-ar", "16000", wav_path],
+                       check=True, capture_output=True, timeout=300)
+        with open(wav_path, "rb") as f:
+            audio_bytes = f.read()
+        transcript = await _stt_transcribe(audio_bytes, "audio.wav", "audio/wav",
+                                           "" if source == "auto" else source)
+        if not transcript:
+            raise HTTPException(400, "گفتاری در ویدیو پیدا نشد.")
+        # ۲) ترجمه
+        translation = transcript
+        if target and target != "auto" and target in te.LANGUAGES:
+            catalog = get_ai_catalog()
+            c = next((x for x in catalog if x.get("key")), None)
+            if c:
+                prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], "")
+                out = await _call_model_once(c, prompt, max_tokens=2000)
+                try:
+                    m = re.search(r"\{.*\}", out or "", re.S)
+                    d = json.loads(m.group(0)) if m else {}
+                    trs = d.get("translations") or []
+                    translation = ((trs[0].get("text") if trs else "") or "").strip() or transcript
+                except Exception:
+                    translation = (out or "").strip() or transcript
+        # ۳) صدای جدید
+        dub_url = await _tts_generate(translation, voice)
+        if not dub_url:
+            raise HTTPException(400, "ساخت صدای دوبله فعال نیست؛ مدیر باید کلید ElevenLabs را بگذارد.")
+        dub_path = os.path.join(export_utils.EXPORT_DIR, os.path.basename(dub_url))
+        # ۴) چسباندن صدای جدید روی ویدیو
+        out_name = f"antanu-dub-{secrets.token_hex(6)}.mp4"
+        out_path = os.path.join(export_utils.EXPORT_DIR, out_name)
+        subprocess.run(["ffmpeg", "-y", "-i", src_path, "-i", dub_path,
+                        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+                        "-shortest", out_path],
+                       check=True, capture_output=True, timeout=300)
+        dbq = get_db()
+        quota_add(dbq, user, "chat", 2500)
+        dbq.commit(); dbq.close()
+        return {"transcript": transcript, "translation": translation,
+                "url": f"/download/{out_name}"}
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(400, "پردازش ویدیو طول کشید؛ ویدیوی کوتاه‌تری امتحان کنید.")
+    except Exception:
+        raise HTTPException(400, "دوبله‌ی ویدیو ناموفق بود؛ کمی بعد تلاش کنید.")
+    finally:
+        try:
+            import shutil
+            shutil.rmtree(workdir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 # ---------------- پاورقی‌گذاری روی فایل کاربر ----------------
 
 @app.post("/api/footnote")

@@ -51,6 +51,7 @@
       <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
       <a href="#" id="footnoteBtn" class="side-link">📌 پاورقی‌گذاری روی فایل</a>
       <a href="#" id="songBtn" class="side-link">🎵 ساخت آهنگ</a>
+      <a href="#" id="converseBtn" class="side-link">🎙️ منشی گفتگو (صوتی)</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
       <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
@@ -317,6 +318,26 @@
         </div>
         <button id="songGo" class="btn-primary" type="button" style="margin-top:12px">🎵 بساز</button>
         <div id="songResult" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره منشی گفتگوی صوتی -->
+  <div id="converseOverlay">
+    <div class="mem-panel">
+      <header><h3>🎙️ منشی گفتگو (صوتی)</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">دکمه‌ی «شروع» را بزن و حرف بزن؛ آنتانو گوش می‌دهد، پاسخ می‌دهد و با صدا می‌خواند. برای پایان، دوباره روی همان دکمه بزن. (نیازمند کلید Whisper و ElevenLabs در پنل مدیریت)</p>
+        <div class="doc-field">
+          <label>نقش/شخصیت منشی (اختیاری):</label>
+          <input type="text" id="convPersona" placeholder="مثلاً: منشیِ مؤدبِ یک مطب پزشکی که وقت می‌دهد" style="width:100%">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <button id="convMic" class="btn-primary" type="button">🎙️ شروع گفتگو</button>
+          <button id="convClear" class="btn-secondary" type="button">🗑️ پاک‌کردن</button>
+          <span id="convStatus" style="font-size:13px;color:var(--muted)"></span>
+        </div>
+        <div id="convLog" style="margin-top:12px;display:flex;flex-direction:column;gap:8px"></div>
       </div>
     </div>
   </div>

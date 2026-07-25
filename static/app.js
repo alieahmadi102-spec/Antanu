@@ -1428,6 +1428,70 @@ $("#songGo")?.addEventListener("click", async () => {
   $("#songGo").disabled = false;
 });
 
+/* ---------- منشی گفتگوی صوتی نوبتی ---------- */
+let convHistory = [];
+let convRec = null, convChunks = [], convRecording = false;
+$("#converseBtn")?.addEventListener("click", e => {
+  e.preventDefault(); closeSidebar();
+  $("#converseOverlay").classList.add("show");
+});
+$("#converseOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "converseOverlay" || e.target.classList.contains("close"))
+    $("#converseOverlay").classList.remove("show");
+});
+$("#convClear")?.addEventListener("click", () => {
+  convHistory = []; $("#convLog").innerHTML = ""; $("#convStatus").textContent = "";
+});
+function convAdd(role, text) {
+  const b = el(`<div style="padding:8px 12px;border-radius:12px;max-width:85%;${role === "user"
+    ? "align-self:flex-start;background:var(--surface-2,rgba(128,128,128,.12))"
+    : "align-self:flex-end;background:var(--accent-soft,rgba(80,120,255,.15))"}"></div>`);
+  b.textContent = text;
+  $("#convLog").appendChild(b);
+  $("#convLog").scrollTop = $("#convLog").scrollHeight;
+  return b;
+}
+$("#convMic")?.addEventListener("click", async () => {
+  const status = $("#convStatus"), btn = $("#convMic");
+  if (convRecording && convRec) {
+    convRec.stop();
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    convRec = new MediaRecorder(stream);
+    convChunks = [];
+    convRec.ondataavailable = e => { if (e.data.size) convChunks.push(e.data); };
+    convRec.onstop = async () => {
+      convRecording = false;
+      btn.classList.remove("on"); btn.textContent = "🎙️ شروع گفتگو";
+      stream.getTracks().forEach(t => t.stop());
+      status.textContent = "در حال پردازش…";
+      const blob = new Blob(convChunks, { type: "audio/webm" });
+      const fd = new FormData();
+      fd.append("file", blob, "turn.webm");
+      fd.append("persona", $("#convPersona").value.trim());
+      fd.append("history", JSON.stringify(convHistory.slice(-12)));
+      try {
+        const r = await fetch("/api/converse", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) { status.textContent = d.detail || "خطا در گفتگو"; return; }
+        status.textContent = "";
+        convAdd("user", d.you_said);
+        convAdd("assistant", d.reply);
+        convHistory.push({ role: "user", content: d.you_said });
+        convHistory.push({ role: "assistant", content: d.reply });
+        if (d.audio_url) { new Audio(d.audio_url).play().catch(() => {}); }
+        else { speak(d.reply); }
+      } catch (e) { status.textContent = "خطای شبکه؛ دوباره تلاش کنید."; }
+    };
+    convRec.start();
+    convRecording = true;
+    btn.classList.add("on"); btn.textContent = "⏹ پایان و ارسال";
+    status.textContent = "🎙️ در حال شنیدن… حرف بزنید و بعد «پایان» را بزنید.";
+  } catch (e) { status.textContent = "دسترسی به میکروفون داده نشد."; }
+});
+
 $("#convUpBtn")?.addEventListener("click", () => $("#convFile").click());
 $("#convFile")?.addEventListener("change", e => {
   convFileObj = e.target.files[0] || null;
