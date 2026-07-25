@@ -1088,6 +1088,77 @@ $("#convertOverlay")?.addEventListener("click", e => {
   if (e.target.id === "convertOverlay" || e.target.classList.contains("close"))
     $("#convertOverlay").classList.remove("show");
 });
+
+/* ---------- ترجمه چند‌لحنه ---------- */
+let trLoaded = false;
+async function loadTrLangs() {
+  if (trLoaded) return;
+  try {
+    const r = await fetch("/api/translate/langs");
+    if (!r.ok) return;
+    const d = await r.json();
+    const src = $("#trSource"), tgt = $("#trTarget");
+    src.innerHTML = ""; tgt.innerHTML = "";
+    Object.entries(d.languages).forEach(([code, name]) => {
+      src.insertAdjacentHTML("beforeend", `<option value="${code}">${escapeHtml(name)}</option>`);
+      if (code !== "auto") tgt.insertAdjacentHTML("beforeend", `<option value="${code}">${escapeHtml(name)}</option>`);
+    });
+    src.value = "auto"; tgt.value = "en";
+    const tones = $("#trTones"); tones.innerHTML = "";
+    const defaults = ["formal", "polite", "friendly", "casual"];
+    Object.entries(d.tones).forEach(([k, name]) => {
+      tones.insertAdjacentHTML("beforeend",
+        `<label><input type="checkbox" class="tr-tone-cb" value="${k}" ${defaults.includes(k) ? "checked" : ""}> ${escapeHtml(name)}</label>`);
+    });
+    trLoaded = true;
+  } catch (e) {}
+}
+$("#translateBtn")?.addEventListener("click", e => {
+  e.preventDefault(); closeSidebar();
+  loadTrLangs();
+  $("#trResult").innerHTML = "";
+  $("#translateOverlay").classList.add("show");
+});
+$("#translateOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "translateOverlay" || e.target.classList.contains("close"))
+    $("#translateOverlay").classList.remove("show");
+});
+$("#trGo")?.addEventListener("click", async () => {
+  const text = $("#trText").value.trim();
+  const res = $("#trResult");
+  if (!text) { res.innerHTML = '<div style="color:var(--danger,#e06)">متن را وارد کنید.</div>'; return; }
+  const tones = [...document.querySelectorAll(".tr-tone-cb:checked")].map(i => i.value);
+  $("#trGo").disabled = true;
+  res.innerHTML = '<span class="spin"></span> در حال ترجمه…';
+  try {
+    const r = await fetch("/api/translate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, source: $("#trSource").value, target: $("#trTarget").value, tones }),
+    });
+    const d = await r.json();
+    if (!r.ok) { res.innerHTML = `<div style="color:var(--danger,#e06)">${escapeHtml(d.detail || "خطا در ترجمه")}</div>`; $("#trGo").disabled = false; return; }
+    res.innerHTML = "";
+    (d.translations || []).forEach(t => {
+      const card = el(`<div class="tr-card">
+        <div class="tr-head"><span class="tr-tone">${escapeHtml(t.tone || "ترجمه")}</span>
+        <button class="tr-copy" type="button">📋 کپی</button></div>
+        <div class="tr-body"></div></div>`);
+      card.querySelector(".tr-body").textContent = t.text;
+      card.querySelector(".tr-copy").addEventListener("click", () => {
+        navigator.clipboard.writeText(t.text).then(() => {
+          const b = card.querySelector(".tr-copy"); b.textContent = "✓ کپی شد";
+          setTimeout(() => (b.textContent = "📋 کپی"), 1500);
+        });
+      });
+      res.appendChild(card);
+    });
+    if (!(d.translations || []).length) res.innerHTML = '<div style="color:var(--muted)">ترجمه‌ای برنگشت.</div>';
+  } catch (e) {
+    res.innerHTML = '<div style="color:var(--danger,#e06)">خطای شبکه؛ دوباره تلاش کنید.</div>';
+  }
+  $("#trGo").disabled = false;
+});
+
 /* ---------- صندوق ایده‌ها و نظرات ---------- */
 $("#feedbackBtn")?.addEventListener("click", e => {
   e.preventDefault();

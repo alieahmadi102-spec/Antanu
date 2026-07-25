@@ -899,14 +899,28 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 
 
 /* ---------- پنجره ابزار پایان‌نامه و تحلیل آماری ---------- */
-#acadOverlay, #statsOverlay, #convertOverlay, #feedbackOverlay {
+#acadOverlay, #statsOverlay, #convertOverlay, #feedbackOverlay, #translateOverlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px;
 }
-#acadOverlay.show, #statsOverlay.show, #convertOverlay.show, #feedbackOverlay.show { display: flex; }
+#acadOverlay.show, #statsOverlay.show, #convertOverlay.show, #feedbackOverlay.show, #translateOverlay.show { display: flex; }
 /* پنل داخلی این پنجره‌ها باید بلندی‌اش محدود و قابل اسکرول باشد تا همه دکمه‌ها دیده شوند */
-#acadOverlay .mem-panel, #statsOverlay .mem-panel, #feedbackOverlay .mem-panel { max-height: 88vh; }
-#acadOverlay .doc-form, #statsOverlay .doc-form, #feedbackOverlay .doc-form { overflow-y: auto; }
+#acadOverlay .mem-panel, #statsOverlay .mem-panel, #feedbackOverlay .mem-panel, #translateOverlay .mem-panel { max-height: 88vh; }
+#acadOverlay .doc-form, #statsOverlay .doc-form, #feedbackOverlay .doc-form, #translateOverlay .doc-form { overflow-y: auto; }
+
+/* ترجمه چند‌لحنه */
+.tr-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.tr-row label { flex: 1; min-width: 130px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.tr-row select { padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); }
+.tr-tones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.tr-tones label { font-size: 12.5px; display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+.tr-tones input { accent-color: var(--accent); }
+.tr-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+.tr-card .tr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tr-card .tr-tone { font-weight: 700; color: var(--accent); font-size: 13.5px; }
+.tr-card .tr-copy { font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+.tr-card .tr-copy:hover { color: var(--accent); border-color: var(--accent); }
+.tr-card .tr-body { white-space: pre-wrap; line-height: 1.9; font-size: 14.5px; }
 .acad-tools, #statsTools {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 9px;
   padding: 4px 22px 22px;

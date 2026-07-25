@@ -1015,6 +1015,82 @@ async def api_feedback(request: Request):
     return {"ok": True, "message": "🙏 نظر شما ثبت شد و به دست تیم آنتانو می‌رسد. سپاسگزاریم!"}
 
 
+# ---------------- ترجمه‌ی چند‌لحنه ----------------
+
+@app.get("/api/translate/langs")
+def translate_langs(request: Request):
+    """فهرست زبان‌ها و لحن‌ها برای رابط کاربری ترجمه."""
+    require_user(request)
+    import translate_engine as te
+    return {"languages": te.LANGUAGES, "tones": te.TONES}
+
+
+@app.post("/api/translate")
+async def api_translate(request: Request):
+    """ترجمه‌ی متن به یک زبان با چند لحن مختلف تا کاربر بهترین را انتخاب و کپی کند."""
+    user = require_user(request)
+    check_subscription(user)
+    if not chat_rate_ok(user["id"]):
+        raise HTTPException(429, "درخواست‌ها را خیلی سریع می‌فرستید؛ کمی صبر کنید.")
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    target = (body.get("target") or "en").strip()
+    source = (body.get("source") or "auto").strip()
+    tones = body.get("tones") or ["formal", "polite", "friendly", "casual"]
+
+    import translate_engine as te
+    if not text:
+        raise HTTPException(400, "متنی برای ترجمه وارد نشده است.")
+    if len(text) > te.MAX_TEXT:
+        raise HTTPException(400, f"متن طولانی است (حداکثر {te.MAX_TEXT} نویسه). آن را به بخش‌های کوچک‌تر تقسیم کنید.")
+    if target not in te.LANGUAGES or target == "auto":
+        raise HTTPException(400, "زبان مقصد نامعتبر است.")
+    tones = [t for t in tones if t in te.TONES][:6] or ["formal", "polite", "friendly", "casual"]
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    # اگر ارمنی در کار باشد (مبدأ/مقصد/متن) قاعده‌ی سه‌ستونه‌ی واژه‌نامه اعمال می‌شود
+    arm_hint = ""
+    try:
+        import glossary as _gl
+        if target == "hy" or source == "hy" or _gl.extract_words(text, "hy"):
+            arm_hint = _gl.prompt_hint_for_text(text) or (
+                "برای واژه‌های ارمنی، خروجی را سه‌بخشی بده: کلمه‌ی ارمنی، ترجمه‌ی فارسی، تلفظ فینگلیش."
+            )
+    except Exception:
+        pass
+
+    prompt = te.build_translate_prompt(text, target, source, tones, arm_hint)
+    catalog = get_ai_catalog()
+    c = catalog[0] if catalog else None
+    if not c or not c.get("key"):
+        raise HTTPException(503, "سرویس ترجمه فعلاً در دسترس نیست؛ کمی بعد تلاش کنید.")
+
+    # خروجی نباید از فیلتر clean_foreign رد شود؛ متن مقصد عمداً غیرفارسی است
+    out = await _call_model_once(c, prompt, max_tokens=2600)
+
+    translations = []
+    try:
+        m = re.search(r"\{.*\}", out or "", re.S)
+        data = json.loads(m.group(0)) if m else {}
+        for item in data.get("translations", []):
+            if isinstance(item, dict) and item.get("text"):
+                translations.append({"tone": item.get("tone", ""), "text": item["text"].strip()})
+    except Exception:
+        translations = []
+    if not translations:
+        # اگر JSON نبود، کل خروجی را به‌عنوان یک ترجمه بده
+        translations = [{"tone": "ترجمه", "text": (out or "").strip()}]
+
+    dbq = get_db()
+    quota_add(dbq, user, "chat", max(500, len(text) * 2))
+    dbq.commit(); dbq.close()
+
+    return {"target": te.lang_name(target), "translations": translations}
+
+
 import html as _html
 
 
