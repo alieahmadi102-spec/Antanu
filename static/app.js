@@ -1155,6 +1155,40 @@ $("#convertOverlay")?.addEventListener("click", e => {
     $("#convertOverlay").classList.remove("show");
 });
 
+/* ---------- پاورقی‌گذاری روی فایل ---------- */
+let fnFileObj = null;
+$("#footnoteBtn")?.addEventListener("click", e => {
+  e.preventDefault(); closeSidebar();
+  $("#fnResult").innerHTML = ""; $("#fnFileName").textContent = ""; fnFileObj = null;
+  $("#footnoteOverlay").classList.add("show");
+});
+$("#footnoteOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "footnoteOverlay" || e.target.classList.contains("close"))
+    $("#footnoteOverlay").classList.remove("show");
+});
+$("#fnUpBtn")?.addEventListener("click", () => $("#fnFile").click());
+$("#fnFile")?.addEventListener("change", e => {
+  fnFileObj = e.target.files[0] || null;
+  $("#fnFileName").textContent = fnFileObj ? "📎 " + fnFileObj.name : "";
+});
+$("#fnGo")?.addEventListener("click", async () => {
+  const res = $("#fnResult");
+  if (!fnFileObj) { res.innerHTML = '<span style="color:var(--danger,#e06)">اول یک فایل انتخاب کنید.</span>'; return; }
+  $("#fnGo").disabled = true;
+  res.innerHTML = '<span class="spin"></span> در حال خواندن فایل و افزودن پاورقی…';
+  try {
+    const fd = new FormData(); fd.append("file", fnFileObj);
+    const r = await fetch("/api/footnote", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) { res.innerHTML = `<span style="color:var(--danger,#e06)">⚠️ ${escapeHtml(d.detail || "خطا")}</span>`; }
+    else {
+      res.innerHTML = `✅ فایل با ${d.count || 0} پاورقی آماده شد: ` +
+        `<a href="${d.url}" class="dl-link">📄 دانلود Word</a>`;
+    }
+  } catch (e) { res.innerHTML = '<span style="color:var(--danger,#e06)">خطای شبکه؛ دوباره تلاش کنید.</span>'; }
+  $("#fnGo").disabled = false;
+});
+
 /* ---------- ترجمه چند‌لحنه ---------- */
 let trLoaded = false;
 async function loadTrLangs() {

@@ -49,6 +49,7 @@
       <a href="#" id="translateBtn" class="side-link">🌍 ترجمه چند‌لحنه</a>
       <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
       <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
+      <a href="#" id="footnoteBtn" class="side-link">📌 پاورقی‌گذاری روی فایل</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
       <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
@@ -297,6 +298,21 @@
                   style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
         <button id="fbSendBtn" class="btn-primary" type="button" style="margin-top:12px">ارسال نظر</button>
         <div id="fbResult" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره پاورقی‌گذاری روی فایل -->
+  <div id="footnoteOverlay">
+    <div class="mem-panel">
+      <header><h3>📌 پاورقی‌گذاری روی فایل</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">یک فایل (Word، PDF، متن) بده تا آنتانو به اصطلاحات و مفاهیم مهم آن پاورقی علمی (با معادل انگلیسی/توضیح) اضافه کند و فایل Word با پانوشت واقعی بسازد.</p>
+        <button id="fnUpBtn" class="btn-primary" type="button">📁 انتخاب فایل</button>
+        <input type="file" id="fnFile" accept=".docx,.pdf,.txt,.md" hidden>
+        <div id="fnFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
+        <button id="fnGo" class="btn-primary" type="button" style="margin-top:6px">📌 پاورقی بگذار</button>
+        <div id="fnResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
   </div>

@@ -1200,6 +1200,70 @@ async def api_stt(request: Request, file: UploadFile = File(...), lang: str = Fo
     return {"text": text}
 
 
+# ---------------- پاورقی‌گذاری روی فایل کاربر ----------------
+
+@app.post("/api/footnote")
+async def api_footnote(request: Request, file: UploadFile = File(...)):
+    """به متن فایلِ کاربر پاورقی علمی اضافه می‌کند و فایل Word با پانوشت واقعی می‌سازد."""
+    user = require_user(request)
+    check_subscription(user)
+    try:
+        import export_utils
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌های لازم نصب نیستند: {_e}")
+
+    raw = await file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل زیاد است (حداکثر ۱۰ مگابایت).")
+    ext = os.path.splitext(file.filename or "f")[1].lower() or ".txt"
+    src = os.path.join(export_utils.EXPORT_DIR, f"fn-src-{secrets.token_hex(6)}{ext}")
+    with open(src, "wb") as f:
+        f.write(raw)
+    try:
+        text = export_utils.extract_markdown(src)
+    except Exception:
+        text = ""
+    finally:
+        try:
+            os.remove(src)
+        except OSError:
+            pass
+    if not text or len(text.strip()) < 20:
+        raise HTTPException(400, "متنی برای پاورقی‌گذاری در فایل پیدا نشد (شاید فایل اسکن‌شده یا خالی است).")
+    if len(text) > 12000:
+        text = text[:12000]
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    catalog = get_ai_catalog()
+    c = catalog[0] if catalog else None
+    if not c or not c.get("key"):
+        raise HTTPException(503, "سرویس فعلاً در دسترس نیست؛ کمی بعد تلاش کنید.")
+
+    prompt = (
+        "به متن زیر پاورقی (فوت‌نوت) علمی و دقیق اضافه کن. قواعد الزامی:\n"
+        "۱) متنِ اصلی را کلمه‌به‌کلمه و بدون تغییر حفظ کن؛ فقط بعد از هر اصطلاح تخصصی یا مفهوم مهم، نشانه‌ی «[^n]» بگذار.\n"
+        "۲) برای اصطلاحات تخصصی، معادل انگلیسی؛ برای مفاهیم مهم، توضیح کوتاه و در صورت لزوم منبع بنویس.\n"
+        "۳) شماره‌ی پاورقی‌ها را از ۱ و به‌ترتیب ظهور در متن بگذار.\n"
+        "۴) در انتهای متن، تعریف هر پاورقی را در خطی جداگانه بیاور: «[^n]: توضیح».\n"
+        "۵) هیچ مقدمه، توضیح یا جمله‌ای بیرون از خود متن و پاورقی‌ها اضافه نکن.\n\n"
+        "متن:\n" + text
+    )
+    out = await _call_model_once(c, prompt, system=BASE_SYSTEM_PROMPT, max_tokens=4000)
+
+    dbq = get_db()
+    quota_add(dbq, user, "chat", 4000)
+    dbq.commit(); dbq.close()
+
+    blocks = export_utils.md_to_blocks(out or text)
+    fn_count = sum(len(t) for k, t in blocks if k == "footnotes")
+    title = os.path.splitext(file.filename or "سند")[0][:60] or "سند پاورقی‌دار"
+    name = await run_in_threadpool(export_utils.build_docx, blocks, "Vazirmatn", 14, title, "right", False, False)
+    return {"url": f"/download/{name}", "count": fn_count}
+
+
 import html as _html
 
 
