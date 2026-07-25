@@ -374,6 +374,15 @@ def render(name: str, status_code: int = 200, **context) -> HTMLResponse:
 
 init_db()
 
+# بارگذاری «مغز واژگان» (ارمنی) در پایگاه داده اگر خالی باشد
+try:
+    import glossary as _glossary
+    _seeded = _glossary.seed_glossary_if_empty()
+    if _seeded:
+        print(f"[ANTANU] واژه‌نامه بارگذاری شد: {_seeded} واژه")
+except Exception as _e:
+    print("[ANTANU] بارگذاری واژه‌نامه انجام نشد:", _e)
+
 import datetime as _dt
 
 
@@ -1905,6 +1914,38 @@ def build_system_prompt(user, memories, tone: str | None = None) -> str:
     return prompt
 
 
+async def _learn_glossary_words(message: str):
+    """کلمات ارمنیِ به‌کاررفته که در واژه‌نامه نیستند را با کمک مدل ترجمه و در «مغز واژگان» ثبت می‌کند.
+    در پس‌زمینه اجرا می‌شود و هیچ اثری روی سرعت پاسخ کاربر ندارد."""
+    try:
+        import glossary as gl
+        _, unknown = gl.known_and_unknown(message, "hy")
+        unknown = [w for w in unknown if len(w) >= 2][:12]
+        if not unknown:
+            return
+        catalog = get_ai_catalog()
+        c = catalog[0] if catalog else None
+        if not c or not c.get("key"):
+            return
+        prompt = (
+            "برای هر کلمه/عبارت ارمنی زیر یک شیء JSON بده. خروجی فقط یک آرایه‌ی JSON معتبر باشد، بدون هیچ توضیح. "
+            'قالب هر عضو: {"term":"کلمه ارمنی","translation":"ترجمه فارسی","pronunciation":"تلفظ با حروف انگلیسی"}\n\n'
+            "کلمات:\n" + "\n".join(unknown)
+        )
+        out = await _call_model_once(c, prompt, max_tokens=900)
+        import re as _re
+        m = _re.search(r"\[.*\]", out or "", _re.S)
+        if not m:
+            return
+        arr = json.loads(m.group(0))
+        for item in arr:
+            if isinstance(item, dict) and item.get("term") and item.get("translation"):
+                gl.add_term(item["term"], item["translation"], item.get("pronunciation", ""),
+                            lang="hy", source="auto", status="done")
+    except Exception:
+        pass
+
+
 class ModelError(Exception):
     def __init__(self, status: int, body: str = ""):
         self.status = status
@@ -2146,6 +2187,16 @@ async def api_chat(request: Request):
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
 
+    # مغز واژگان: اگر پیام حاوی کلمه‌های زبان‌های واژه‌نامه‌ای (مثل ارمنی) باشد،
+    # ترجمه‌ها و تلفظ‌های ثبت‌شده به مدل داده می‌شود تا خروجی سه‌ستونه و دقیق بدهد.
+    try:
+        import glossary as _gl
+        _ghint = _gl.prompt_hint_for_text(message)
+        if _ghint:
+            sys_content += "\n" + _ghint
+    except Exception:
+        pass
+
     msgs = [{"role": "system", "content": sys_content}]
     msgs += [{"role": r["role"], "content": r["content"]} for r in history[:-1]]
     if images_b64:
@@ -2300,6 +2351,11 @@ async def api_chat(request: Request):
             # ذخیره خودکار در پایگاه دانش آنتانو (یادگیری از گفتگوها)
             if not images_b64:
                 add_knowledge(message, full)
+            # یادگیری خودکار کلمات جدید واژه‌نامه‌ای (مثل ارمنی) در پس‌زمینه
+            try:
+                asyncio.create_task(_learn_glossary_words(message))
+            except Exception:
+                pass
 
     return StreamingResponse(
         gen(),

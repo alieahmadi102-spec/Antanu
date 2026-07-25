@@ -148,6 +148,19 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback ON feedback(status, created_at);
+
+CREATE TABLE IF NOT EXISTS glossary (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    lang          TEXT NOT NULL DEFAULT 'hy',   -- کد زبان مبدأ (hy = ارمنی)
+    term          TEXT NOT NULL,                -- کلمه/عبارت به زبان اصلی
+    translation   TEXT,                         -- ترجمه فارسی
+    pronunciation TEXT,                         -- تلفظ با حروف انگلیسی (فینگلیش)
+    status        TEXT NOT NULL DEFAULT 'done', -- done | pending (منتظر تکمیل خودکار)
+    source        TEXT NOT NULL DEFAULT 'seed', -- seed | auto | user
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(lang, term);
 """
 
 
