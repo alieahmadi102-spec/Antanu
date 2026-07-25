@@ -1390,6 +1390,10 @@ document.querySelectorAll(".stat-t").forEach(btn => {
         return;
       }
       let out = "## 📊 نتیجه تحلیل: " + btn.textContent.trim() + "\n\n";
+      // نمودار مسیر مدل (SmartPLS) — اگر ساخته شده باشد
+      let diagram = null;
+      if (d.result && d.result.diagram) { diagram = d.result.diagram; delete d.result.diagram; }
+      if (diagram) out += `### 📈 نمودار مسیر مدل (SmartPLS)\n\n![نمودار مسیر مدل](${diagram})\n\n`;
       out += statsResultToMD(d.result);
       if (d.interpretation) out += "\n\n### 📝 تفسیر دانشگاهی\n\n" + d.interpretation;
       mdEl.innerHTML = renderMD(out);

@@ -2402,6 +2402,25 @@ async def stats_run(request: Request):
             quota_add_db.commit(); quota_add_db.close()
         except Exception:
             interpretation = ""
+
+    # نمودارها (SmartPLS و سبک SPSS) — پس از تفسیر ساخته می‌شوند تا در پرامپت نیایند
+    try:
+        import sem_plot
+        if analysis in ("sem_pls", "pls") and result.get("constructs"):
+            png = await run_in_threadpool(sem_plot.render_pls_diagram, result,
+                                          "مدل مسیر پژوهش (ضرایب استاندارد و بارهای عاملی)")
+        elif analysis in ("overview", "assumptions"):
+            png = await run_in_threadpool(sem_plot.render_histograms, path, params.get("cols"))
+        elif analysis == "correlation":
+            png = await run_in_threadpool(sem_plot.render_corr_heatmap, path,
+                                          params.get("method", "pearson"), params.get("cols"))
+        else:
+            png = None
+        if png:
+            result["diagram"] = f"/download/{png}"
+    except Exception as _e:
+        print("[ANTANU] stats chart failed:", _e)
+
     return {"result": result, "interpretation": interpretation}
 
 

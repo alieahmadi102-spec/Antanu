@@ -658,20 +658,29 @@ def sem_pls(path: str, factors: dict = None, structural: list = None) -> dict:
             if f != g2:
                 fornell[f][f"r_با_{g2}"] = round(float(corr.loc[f, g2]), 3)
 
-    # ضرایب مسیر ساختاری (رگرسیون خطی ساده بین نمرات سازه)
+    # ضرایب مسیر ساختاری استانداردشده + R² هر سازه‌ی درون‌زا (رگرسیون چندگانه)
     paths = []
+    r2_by_construct = {}
     if structural:
         from sklearn.linear_model import LinearRegression
+        # نمرات سازه‌ها را استاندارد می‌کنیم تا ضرایب، «بتای استاندارد» شوند
+        z = (sdf - sdf.mean()) / sdf.std(ddof=1)
+        outcomes = {}
         for pair in structural:
             if len(pair) == 2 and pair[0] in scores and pair[1] in scores:
-                X = sdf[[pair[0]]].values
-                y = sdf[pair[1]].values
-                lr = LinearRegression().fit(X, y)
-                r2 = lr.score(X, y)
+                outcomes.setdefault(pair[1], []).append(pair[0])
+        for outcome, preds in outcomes.items():
+            preds = list(dict.fromkeys(preds))  # حذف تکراری، حفظ ترتیب
+            X = z[preds].values
+            y = z[outcome].values
+            lr = LinearRegression().fit(X, y)
+            r2 = round(float(lr.score(X, y)), 3)
+            r2_by_construct[outcome] = r2
+            for i, p in enumerate(preds):
                 paths.append({
-                    "from": pair[0], "to": pair[1],
-                    "beta": round(float(lr.coef_[0]), 3),
-                    "R2": round(float(r2), 3),
+                    "from": p, "to": outcome,
+                    "beta": round(float(lr.coef_[i]), 3),
+                    "R2": r2,
                 })
 
     return {
@@ -679,6 +688,7 @@ def sem_pls(path: str, factors: dict = None, structural: list = None) -> dict:
         "constructs": constructs,
         "fornell_larcker": fornell,
         "paths": paths,
+        "r2_by_construct": r2_by_construct,
         "n": len(sdf),
         "note": "این تخمین سبک PLS است؛ برای گزارش رسمی رساله، خروجی SmartPLS نیز توصیه می‌شود.",
     }
