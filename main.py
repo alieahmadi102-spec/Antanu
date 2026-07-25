@@ -1260,7 +1260,9 @@ async def api_footnote(request: Request, file: UploadFile = File(...)):
     blocks = export_utils.md_to_blocks(out or text)
     fn_count = sum(len(t) for k, t in blocks if k == "footnotes")
     title = os.path.splitext(file.filename or "سند")[0][:60] or "سند پاورقی‌دار"
-    name = await run_in_threadpool(export_utils.build_docx, blocks, "Vazirmatn", 14, title, "right", False, False)
+    # real_footnotes=True → پاورقی واقعیِ پایین صفحه‌ی Word
+    name = await run_in_threadpool(export_utils.build_docx, blocks, "Vazirmatn", 14, title,
+                                   "right", False, False, True)
     return {"url": f"/download/{name}", "count": fn_count}
 
 

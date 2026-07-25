@@ -356,6 +356,70 @@ def _new_name(ext: str) -> str:
     return f"antanu-{secrets.token_hex(6)}.{ext}"
 
 
+def _inject_real_footnotes(docx_path: str, notes, font_name: str = "Vazirmatn"):
+    """پاورقی‌های واقعیِ پایین صفحه را به یک فایل docxِ ازپیش‌ساخته اضافه می‌کند.
+    notes: فهرست (شماره، متن) با شماره‌ی ۱..N. بدنه‌ی سند باید از قبل w:footnoteReference
+    با همان شماره‌ها را داشته باشد."""
+    import zipfile
+    import shutil
+    import re as _re
+    from xml.sax.saxutils import escape
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    def _note_xml(num, text):
+        t = escape(text or "")
+        return (
+            f'<w:footnote w:id="{num}">'
+            '<w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:bidi/></w:pPr>'
+            '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>'
+            f'<w:r><w:rPr><w:rFonts w:ascii="{font_name}" w:hAnsi="{font_name}" w:cs="{font_name}"/><w:rtl/></w:rPr>'
+            f'<w:t xml:space="preserve"> {t}</w:t></w:r></w:p></w:footnote>'
+        )
+
+    footnotes_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{W}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>'
+        + "".join(_note_xml(n, t) for n, t in notes)
+        + '</w:footnotes>'
+    )
+
+    zin = zipfile.ZipFile(docx_path, "r")
+    names = zin.namelist()
+    ct = zin.read("[Content_Types].xml").decode("utf-8")
+    rels = zin.read("word/_rels/document.xml.rels").decode("utf-8")
+
+    if "footnotes+xml" not in ct:
+        ct = ct.replace(
+            "</Types>",
+            '<Override PartName="/word/footnotes.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/></Types>',
+        )
+    if "relationships/footnotes" not in rels:
+        nid = max((int(x) for x in _re.findall(r'Id="rId(\d+)"', rels)), default=0) + 1
+        rels = rels.replace(
+            "</Relationships>",
+            f'<Relationship Id="rId{nid}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" '
+            'Target="footnotes.xml"/></Relationships>',
+        )
+
+    tmp = docx_path + ".tmp"
+    zout = zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED)
+    for n in names:
+        data = zin.read(n)
+        if n == "[Content_Types].xml":
+            data = ct.encode("utf-8")
+        elif n == "word/_rels/document.xml.rels":
+            data = rels.encode("utf-8")
+        zout.writestr(n, data)
+    zout.writestr("word/footnotes.xml", footnotes_xml.encode("utf-8"))
+    zout.close()
+    zin.close()
+    shutil.move(tmp, docx_path)
+
+
 # ---------------- ساخت فایل Word (راست‌به‌چپ) ----------------
 
 def _to_fa_digits(s) -> str:
@@ -364,7 +428,8 @@ def _to_fa_digits(s) -> str:
 
 def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
                title: str | None = None, align: str = "right",
-               toc: bool = False, numbering: bool = False) -> str:
+               toc: bool = False, numbering: bool = False,
+               real_footnotes: bool = False) -> str:
     from docx import Document
     from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -498,9 +563,17 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             if fid not in fn_num:
                 fn_order.append(fid)
                 fn_num[fid] = len(fn_order)
-            sup = p.add_run(_to_fa_digits(fn_num[fid]))
-            style_run(sup, max(8, size - 3), bold=True, color=(0x0F, 0x76, 0x6E))
-            sup.font.superscript = True
+            if real_footnotes:
+                # ارجاع پاورقی واقعی (پایین صفحه) — به‌جای شماره‌ی بالانویسِ ساده
+                run = p.add_run()
+                rPr = run._element.get_or_add_rPr()
+                va = OxmlElement("w:vertAlign"); va.set(qn("w:val"), "superscript"); rPr.append(va)
+                ref = OxmlElement("w:footnoteReference"); ref.set(qn("w:id"), str(fn_num[fid]))
+                run._element.append(ref)
+            else:
+                sup = p.add_run(_to_fa_digits(fn_num[fid]))
+                style_run(sup, max(8, size - 3), bold=True, color=(0x0F, 0x76, 0x6E))
+                sup.font.superscript = True
             pos = m.end()
         rest = text[pos:]
         if rest or pos == 0:
@@ -535,8 +608,8 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
         if bm:
             add_heading_bookmark(p, bm, _bid[0]); _bid[0] += 1
 
-    # بخش پانوشت‌ها در انتهای سند (شماره‌دار، فارسی و انگلیسی)
-    if fn_order:
+    # بخش پانوشت‌ها در انتهای سند (فقط در حالت غیرِ پاورقی‌واقعی)
+    if fn_order and not real_footnotes:
         doc.add_paragraph()
         hp = doc.add_paragraph()
         rtl_para(hp, body_align, heading=True)
@@ -549,7 +622,17 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             style_run(np.add_run(fn_defs[fid]), max(9, font_size - 1))
 
     name = _new_name("docx")
-    doc.save(os.path.join(EXPORT_DIR, name))
+    out_path = os.path.join(EXPORT_DIR, name)
+    doc.save(out_path)
+
+    # پاورقی واقعیِ پایین صفحه: تزریق word/footnotes.xml به فایل ذخیره‌شده
+    if real_footnotes and fn_order:
+        try:
+            notes = [(fn_num[fid], fn_defs[fid]) for fid in fn_order]
+            _inject_real_footnotes(out_path, notes, font_name)
+        except Exception:
+            pass
+
     return name
 
 
