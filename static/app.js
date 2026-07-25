@@ -1189,6 +1189,50 @@ $("#translateOverlay")?.addEventListener("click", e => {
   if (e.target.id === "translateOverlay" || e.target.classList.contains("close"))
     $("#translateOverlay").classList.remove("show");
 });
+/* ضبط صدا → تبدیل به متن (STT) برای ترجمه‌ی صوتی */
+let trRecorder = null, trChunks = [], trRecording = false;
+$("#trRec")?.addEventListener("click", async () => {
+  const status = $("#trRecStatus");
+  if (trRecording) {   // پایان ضبط
+    try { trRecorder.stop(); } catch (e) {}
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    status.textContent = "مرورگر شما ضبط صدا را پشتیبانی نمی‌کند."; return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    trChunks = [];
+    trRecorder = new MediaRecorder(stream);
+    trRecorder.ondataavailable = e => { if (e.data.size) trChunks.push(e.data); };
+    trRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      trRecording = false;
+      $("#trRec").classList.remove("on"); $("#trRec").textContent = "🎙 ضبط صدا";
+      status.innerHTML = '<span class="spin"></span> در حال تبدیل صدا به متن…';
+      const blob = new Blob(trChunks, { type: trRecorder.mimeType || "audio/webm" });
+      const fd = new FormData();
+      fd.append("file", blob, "voice.webm");
+      const srcVal = $("#trSource").value;
+      if (srcVal && srcVal !== "auto") fd.append("lang", srcVal);
+      try {
+        const r = await fetch("/api/stt", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) { status.textContent = "⚠️ " + (d.detail || "خطا در تبدیل صدا"); return; }
+        const t = (d.text || "").trim();
+        $("#trText").value = $("#trText").value ? ($("#trText").value + " " + t) : t;
+        status.textContent = t ? "✅ متن آماده شد؛ حالا «ترجمه کن» را بزن." : "چیزی شنیده نشد.";
+      } catch (e) { status.textContent = "خطای شبکه در تبدیل صدا."; }
+    };
+    trRecorder.start();
+    trRecording = true;
+    $("#trRec").classList.add("on"); $("#trRec").textContent = "⏹ پایان ضبط";
+    status.textContent = "🎙 در حال ضبط… برای پایان دوباره بزن.";
+  } catch (e) {
+    status.textContent = "دسترسی به میکروفون داده نشد.";
+  }
+});
+
 $("#trGo")?.addEventListener("click", async () => {
   const text = $("#trText").value.trim();
   const res = $("#trResult");

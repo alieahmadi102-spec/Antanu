@@ -131,6 +131,23 @@
     </div>
   </div>
 
+  <!-- تبدیل صدا به متن (STT) -->
+  <div class="card">
+    <h2>🎙 تبدیل صدا به متن (Whisper)</h2>
+    <p class="sub" style="margin-bottom:12px">کلید سرویس Whisper را وارد کن تا آنتانو بتواند ویس صوتی کاربر را بفهمد و ترجمه کند. <b>Groq رایگان است</b> (whisper-large-v3). کلید را از console.groq.com بگیر.</p>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="sttKey" placeholder="کلید سرویس (اگر خالی بگذاری، تغییر نمی‌کند)" style="direction:ltr;flex:1;min-width:240px">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="sttBase" placeholder="آدرس API" style="direction:ltr;flex:1;min-width:220px">
+      <input type="text" id="sttModel" placeholder="نام مدل" style="direction:ltr;width:200px">
+    </div>
+    <div class="row">
+      <button id="sttSave" type="button">💾 ذخیره</button>
+      <span id="sttSaveResult" style="font-size:12.5px"></span>
+    </div>
+  </div>
+
   <!-- ایده‌ها و نظرات کاربران -->
   <div class="card" style="border-color:#f59e0b55">
     <h2>💡 ایده‌ها و نظرات کاربران <span id="fbNewBadge" class="tag ok" style="display:none"></span></h2>
@@ -524,6 +541,28 @@ $("#ttsSave").addEventListener("click", async () => {
   loadTts();
 });
 
+/* ---------- تبدیل صدا به متن (STT) ---------- */
+async function loadStt() {
+  const r = await fetch("/admin/stt_settings");
+  if (!r.ok) return;
+  const s = await r.json();
+  $("#sttBase").value = s.base || "";
+  $("#sttModel").value = s.model || "";
+  if (s.has_key) $("#sttKey").placeholder = "کلید ذخیره شده ✓ — برای تغییر، کلید جدید وارد کن";
+}
+$("#sttSave").addEventListener("click", async () => {
+  const out = $("#sttSaveResult");
+  out.style.color = "var(--muted)"; out.textContent = "در حال ذخیره…";
+  const r = await post("/admin/stt_settings", {
+    key: $("#sttKey").value.trim(),
+    base: $("#sttBase").value.trim(),
+    model: $("#sttModel").value.trim(),
+  });
+  out.style.color = "#2dd4bf"; out.textContent = r.message || "ذخیره شد";
+  $("#sttKey").value = "";
+  loadStt();
+});
+
 /* ---------- ایده‌ها و نظرات کاربران ---------- */
 const FB_CAT = { idea: "💡 ایده", feature: "✨ قابلیت", bug: "🐞 مشکل", other: "💬 نظر" };
 const FB_STATUS = { new: '<span class="tag ok">جدید</span>', seen: '<span class="tag">دیده شد</span>', done: '<span class="tag no">انجام شد</span>' };
@@ -664,6 +703,7 @@ loadAnalytics();
 loadFeedback();
 loadTelegram();
 loadTts();
+loadStt();
 </script>
 </body>
 </html>

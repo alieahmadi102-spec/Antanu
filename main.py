@@ -1155,6 +1155,51 @@ async def api_tts(request: Request):
     return {"url": f"/download/{name}", "voice": TTS_VOICES.get(voice, voice)}
 
 
+# ---------------- تبدیل گفتار به متن (STT) ----------------
+
+@app.post("/api/stt")
+async def api_stt(request: Request, file: UploadFile = File(...), lang: str = Form("")):
+    """تبدیل فایل صوتی به متن با Whisper (سازگار با OpenAI/Groq). کلید از پنل مدیریت."""
+    user = require_user(request)
+    check_subscription(user)
+    key = (get_setting("stt_key", "") or os.environ.get("ANTANU_STT_KEY", "")).strip()
+    base = (get_setting("stt_base", "") or os.environ.get("ANTANU_STT_BASE", "https://api.groq.com/openai/v1")).rstrip("/")
+    model = (get_setting("stt_model", "") or os.environ.get("ANTANU_STT_MODEL", "whisper-large-v3")).strip()
+    if not key:
+        raise HTTPException(400, "تبدیل صدا به متن فعلاً فعال نیست؛ مدیر باید کلید را در پنل مدیریت بگذارد.")
+
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل صوتی زیاد است (حداکثر ۲۵ مگابایت).")
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    try:
+        files = {"file": (file.filename or "audio.webm", raw, file.content_type or "audio/webm")}
+        data = {"model": model, "response_format": "json"}
+        if lang and lang not in ("", "auto"):
+            data["language"] = lang
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
+            r = await client.post(f"{base}/audio/transcriptions",
+                                  headers={"Authorization": f"Bearer {key}"}, data=data, files=files)
+        if r.status_code != 200:
+            if r.status_code in (401, 403):
+                raise HTTPException(400, "کلید تبدیل صدا نامعتبر است؛ مدیر سیستم بررسی کند.")
+            raise HTTPException(400, "تبدیل صدا به متن ناموفق بود؛ کمی بعد دوباره تلاش کنید.")
+        text = (r.json().get("text") or "").strip()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "ارتباط با سرویس تبدیل صدا برقرار نشد؛ کمی بعد تلاش کنید.")
+
+    dbq = get_db()
+    quota_add(dbq, user, "chat", 600)
+    dbq.commit(); dbq.close()
+    return {"text": text}
+
+
 import html as _html
 
 
@@ -3374,6 +3419,31 @@ async def admin_tts_set(request: Request):
     set_setting("tts_voice_female", (body.get("voice_female") or "").strip())
     set_setting("tts_voice_male", (body.get("voice_male") or "").strip())
     return {"ok": True, "message": "✅ تنظیمات صدای حرفه‌ای ذخیره شد."}
+
+
+@app.get("/admin/stt_settings")
+def admin_stt_get(request: Request):
+    """خواندن تنظیمات تبدیل صدا به متن (کلید پنهان برنمی‌گردد)."""
+    require_admin(request)
+    key = get_setting("stt_key", "") or os.environ.get("ANTANU_STT_KEY", "")
+    return {
+        "has_key": bool(key.strip()),
+        "base": get_setting("stt_base", "") or "https://api.groq.com/openai/v1",
+        "model": get_setting("stt_model", "") or "whisper-large-v3",
+    }
+
+
+@app.post("/admin/stt_settings")
+async def admin_stt_set(request: Request):
+    """ذخیره‌ی کلید، آدرس و مدل سرویس تبدیل صدا به متن (Whisper) از پنل مدیریت."""
+    require_admin(request)
+    body = await request.json()
+    key = (body.get("key") or "").strip()
+    if key:
+        set_setting("stt_key", key)
+    set_setting("stt_base", (body.get("base") or "").strip())
+    set_setting("stt_model", (body.get("model") or "").strip())
+    return {"ok": True, "message": "✅ تنظیمات تبدیل صدا به متن ذخیره شد."}
 
 
 @app.post("/admin/backup_telegram")
