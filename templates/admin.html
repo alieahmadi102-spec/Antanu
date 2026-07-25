@@ -148,6 +148,36 @@
     </div>
   </div>
 
+  <!-- کلیدهای سرویس‌های جانبی -->
+  <div class="card" style="border-color:#8b5cf655">
+    <h2>🔑 کلیدهای سرویس‌های جانبی</h2>
+    <p class="sub" style="margin-bottom:12px">کلید سرویس‌های آهنگ، عکس، ویدیو و تماس تلفنی را اینجا بگذار تا وقتی هر قابلیت ساخته شد، خودکار فعال شود. (کلید خالی = بدون تغییر)</p>
+
+    <h3 style="font-size:13.5px;margin:6px 0 8px;color:#a78bfa">🎵 آهنگ / موسیقی و 🖼 عکس و 🎬 ویدیو</h3>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="svcReplicate" placeholder="کلید Replicate (آهنگ/عکس/ویدیو) — replicate.com" style="direction:ltr;flex:1;min-width:240px">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="svcMusicBase" placeholder="آدرس API آهنگ (اختیاری، مثلاً Suno)" style="direction:ltr;flex:1;min-width:180px">
+      <input type="text" id="svcMusicKey" placeholder="کلید سرویس آهنگ (اختیاری)" style="direction:ltr;flex:1;min-width:160px">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="svcImageBase" placeholder="آدرس API عکس (اختیاری، مثلاً Together)" style="direction:ltr;flex:1;min-width:180px">
+      <input type="text" id="svcImageKey" placeholder="کلید سرویس عکس (اختیاری)" style="direction:ltr;flex:1;min-width:160px">
+    </div>
+
+    <h3 style="font-size:13.5px;margin:14px 0 8px;color:#a78bfa">☎️ تماس تلفنی (Twilio) — برای اپلیکیشن آینده</h3>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="svcTwSid" placeholder="Twilio Account SID" style="direction:ltr;flex:1;min-width:180px">
+      <input type="text" id="svcTwToken" placeholder="Twilio Auth Token" style="direction:ltr;flex:1;min-width:160px">
+      <input type="text" id="svcTwPhone" placeholder="شماره Twilio (مثلاً +1...)" style="direction:ltr;width:170px">
+    </div>
+    <div class="row">
+      <button id="svcSave" type="button">💾 ذخیره</button>
+      <span id="svcSaveResult" style="font-size:12.5px"></span>
+    </div>
+  </div>
+
   <!-- ایده‌ها و نظرات کاربران -->
   <div class="card" style="border-color:#f59e0b55">
     <h2>💡 ایده‌ها و نظرات کاربران <span id="fbNewBadge" class="tag ok" style="display:none"></span></h2>
@@ -563,6 +593,38 @@ $("#sttSave").addEventListener("click", async () => {
   loadStt();
 });
 
+/* ---------- کلیدهای سرویس‌های جانبی ---------- */
+async function loadServices() {
+  const r = await fetch("/admin/services_settings");
+  if (!r.ok) return;
+  const s = await r.json();
+  $("#svcMusicBase").value = s.music_base || "";
+  $("#svcImageBase").value = s.image_base || "";
+  $("#svcTwSid").value = s.twilio_sid || "";
+  $("#svcTwPhone").value = s.twilio_phone || "";
+  if (s.has_replicate) $("#svcReplicate").placeholder = "کلید ذخیره شده ✓ — برای تغییر، جدید وارد کن";
+  if (s.has_music) $("#svcMusicKey").placeholder = "کلید ذخیره شده ✓";
+  if (s.has_image) $("#svcImageKey").placeholder = "کلید ذخیره شده ✓";
+  if (s.has_twilio_token) $("#svcTwToken").placeholder = "توکن ذخیره شده ✓";
+}
+$("#svcSave").addEventListener("click", async () => {
+  const out = $("#svcSaveResult");
+  out.style.color = "var(--muted)"; out.textContent = "در حال ذخیره…";
+  const r = await post("/admin/services_settings", {
+    replicate_key: $("#svcReplicate").value.trim(),
+    music_key: $("#svcMusicKey").value.trim(),
+    music_base: $("#svcMusicBase").value.trim(),
+    image_key: $("#svcImageKey").value.trim(),
+    image_base: $("#svcImageBase").value.trim(),
+    twilio_sid: $("#svcTwSid").value.trim(),
+    twilio_token: $("#svcTwToken").value.trim(),
+    twilio_phone: $("#svcTwPhone").value.trim(),
+  });
+  out.style.color = "#2dd4bf"; out.textContent = r.message || "ذخیره شد";
+  $("#svcReplicate").value = ""; $("#svcMusicKey").value = ""; $("#svcImageKey").value = ""; $("#svcTwToken").value = "";
+  loadServices();
+});
+
 /* ---------- ایده‌ها و نظرات کاربران ---------- */
 const FB_CAT = { idea: "💡 ایده", feature: "✨ قابلیت", bug: "🐞 مشکل", other: "💬 نظر" };
 const FB_STATUS = { new: '<span class="tag ok">جدید</span>', seen: '<span class="tag">دیده شد</span>', done: '<span class="tag no">انجام شد</span>' };
@@ -704,6 +766,7 @@ loadFeedback();
 loadTelegram();
 loadTts();
 loadStt();
+loadServices();
 </script>
 </body>
 </html>

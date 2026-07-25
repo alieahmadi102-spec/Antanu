@@ -3512,6 +3512,45 @@ async def admin_stt_set(request: Request):
     return {"ok": True, "message": "✅ تنظیمات تبدیل صدا به متن ذخیره شد."}
 
 
+@app.get("/admin/services_settings")
+def admin_services_get(request: Request):
+    """خواندن کلیدهای سرویس‌های جانبی (آهنگ/ویدیو/عکس/تماس). کلیدها پنهان برمی‌گردند."""
+    require_admin(request)
+    return {
+        "has_replicate": bool((get_setting("replicate_key", "") or os.environ.get("REPLICATE_API_TOKEN", "")).strip()),
+        "has_music": bool(get_setting("music_key", "").strip()),
+        "music_base": get_setting("music_base", ""),
+        "has_image": bool(get_setting("image_key", "").strip()),
+        "image_base": get_setting("image_base", ""),
+        "twilio_sid": get_setting("twilio_sid", ""),
+        "has_twilio_token": bool(get_setting("twilio_token", "").strip()),
+        "twilio_phone": get_setting("twilio_phone", ""),
+    }
+
+
+@app.post("/admin/services_settings")
+async def admin_services_set(request: Request):
+    """ذخیره‌ی کلیدهای سرویس‌های جانبی از پنل مدیریت (کلید خالی = بدون تغییر)."""
+    require_admin(request)
+    body = await request.json()
+
+    def _save_key(field, key):
+        v = (body.get(field) or "").strip()
+        if v:
+            set_setting(key, v)
+
+    _save_key("replicate_key", "replicate_key")
+    _save_key("music_key", "music_key")
+    _save_key("image_key", "image_key")
+    _save_key("twilio_token", "twilio_token")
+    # فیلدهای غیرمحرمانه همیشه ذخیره می‌شوند
+    set_setting("music_base", (body.get("music_base") or "").strip())
+    set_setting("image_base", (body.get("image_base") or "").strip())
+    set_setting("twilio_sid", (body.get("twilio_sid") or "").strip())
+    set_setting("twilio_phone", (body.get("twilio_phone") or "").strip())
+    return {"ok": True, "message": "✅ کلیدهای سرویس‌های جانبی ذخیره شد."}
+
+
 @app.post("/admin/backup_telegram")
 async def admin_backup_telegram(request: Request):
     """همین حالا یک پشتیبان بساز و به کانال تلگرام بفرست (برای تست تنظیمات)."""
