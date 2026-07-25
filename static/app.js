@@ -340,9 +340,16 @@ if (window.speechSynthesis) {
   speechSynthesis.onvoiceschanged = loadVoices;
 }
 
+let speakKeepAlive = null;
+function stopSpeaking() {
+  speaking = false;
+  clearInterval(speakKeepAlive);
+  try { speechSynthesis.cancel(); } catch (e) {}
+}
+
 function speak(text) {
   if (!window.speechSynthesis) { toast("مرورگر شما پخش صدا را پشتیبانی نمی‌کند"); return; }
-  if (speaking) { speaking = false; speechSynthesis.cancel(); toast("خواندن متوقف شد"); return; }
+  if (speaking) { stopSpeaking(); toast("خواندن متوقف شد"); return; }
 
   const plain = (text || "")
     .replace(/\[\[ANTANU_[^\]]+\]\]/g, " ")
@@ -355,6 +362,11 @@ function speak(text) {
   loadVoices();
   const voice = voicesCache.find(v => v.lang === lang)
     || voicesCache.find(v => v.lang && v.lang.startsWith(lang.split("-")[0]));
+
+  // اگر صدای فارسی روی دستگاه نصب نیست، به کاربر پیشنهاد صدای حرفه‌ای بده
+  if (!voice && lang.startsWith("fa") && voicesCache.length) {
+    toast("صدای فارسی روی دستگاه شما نیست؛ برای کیفیت بهتر «🎧 صدای حرفه‌ای» را بزنید");
+  }
 
   // تکه‌تکه کردن متن — رفع باگ کروم/اندروید که متن بلند را نمی‌خواند
   const chunks = [];
@@ -371,9 +383,16 @@ function speak(text) {
 
   speechSynthesis.cancel();
   speaking = true;
+  // رفع باگ کروم که پخش بعد از ~۱۵ ثانیه قطع می‌شود
+  clearInterval(speakKeepAlive);
+  speakKeepAlive = setInterval(() => {
+    if (!speaking) { clearInterval(speakKeepAlive); return; }
+    try { speechSynthesis.pause(); speechSynthesis.resume(); } catch (e) {}
+  }, 9000);
+
   let i = 0;
   const next = () => {
-    if (!speaking || i >= chunks.length) { speaking = false; return; }
+    if (!speaking || i >= chunks.length) { stopSpeaking(); return; }
     const u = new SpeechSynthesisUtterance(chunks[i++]);
     u.lang = lang;
     if (voice) u.voice = voice;
@@ -382,8 +401,54 @@ function speak(text) {
     u.onerror = next;
     speechSynthesis.speak(u);
   };
-  next();
+  // تأخیر کوتاه تا cancel کامل شود (رفع افت اولین جمله در بعضی مرورگرها)
+  setTimeout(next, 60);
   toast("🔊 در حال خواندن… دوباره بزنید تا متوقف شود");
+}
+
+/* ---------- صدای حرفه‌ای (TTS با API) ---------- */
+function ttsClean(text) {
+  return (text || "")
+    .replace(/\[\[ANTANU_[^\]]+\]\]/g, " ")
+    .replace(/[#*_`>\[\]()|~]/g, " ")
+    .replace(/\s+/g, " ").trim().slice(0, 1000);
+}
+async function proTTS(btn, raw) {
+  const bubble = btn.closest(".bubble");
+  const text = ttsClean(raw);
+  if (!text) { toast("متنی برای صدا نیست"); return; }
+  let box = bubble.querySelector(".tts-box");
+  if (box) { box.remove(); return; }   // دکمه‌ی دوباره = بستن
+  box = document.createElement("div");
+  box.className = "tts-box";
+  box.innerHTML = `<span class="tts-lbl">انتخاب صدا:</span>
+    <button class="tts-v" data-v="self" type="button">🧑‍💼 آنتانو</button>
+    <button class="tts-v" data-v="female" type="button">👩 خانم</button>
+    <button class="tts-v" data-v="male" type="button">👨 آقا</button>
+    <span class="tts-status"></span>`;
+  bubble.appendChild(box);
+  box.querySelectorAll(".tts-v").forEach(vb => vb.addEventListener("click", async () => {
+    const status = box.querySelector(".tts-status");
+    box.querySelectorAll(".tts-v").forEach(x => (x.disabled = true));
+    status.innerHTML = '<span class="spin"></span> در حال ساخت صدا…';
+    try {
+      const r = await fetch("/api/tts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: vb.dataset.v }),
+      });
+      const d = await r.json();
+      if (!r.ok) { status.textContent = "⚠️ " + (d.detail || "خطا در ساخت صدا"); }
+      else {
+        status.textContent = "";
+        const old = box.querySelector("audio"); if (old) old.remove();
+        const audio = document.createElement("audio");
+        audio.controls = true; audio.src = d.url; audio.autoplay = true;
+        audio.style.cssText = "width:100%;margin-top:8px";
+        box.appendChild(audio);
+      }
+    } catch (e) { status.textContent = "خطای شبکه"; }
+    box.querySelectorAll(".tts-v").forEach(x => (x.disabled = false));
+  }));
 }
 
 /* ---------- نمایش پیام‌ها ---------- */
@@ -403,7 +468,7 @@ function addMsg(role, content) {
         <div class="actions">
           <button class="act copy">📋 کپی</button>
           <button class="act share">↗️ اشتراک‌گذاری</button>
-          ${isUser ? "" : '<button class="act voice">🔊 خواندن</button><button class="act export">📄 خروجی</button><button class="act regen">🔄 دوباره</button><button class="act cont">⤵️ ادامه</button>'}
+          ${isUser ? "" : '<button class="act voice">🔊 خواندن</button><button class="act protts">🎧 صدای حرفه‌ای</button><button class="act export">📄 خروجی</button><button class="act regen">🔄 دوباره</button><button class="act cont">⤵️ ادامه</button>'}
         </div>
       </div>
     </div>`);
@@ -432,6 +497,7 @@ msgsEl.addEventListener("click", async e => {
     else { try { await navigator.clipboard.writeText(raw); toast("متن کپی شد؛ در رسانه موردنظر جای‌گذاری کنید"); } catch {} }
   }
   if (e.target.classList.contains("voice")) speak(raw);
+  if (e.target.classList.contains("protts")) proTTS(e.target, raw);
   if (e.target.classList.contains("export")) openDocOverlay("export", raw, msg);
   if (e.target.classList.contains("regen")) {
     let prev = msg.previousElementSibling;

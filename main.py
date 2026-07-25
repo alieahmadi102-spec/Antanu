@@ -292,16 +292,17 @@ def set_setting(key: str, value: str):
 DOLLAR_TOKENS = 200_000  # هر «دلار» = ۲۰۰ هزار توکن مصرفی (ورودی+خروجی)
 QUOTAS = {
     # ستاره ۰ = مهمان رایگان (بدون ثبت‌نام): فقط گفتگو، متن و مقاله — بدون ساخت عکس/ویدیو
-    0: {"tokens": DOLLAR_TOKENS // 2, "image": 0, "video": 0, "article": 1},
-    1: {"tokens": 1 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 2},
-    2: {"tokens": 2 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 3},
-    3: {"tokens": 3 * DOLLAR_TOKENS, "image": 10, "video": 1, "article": 4},
-    4: {"tokens": 4 * DOLLAR_TOKENS, "image": 15, "video": 3, "article": 6},
+    0: {"tokens": DOLLAR_TOKENS // 2, "image": 0, "video": 0, "article": 1, "tts": 0},
+    1: {"tokens": 1 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 2, "tts": 0},
+    2: {"tokens": 2 * DOLLAR_TOKENS, "image": 0,  "video": 0, "article": 3, "tts": 3},
+    3: {"tokens": 3 * DOLLAR_TOKENS, "image": 10, "video": 1, "article": 4, "tts": 5},
+    4: {"tokens": 4 * DOLLAR_TOKENS, "image": 15, "video": 3, "article": 6, "tts": 10},
 }
 # ستاره ۵ = نامحدود، فقط برای مدیران تیم (فروخته و نمایش داده نمی‌شود)
 ADMIN_STARS = 5
 
-QUOTA_NAMES = {"chat": "پیام", "image": "ساخت عکس", "video": "ساخت ویدیو", "article": "مقاله بلند"}
+QUOTA_NAMES = {"chat": "پیام", "image": "ساخت عکس", "video": "ساخت ویدیو",
+               "article": "مقاله بلند", "tts": "صدای حرفه‌ای"}
 
 # مدت اعتبار اشتراک از لحظه ثبت‌نام/تمدید (روز)
 SUBSCRIPTION_DAYS = 30
@@ -616,7 +617,7 @@ def quota_check(db, user, kind: str):
     qkey = "tokens" if kind == "chat" else kind
     limit = QUOTAS.get(user["stars"], QUOTAS[1]).get(qkey, 0)
     used = quota_used(db, user["id"], kind)
-    if limit <= 0 and kind in ("image", "video"):
+    if limit <= 0 and kind in ("image", "video", "tts"):
         if is_guest(user):
             raise HTTPException(
                 403,
@@ -1089,6 +1090,69 @@ async def api_translate(request: Request):
     dbq.commit(); dbq.close()
 
     return {"target": te.lang_name(target), "translations": translations}
+
+
+# ---------------- متن‌به‌گفتار حرفه‌ای (TTS) ----------------
+
+TTS_VOICES = {"self": "صدای آنتانو", "female": "صدای خانم", "male": "صدای آقا"}
+
+
+@app.post("/api/tts")
+async def api_tts(request: Request):
+    """تبدیل متن به فایل صوتی حرفه‌ای (ElevenLabs). کلید و شناسه‌ی صداها از پنل مدیریت."""
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    voice = (body.get("voice") or "self").strip()
+    if not text:
+        raise HTTPException(400, "متنی برای تبدیل به صدا نیست.")
+    if len(text) > 1000:
+        text = text[:1000]
+
+    token = (get_setting("elevenlabs_key", "") or os.environ.get("ELEVENLABS_API_KEY", "")).strip()
+    if not token:
+        raise HTTPException(400, "صدای حرفه‌ای فعال نیست؛ فعلاً از دکمه «🔊 خواندن» استفاده کنید.")
+
+    default_vid = (get_setting("tts_voice_self", "") or os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")).strip()
+    vmap = {
+        "self": get_setting("tts_voice_self", "").strip() or default_vid,
+        "female": get_setting("tts_voice_female", "").strip() or default_vid,
+        "male": get_setting("tts_voice_male", "").strip() or default_vid,
+    }
+    voice_id = vmap.get(voice) or default_vid
+
+    db = get_db()
+    quota_check(db, user, "tts")
+    db.close()
+
+    try:
+        import export_utils
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
+            r = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={"xi-api-key": token, "Content-Type": "application/json"},
+                json={"text": text, "model_id": "eleven_multilingual_v2",
+                      "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
+            )
+        if r.status_code != 200:
+            if r.status_code in (401, 403):
+                raise HTTPException(400, "کلید صدای حرفه‌ای نامعتبر است؛ مدیر سیستم آن را بررسی کند.")
+            if r.status_code == 429:
+                raise HTTPException(429, "سهمیه‌ی ماهانه‌ی سرویس صدای حرفه‌ای پر شده است؛ بعداً تلاش کنید.")
+            raise HTTPException(400, "ساخت صدا ناموفق بود؛ کمی بعد دوباره تلاش کنید.")
+        name = f"antanu-tts-{secrets.token_hex(6)}.mp3"
+        with open(os.path.join(export_utils.EXPORT_DIR, name), "wb") as f:
+            f.write(r.content)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "ارتباط با سرویس صدا برقرار نشد؛ کمی بعد تلاش کنید.")
+
+    dbq = get_db()
+    quota_add(dbq, user, "tts")
+    dbq.commit(); dbq.close()
+    return {"url": f"/download/{name}", "voice": TTS_VOICES.get(voice, voice)}
 
 
 import html as _html
@@ -3283,6 +3347,33 @@ async def admin_telegram_set(request: Request):
         set_setting("tg_bot_token", token)
     set_setting("tg_backup_chat", chat)
     return {"ok": True, "message": "✅ تنظیمات تلگرام ذخیره شد."}
+
+
+@app.get("/admin/tts_settings")
+def admin_tts_get(request: Request):
+    """خواندن تنظیمات صدای حرفه‌ای (کلید پنهان برنمی‌گردد)."""
+    require_admin(request)
+    key = get_setting("elevenlabs_key", "") or os.environ.get("ELEVENLABS_API_KEY", "")
+    return {
+        "has_key": bool(key.strip()),
+        "voice_self": get_setting("tts_voice_self", ""),
+        "voice_female": get_setting("tts_voice_female", ""),
+        "voice_male": get_setting("tts_voice_male", ""),
+    }
+
+
+@app.post("/admin/tts_settings")
+async def admin_tts_set(request: Request):
+    """ذخیره‌ی کلید ElevenLabs و شناسه‌ی صداها (آنتانو/خانم/آقا) از پنل مدیریت."""
+    require_admin(request)
+    body = await request.json()
+    key = (body.get("key") or "").strip()
+    if key:
+        set_setting("elevenlabs_key", key)
+    set_setting("tts_voice_self", (body.get("voice_self") or "").strip())
+    set_setting("tts_voice_female", (body.get("voice_female") or "").strip())
+    set_setting("tts_voice_male", (body.get("voice_male") or "").strip())
+    return {"ok": True, "message": "✅ تنظیمات صدای حرفه‌ای ذخیره شد."}
 
 
 @app.post("/admin/backup_telegram")

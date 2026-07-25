@@ -113,6 +113,24 @@
     </div>
   </div>
 
+  <!-- صدای حرفه‌ای (TTS) -->
+  <div class="card">
+    <h2>🎧 صدای حرفه‌ای (متن‌به‌گفتار)</h2>
+    <p class="sub" style="margin-bottom:12px">کلید ElevenLabs و شناسه‌ی صداها را وارد کن تا دکمه‌ی «🎧 صدای حرفه‌ای» زیر پاسخ‌ها فعال شود. شناسه‌ی صدا را از داشبورد ElevenLabs (بخش Voices) کپی کن. <b>پلن رایگان ماهی ~۱۰٬۰۰۰ کاراکتر (حدود ۴ دقیقه) است؛ برای کاربران زیاد کافی نیست.</b></p>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="ttsKey" placeholder="کلید ElevenLabs (اگر خالی بگذاری، تغییر نمی‌کند)" style="direction:ltr;flex:1;min-width:240px">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="ttsSelf" placeholder="شناسه صدای «آنتانو»" style="direction:ltr;flex:1;min-width:150px">
+      <input type="text" id="ttsFemale" placeholder="شناسه صدای «خانم»" style="direction:ltr;flex:1;min-width:150px">
+      <input type="text" id="ttsMale" placeholder="شناسه صدای «آقا»" style="direction:ltr;flex:1;min-width:150px">
+    </div>
+    <div class="row">
+      <button id="ttsSave" type="button">💾 ذخیره</button>
+      <span id="ttsSaveResult" style="font-size:12.5px"></span>
+    </div>
+  </div>
+
   <!-- ایده‌ها و نظرات کاربران -->
   <div class="card" style="border-color:#f59e0b55">
     <h2>💡 ایده‌ها و نظرات کاربران <span id="fbNewBadge" class="tag ok" style="display:none"></span></h2>
@@ -482,6 +500,30 @@ $("#tgBackupTest").addEventListener("click", async () => {
   }
 });
 
+/* ---------- صدای حرفه‌ای (TTS) ---------- */
+async function loadTts() {
+  const r = await fetch("/admin/tts_settings");
+  if (!r.ok) return;
+  const s = await r.json();
+  $("#ttsSelf").value = s.voice_self || "";
+  $("#ttsFemale").value = s.voice_female || "";
+  $("#ttsMale").value = s.voice_male || "";
+  if (s.has_key) $("#ttsKey").placeholder = "کلید ذخیره شده ✓ — برای تغییر، کلید جدید وارد کن";
+}
+$("#ttsSave").addEventListener("click", async () => {
+  const out = $("#ttsSaveResult");
+  out.style.color = "var(--muted)"; out.textContent = "در حال ذخیره…";
+  const r = await post("/admin/tts_settings", {
+    key: $("#ttsKey").value.trim(),
+    voice_self: $("#ttsSelf").value.trim(),
+    voice_female: $("#ttsFemale").value.trim(),
+    voice_male: $("#ttsMale").value.trim(),
+  });
+  out.style.color = "#2dd4bf"; out.textContent = r.message || "ذخیره شد";
+  $("#ttsKey").value = "";
+  loadTts();
+});
+
 /* ---------- ایده‌ها و نظرات کاربران ---------- */
 const FB_CAT = { idea: "💡 ایده", feature: "✨ قابلیت", bug: "🐞 مشکل", other: "💬 نظر" };
 const FB_STATUS = { new: '<span class="tag ok">جدید</span>', seen: '<span class="tag">دیده شد</span>', done: '<span class="tag no">انجام شد</span>' };
@@ -621,6 +663,7 @@ loadData();
 loadAnalytics();
 loadFeedback();
 loadTelegram();
+loadTts();
 </script>
 </body>
 </html>
