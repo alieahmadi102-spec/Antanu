@@ -50,6 +50,7 @@
       <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
       <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
       <a href="#" id="footnoteBtn" class="side-link">📌 پاورقی‌گذاری روی فایل</a>
+      <a href="#" id="songBtn" class="side-link">🎵 ساخت آهنگ</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
       <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
@@ -302,6 +303,24 @@
     </div>
   </div>
 
+  <!-- پنجره ساخت آهنگ -->
+  <div id="songOverlay">
+    <div class="mem-panel">
+      <header><h3>🎵 ساخت آهنگ</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">سبک و حال‌وهوای آهنگ را توصیف کن؛ آنتانو یک قطعه‌ی موسیقی می‌سازد. (نیازمند کلید Replicate در پنل مدیریت)</p>
+        <textarea id="songPrompt" rows="3" placeholder="مثلاً: یک ملودی آرام و امیدوارکننده با پیانو و ویولن…"
+                  style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
+        <div class="doc-field" style="margin-top:10px">
+          <label>مدت (ثانیه):</label>
+          <input type="number" id="songDur" value="8" min="3" max="30" style="width:90px">
+        </div>
+        <button id="songGo" class="btn-primary" type="button" style="margin-top:12px">🎵 بساز</button>
+        <div id="songResult" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- پنجره پاورقی‌گذاری روی فایل -->
   <div id="footnoteOverlay">
     <div class="mem-panel">
@@ -334,8 +353,10 @@
         <div id="trTones" class="tr-tones"></div>
         <div class="row" style="margin-top:10px;align-items:center;gap:8px">
           <button id="trRec" class="tool-chip" type="button">🎙 ضبط صدا</button>
+          <button id="trV2V" class="tool-chip" type="button" title="صدا را بگیر، ترجمه کن و با صدا پخش کن">🔊 ویس‌به‌ویس</button>
           <span id="trRecStatus" style="font-size:12px;color:var(--muted)"></span>
         </div>
+        <div id="trV2VResult" style="margin-top:8px"></div>
         <textarea id="trText" rows="5" placeholder="متن را اینجا بنویس، جای‌گذاری کن یا با 🎙 صحبت کن…"
                   style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
         <button id="trGo" class="btn-primary" type="button" style="margin-top:12px">🌍 ترجمه کن</button>

@@ -1267,6 +1267,59 @@ $("#trRec")?.addEventListener("click", async () => {
   }
 });
 
+/* ویس‌به‌ویس: ضبط → متن → ترجمه → پخش صدا (یک‌دکمه‌ای) */
+let v2vRec = null, v2vChunks = [], v2vRecording = false;
+$("#trV2V")?.addEventListener("click", async () => {
+  const status = $("#trRecStatus"), res = $("#trV2VResult");
+  if (v2vRecording) { try { v2vRec.stop(); } catch (e) {} return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { status.textContent = "مرورگر ضبط صدا را پشتیبانی نمی‌کند."; return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    v2vChunks = [];
+    v2vRec = new MediaRecorder(stream);
+    v2vRec.ondataavailable = e => { if (e.data.size) v2vChunks.push(e.data); };
+    v2vRec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      v2vRecording = false;
+      $("#trV2V").classList.remove("on"); $("#trV2V").textContent = "🔊 ویس‌به‌ویس";
+      res.innerHTML = '<span class="spin"></span> در حال شنیدن، ترجمه و ساخت صدا…';
+      const blob = new Blob(v2vChunks, { type: v2vRec.mimeType || "audio/webm" });
+      const fd = new FormData();
+      fd.append("file", blob, "voice.webm");
+      fd.append("target", $("#trTarget").value);
+      fd.append("source", $("#trSource").value);
+      fd.append("voice", "self");
+      try {
+        const r = await fetch("/api/voice_translate", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) { res.innerHTML = `<span style="color:var(--danger,#e06)">⚠️ ${escapeHtml(d.detail || "خطا")}</span>`; return; }
+        let html = "";
+        if (d.transcript) html += `<div class="tr-card"><div class="tr-head"><span class="tr-tone">🎙 شنیده شد</span></div><div class="tr-body"></div></div>`;
+        res.innerHTML = html;
+        if (d.transcript) res.querySelector(".tr-body").textContent = d.transcript;
+        const card = el(`<div class="tr-card"><div class="tr-head"><span class="tr-tone">🌍 ترجمه</span><button class="tr-copy" type="button">📋 کپی</button></div><div class="tr-body"></div></div>`);
+        card.querySelector(".tr-body").textContent = d.translation || "—";
+        card.querySelector(".tr-copy").addEventListener("click", () => navigator.clipboard.writeText(d.translation || "").then(() => { const b = card.querySelector(".tr-copy"); b.textContent = "✓"; setTimeout(() => b.textContent = "📋 کپی", 1200); }));
+        res.appendChild(card);
+        if (d.audio_url) {
+          const audio = document.createElement("audio");
+          audio.controls = true; audio.src = d.audio_url; audio.autoplay = true; audio.style.cssText = "width:100%;margin-top:8px";
+          res.appendChild(audio);
+        } else {
+          const note = document.createElement("div");
+          note.style.cssText = "font-size:12px;color:var(--muted);margin-top:6px";
+          note.textContent = "🔈 برای پخش صوتی ترجمه، مدیر باید «صدای حرفه‌ای» را در پنل فعال کند.";
+          res.appendChild(note);
+        }
+      } catch (e) { res.innerHTML = '<span style="color:var(--danger,#e06)">خطای شبکه.</span>'; }
+    };
+    v2vRec.start();
+    v2vRecording = true;
+    $("#trV2V").classList.add("on"); $("#trV2V").textContent = "⏹ پایان";
+    status.textContent = "🎙 در حال ضبط… برای پایان دوباره «ویس‌به‌ویس» را بزن.";
+  } catch (e) { status.textContent = "دسترسی به میکروفون داده نشد."; }
+});
+
 $("#trGo")?.addEventListener("click", async () => {
   const text = $("#trText").value.trim();
   const res = $("#trResult");
@@ -1341,6 +1394,38 @@ $("#fbSendBtn")?.addEventListener("click", async () => {
     res.textContent = "خطای شبکه؛ دوباره تلاش کنید.";
   }
   $("#fbSendBtn").disabled = false;
+});
+
+/* ---------- ساخت آهنگ (Replicate MusicGen) ---------- */
+$("#songBtn")?.addEventListener("click", e => {
+  e.preventDefault(); closeSidebar();
+  $("#songResult").innerHTML = "";
+  $("#songOverlay").classList.add("show");
+});
+$("#songOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "songOverlay" || e.target.classList.contains("close"))
+    $("#songOverlay").classList.remove("show");
+});
+$("#songGo")?.addEventListener("click", async () => {
+  const prompt = $("#songPrompt").value.trim();
+  const duration = parseInt($("#songDur").value, 10) || 8;
+  const res = $("#songResult");
+  if (prompt.length < 3) { res.innerHTML = '<div style="color:var(--danger,#e06)">توضیح آهنگ را بنویسید.</div>'; return; }
+  $("#songGo").disabled = true;
+  res.innerHTML = '<span class="spin"></span> در حال ساخت آهنگ… (ممکن است تا یک دقیقه طول بکشد)';
+  try {
+    const r = await fetch("/api/song", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, duration }),
+    });
+    const d = await r.json();
+    if (!r.ok) { res.innerHTML = `<div style="color:var(--danger,#e06)">${escapeHtml(d.detail || "خطا در ساخت آهنگ")}</div>`; $("#songGo").disabled = false; return; }
+    res.innerHTML = `<audio controls src="${d.url}" style="width:100%;margin-top:6px"></audio>
+      <div style="margin-top:6px"><a href="${d.url}" download class="btn-secondary">⬇️ دانلود آهنگ</a></div>`;
+  } catch (e) {
+    res.innerHTML = '<div style="color:var(--danger,#e06)">خطای شبکه؛ دوباره تلاش کنید.</div>';
+  }
+  $("#songGo").disabled = false;
 });
 
 $("#convUpBtn")?.addEventListener("click", () => $("#convFile").click());

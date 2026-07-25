@@ -12,7 +12,7 @@ import secrets
 import httpx
 from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
 from starlette.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -1198,6 +1198,202 @@ async def api_stt(request: Request, file: UploadFile = File(...), lang: str = Fo
     quota_add(dbq, user, "chat", 600)
     dbq.commit(); dbq.close()
     return {"text": text}
+
+
+# ---------------- کمک‌تابع‌های صدا (برای زنجیره‌ی ویس‌به‌ویس) ----------------
+
+async def _stt_transcribe(raw: bytes, filename: str, content_type: str, source: str = "") -> str:
+    key = (get_setting("stt_key", "") or os.environ.get("ANTANU_STT_KEY", "")).strip()
+    base = (get_setting("stt_base", "") or os.environ.get("ANTANU_STT_BASE", "https://api.groq.com/openai/v1")).rstrip("/")
+    model = (get_setting("stt_model", "") or os.environ.get("ANTANU_STT_MODEL", "whisper-large-v3")).strip()
+    if not key:
+        raise HTTPException(400, "تبدیل صدا به متن فعال نیست؛ مدیر باید کلید Whisper را در پنل بگذارد.")
+    files = {"file": (filename or "a.webm", raw, content_type or "audio/webm")}
+    data = {"model": model, "response_format": "json"}
+    if source and source not in ("", "auto"):
+        data["language"] = source
+    async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
+        r = await client.post(f"{base}/audio/transcriptions",
+                              headers={"Authorization": f"Bearer {key}"}, data=data, files=files)
+    if r.status_code != 200:
+        raise HTTPException(400, "تبدیل صدا به متن ناموفق بود؛ کمی بعد تلاش کنید.")
+    return (r.json().get("text") or "").strip()
+
+
+async def _tts_generate(text: str, voice: str = "self") -> str | None:
+    key = (get_setting("elevenlabs_key", "") or os.environ.get("ELEVENLABS_API_KEY", "")).strip()
+    if not key or not text:
+        return None
+    default_vid = (get_setting("tts_voice_self", "") or os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")).strip()
+    vmap = {
+        "self": get_setting("tts_voice_self", "").strip() or default_vid,
+        "female": get_setting("tts_voice_female", "").strip() or default_vid,
+        "male": get_setting("tts_voice_male", "").strip() or default_vid,
+    }
+    vid = vmap.get(voice) or default_vid
+    try:
+        import export_utils
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
+            r = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
+                headers={"xi-api-key": key, "Content-Type": "application/json"},
+                json={"text": text[:1000], "model_id": "eleven_multilingual_v2",
+                      "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
+            )
+        if r.status_code == 200:
+            name = f"antanu-tts-{secrets.token_hex(6)}.mp3"
+            with open(os.path.join(export_utils.EXPORT_DIR, name), "wb") as f:
+                f.write(r.content)
+            return f"/download/{name}"
+    except Exception:
+        return None
+    return None
+
+
+@app.post("/api/voice_translate")
+async def api_voice_translate(request: Request, file: UploadFile = File(...),
+                              target: str = Form("fa"), source: str = Form("auto"),
+                              voice: str = Form("self")):
+    """ویس‌به‌ویس نوبتی: صدا → متن → ترجمه → صدا. همه در یک درخواست."""
+    user = require_user(request)
+    check_subscription(user)
+    import translate_engine as te
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(400, "حجم فایل صوتی زیاد است (حداکثر ۲۵ مگابایت).")
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    transcript = await _stt_transcribe(raw, file.filename or "voice.webm", file.content_type or "audio/webm", source)
+    if not transcript:
+        return {"transcript": "", "translation": "", "audio_url": None}
+
+    translation = transcript
+    if target and target != "auto" and target in te.LANGUAGES:
+        catalog = get_ai_catalog()
+        c = catalog[0] if catalog else None
+        if c and c.get("key"):
+            arm_hint = ""
+            try:
+                import glossary as _gl
+                if target == "hy" or source == "hy" or _gl.extract_words(transcript, "hy"):
+                    arm_hint = _gl.prompt_hint_for_text(transcript) or ""
+            except Exception:
+                pass
+            prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], arm_hint)
+            out = await _call_model_once(c, prompt, max_tokens=1500)
+            try:
+                m = re.search(r"\{.*\}", out or "", re.S)
+                d = json.loads(m.group(0)) if m else {}
+                trs = d.get("translations") or []
+                translation = ((trs[0].get("text") if trs else "") or "").strip() or transcript
+            except Exception:
+                translation = (out or "").strip() or transcript
+            dbq = get_db()
+            quota_add(dbq, user, "chat", 1500)
+            dbq.commit(); dbq.close()
+
+    audio_url = await _tts_generate(translation, voice)
+    return {"transcript": transcript, "translation": translation, "audio_url": audio_url}
+
+
+# ---------------- ساخت آهنگ / موسیقی (Replicate) ----------------
+
+@app.post("/api/song")
+async def api_song(request: Request):
+    """ساخت قطعه‌ی موسیقی از توضیح متنی با Replicate (MusicGen). کلید از پنل مدیریت."""
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    try:
+        duration = max(3, min(int(body.get("duration") or 8), 30))
+    except (TypeError, ValueError):
+        duration = 8
+    if not prompt:
+        raise HTTPException(400, "توضیح آهنگ را بنویس (مثلاً: یک ملودی آرام با پیانو و ویولن).")
+
+    key = (get_setting("replicate_key", "") or os.environ.get("REPLICATE_API_TOKEN", "")).strip()
+    if not key:
+        raise HTTPException(400, "ساخت آهنگ فعال نیست؛ مدیر باید کلید Replicate را در پنل مدیریت بگذارد.")
+
+    db = get_db()
+    quota_check(db, user, "chat")
+    db.close()
+
+    try:
+        import export_utils
+        headers = {"Authorization": f"Token {key}", "Content-Type": "application/json", "Prefer": "wait"}
+        payload = {"input": {"prompt": prompt, "duration": duration, "output_format": "mp3"}}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
+            r = await client.post("https://api.replicate.com/v1/models/meta/musicgen/predictions",
+                                  headers=headers, json=payload)
+            if r.status_code not in (200, 201):
+                if r.status_code in (401, 403):
+                    raise HTTPException(400, "کلید Replicate نامعتبر است؛ مدیر سیستم بررسی کند.")
+                raise HTTPException(400, "ساخت آهنگ ناموفق بود؛ کمی بعد تلاش کنید.")
+            data = r.json()
+            # اگر هنوز آماده نبود، چند بار وضعیت را می‌پرسیم
+            for _ in range(30):
+                if data.get("status") == "succeeded":
+                    break
+                if data.get("status") in ("failed", "canceled"):
+                    raise HTTPException(400, "ساخت آهنگ ناموفق بود؛ توضیح دیگری امتحان کنید.")
+                get_url = (data.get("urls") or {}).get("get")
+                if not get_url:
+                    break
+                await asyncio.sleep(3)
+                data = (await client.get(get_url, headers={"Authorization": f"Token {key}"})).json()
+            out = data.get("output")
+            if isinstance(out, list):
+                out = out[0] if out else None
+            if not out:
+                raise HTTPException(400, "خروجی آهنگ دریافت نشد؛ کمی بعد دوباره تلاش کنید.")
+            au = await client.get(out)
+            name = f"antanu-song-{secrets.token_hex(6)}.mp3"
+            with open(os.path.join(export_utils.EXPORT_DIR, name), "wb") as f:
+                f.write(au.content)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "ارتباط با سرویس آهنگ برقرار نشد؛ کمی بعد تلاش کنید.")
+
+    dbq = get_db()
+    quota_add(dbq, user, "chat", 2000)
+    dbq.commit(); dbq.close()
+    return {"url": f"/download/{name}"}
+
+
+# ---------------- اسکلت منشی/تماس تلفنی (Twilio) — برای اپلیکیشن آینده ----------------
+
+def _twilio_configured() -> bool:
+    return bool(get_setting("twilio_sid", "").strip() and get_setting("twilio_token", "").strip())
+
+
+@app.api_route("/twilio/voice", methods=["GET", "POST"])
+async def twilio_voice(request: Request):
+    """Webhook تماس ورودی Twilio — پاسخ TwiML.
+    فعلاً «خاموش» است تا وقتی اپلیکیشن و شماره‌ی تلفن آماده شود؛ کلیدها از پنل خوانده می‌شوند."""
+    greeting = get_setting("phone_greeting", "") or "سلام، شما با دستیار هوشمند آنتانو تماس گرفته‌اید. پیام خود را بگویید."
+    # TwiML ساده: خوش‌آمد + ضبط پیام. توسعه‌ی کامل (STT/ترجمه/پاسخ) در نسخه‌ی اپ.
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Response>'
+        f'<Say language="fa-IR">{_html.escape(greeting)}</Say>'
+        '<Record maxLength="120" playBeep="true"/>'
+        '<Say language="fa-IR">پیام شما ثبت شد. خداحافظ.</Say>'
+        '</Response>'
+    )
+    return Response(content=twiml, media_type="application/xml")
+
+
+@app.get("/api/phone/status")
+def phone_status(request: Request):
+    """وضعیت آمادگی منشی تلفنی (برای پنل/اپ آینده)."""
+    require_user(request)
+    return {"configured": _twilio_configured(), "phone": get_setting("twilio_phone", "")}
 
 
 # ---------------- پاورقی‌گذاری روی فایل کاربر ----------------
