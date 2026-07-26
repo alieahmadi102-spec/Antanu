@@ -922,16 +922,20 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 .tr-card .tr-copy:hover { color: var(--accent); border-color: var(--accent); }
 .tr-card .tr-body { white-space: pre-wrap; line-height: 1.9; font-size: 14.5px; }
 
-/* کارت ترجمه‌ی واژه/متن: واژه بالا، معنی در باکس کپی، تلفظ فنگلیش پایین */
+/* کارت ترجمه‌ی واژه/متن: کلمه بالا، معنی در باکس کپی، تلفظ فنگلیش پایین — با برچسب */
 .tr-word-card { margin: 10px 0; border: 1px solid var(--border); border-radius: 12px;
-  padding: 10px 12px; background: var(--panel-2); }
-.tr-word-card .twc-term { font-weight: 700; font-size: 15.5px; margin-bottom: 6px; unicode-bidi: plaintext; }
+  padding: 12px 14px; background: var(--panel-2); }
+.tr-word-card .twc-label { font-size: 12.5px; font-weight: 700; color: var(--accent); }
+.tr-word-card .twc-term { font-size: 16px; margin-bottom: 10px; unicode-bidi: plaintext; }
+.tr-word-card .twc-term b { font-weight: 800; }
+.tr-word-card .twc-meanwrap .twc-label { display: block; margin-bottom: 4px; }
 .tr-word-card .code-wrap { margin: 0; }
-.tr-word-card pre.twc-mean { margin: 0; font-size: 16px; unicode-bidi: plaintext;
+.tr-word-card pre.twc-mean { margin: 0; font-size: 17px; unicode-bidi: plaintext;
   white-space: pre-wrap; word-break: break-word; }
 .tr-word-card pre.twc-mean code { font-family: inherit; }
-.tr-word-card .twc-pron { margin-top: 7px; font-size: 13px; color: var(--muted);
-  direction: ltr; text-align: left; unicode-bidi: plaintext; }
+.tr-word-card .twc-pron { margin-top: 9px; font-size: 14px;
+  unicode-bidi: plaintext; }
+.tr-word-card .twc-pron .twc-label { color: var(--muted); }
 
 /* صدای حرفه‌ای */
 .tts-box { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
