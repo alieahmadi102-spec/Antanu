@@ -29,13 +29,6 @@
   <div id="sideBackdrop"></div>
 
   <aside id="sidebar">
-    <div class="side-top">
-      <button id="newChat">＋ گفتگوی جدید</button>
-      <input type="text" id="convSearch" placeholder="🔍 جستجوی گفتگوها…">
-    </div>
-
-    <nav id="convList"></nav>
-
     <div class="side-bottom">
       <div class="user-box" id="profileBtn" title="پروفایل من">
         <span class="ub-right">
@@ -73,6 +66,7 @@
       <button id="menuBtn">☰</button>
       <img src="/static/logo.png" class="logo-sm" alt="ANTANU" width="34" height="34" style="width:34px;height:34px;border-radius:50%">
       <h1>آنتانو <span>ANTANU</span></h1>
+      <button id="convPanelBtn" title="گفتگوهای من">💬</button>
     </header>
 
     {% if sub_warn %}
@@ -188,6 +182,16 @@
       <p class="hint">آنتانو ممکن است اشتباه کند؛ اطلاعات مهم را حتماً بررسی کنید.</p>
     </footer>
   </main>
+
+  <!-- پنل گفتگوها (سمت چپ) — از نوار ابزار جدا شد تا فهرست گفتگوها همیشه جا داشته باشد -->
+  <aside id="convPanel">
+    <div class="cp-head">💬 گفتگوهای من</div>
+    <div class="side-top">
+      <button id="newChat">＋ گفتگوی جدید</button>
+      <input type="text" id="convSearch" placeholder="🔍 جستجوی گفتگوها…">
+    </div>
+    <nav id="convList"></nav>
+  </aside>
 
   <!-- پنجره پروفایل کاربر -->
   <div id="profileOverlay">

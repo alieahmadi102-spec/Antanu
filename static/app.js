@@ -937,13 +937,31 @@ $("#memOverlay")?.addEventListener("click", e => {
 
 /* ---------- منوی موبایل ---------- */
 
+/* دو پنل داریم: ابزارها (راست، با ☰) و گفتگوها (چپ، با 💬). هر بار یکی باز می‌شود. */
+function closeConvPanel() {
+  $("#convPanel")?.classList.remove("open");
+  $("#convPanelBtn")?.classList.remove("active");
+}
 function closeSidebar() {
   $("#sidebar").classList.remove("open");
+  closeConvPanel();
   $("#sideBackdrop")?.classList.remove("show");
 }
+function syncBackdrop() {
+  const open = $("#sidebar").classList.contains("open") || $("#convPanel")?.classList.contains("open");
+  $("#sideBackdrop")?.classList.toggle("show", !!open);
+}
 $("#menuBtn").addEventListener("click", () => {
+  closeConvPanel();                       // اگر گفتگوها باز بود، بسته شود
   $("#sidebar").classList.toggle("open");
-  $("#sideBackdrop")?.classList.toggle("show");
+  syncBackdrop();
+});
+$("#convPanelBtn")?.addEventListener("click", () => {
+  $("#sidebar").classList.remove("open"); // اگر ابزارها باز بود، بسته شود
+  const p = $("#convPanel");
+  const nowOpen = p.classList.toggle("open");
+  $("#convPanelBtn").classList.toggle("active", nowOpen);
+  syncBackdrop();
 });
 $("#sideBackdrop")?.addEventListener("click", closeSidebar);
 
