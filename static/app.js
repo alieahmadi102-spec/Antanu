@@ -48,11 +48,22 @@ function renderMD(text) {
     if (u.startsWith("/download/")) vids.push(u);
     return "";
   });
+  // کارت ترجمه: [[TR: واژه || معنی || تلفظ]] → کارتی با باکس کپیِ معنی
+  const trCards = [];
+  let cleaned3 = cleaned2.replace(/\[\[TR:([\s\S]*?)\]\]/g, (m, body) => {
+    const parts = body.split("||").map(s => s.trim());
+    const word = parts[0] || "", mean = parts[1] || "", pron = parts[2] || "";
+    if (!mean && !word) return "";
+    trCards.push({ word, mean: mean || word, pron });
+    return "";
+  });
+  // در حین استریم، بلوکِ ناتمامِ [[TR: ... را نمایش نده تا نپرد
+  cleaned3 = cleaned3.replace(/\[\[TR:[\s\S]*$/, "");
   let html = "";
-  // اگر همراه عکس/ویدیو فقط خرده‌ریز (بک‌تیک، پرانتز، علائم) آمده، متن را نمایش نده
-  const meaningful = cleaned2.replace(/[`'"()\[\]{}\s.,،:؛!؟\-_*#>~|=+]/g, "");
-  if ((!imgs.length && !vids.length) || meaningful.length > 2) {
-    html = DOMPurify.sanitize(marked.parse(cleaned2));
+  // اگر همراه عکس/ویدیو/کارت فقط خرده‌ریز (بک‌تیک، پرانتز، علائم) آمده، متن را نمایش نده
+  const meaningful = cleaned3.replace(/[`'"()\[\]{}\s.,،:؛!؟\-_*#>~|=+]/g, "");
+  if ((!imgs.length && !vids.length && !trCards.length) || meaningful.length > 2) {
+    html = DOMPurify.sanitize(marked.parse(cleaned3));
   }
   // دکمه‌ی «کپی» فقط برای بلوک‌های کد (‌pre‌) تا کاربر کل کد را یک‌جا کپی کند
   if (html.includes("<pre")) {
@@ -71,6 +82,15 @@ function renderMD(text) {
       wrap.appendChild(pre);
     });
     html = tmp.innerHTML;
+  }
+  // کارت‌های ترجمه (معنی در باکس کپی، مثل بلوک کد)
+  for (const t of trCards) {
+    html += `<div class="tr-word-card">` +
+      (t.word ? `<div class="twc-term">${escapeHtml(t.word)}</div>` : "") +
+      `<div class="code-wrap"><button type="button" class="code-copy">📋 کپی</button>` +
+      `<pre class="twc-mean"><code>${escapeHtml(t.mean)}</code></pre></div>` +
+      (t.pron ? `<div class="twc-pron">🗣️ ${escapeHtml(t.pron)}</div>` : "") +
+      `</div>`;
   }
   for (const u of imgs) {
     html += `<img src="${u}" class="gen-img" loading="lazy" alt="تصویر تولیدشده">`;
