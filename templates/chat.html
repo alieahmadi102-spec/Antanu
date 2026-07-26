@@ -52,6 +52,8 @@
       <a href="#" id="footnoteBtn" class="side-link">📌 پاورقی‌گذاری روی فایل</a>
       <a href="#" id="songBtn" class="side-link">🎵 ساخت آهنگ</a>
       <a href="#" id="converseBtn" class="side-link">🎙️ منشی گفتگو (صوتی)</a>
+      <a href="#" id="dubBtn" class="side-link">🎬 ترجمه و دوبله ویدیو</a>
+      <a href="#" id="animalBtn" class="side-link">🐾 صدای حیوانات</a>
       <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
       <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
       <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
@@ -332,12 +334,61 @@
           <label>نقش/شخصیت منشی (اختیاری):</label>
           <input type="text" id="convPersona" placeholder="مثلاً: منشیِ مؤدبِ یک مطب پزشکی که وقت می‌دهد" style="width:100%">
         </div>
+        <div class="doc-field" style="margin-top:8px">
+          <label>مدت گفتگو (دقیقه — ۰ یعنی بی‌نهایت):</label>
+          <input type="number" id="convDur" value="0" min="0" max="120" style="width:90px">
+        </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
           <button id="convMic" class="btn-primary" type="button">🎙️ شروع گفتگو</button>
           <button id="convClear" class="btn-secondary" type="button">🗑️ پاک‌کردن</button>
+          <span id="convTimeLeft" style="font-size:13px;font-weight:700;color:var(--accent)"></span>
           <span id="convStatus" style="font-size:13px;color:var(--muted)"></span>
         </div>
         <div id="convLog" style="margin-top:12px;display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره ترجمه و دوبله‌ی ویدیو -->
+  <div id="dubOverlay">
+    <div class="mem-panel">
+      <header><h3>🎬 ترجمه و دوبله ویدیو</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">یک ویدیو بده تا آنتانو گفتار آن را بشنود، به زبان دلخواه ترجمه کند و با صدای انتخابی‌ات دوباره روی ویدیو بگذارد.</p>
+        <div id="dubStatusBox" style="font-size:12.5px;color:var(--muted);margin-bottom:10px"></div>
+        <div class="tr-row">
+          <label>از زبان
+            <select id="dubSource"></select>
+          </label>
+          <label>به زبان
+            <select id="dubTarget"></select>
+          </label>
+        </div>
+        <div class="doc-field" style="margin-top:10px">
+          <label>صدای دوبله:</label>
+          <select id="dubVoice">
+            <option value="self">صدای پیش‌فرض آنتانو</option>
+            <option value="female">صدای زنانه</option>
+            <option value="male">صدای مردانه</option>
+          </select>
+        </div>
+        <button id="dubUpBtn" class="btn-primary" type="button" style="margin-top:12px">📁 انتخاب ویدیو</button>
+        <input type="file" id="dubFile" accept="video/*" hidden>
+        <div id="dubFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
+        <button id="dubGo" class="btn-primary" type="button">🎬 ترجمه و دوبله کن</button>
+        <div id="dubResult" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنجره صدای حیوانات -->
+  <div id="animalOverlay">
+    <div class="mem-panel">
+      <header><h3>🐾 صدای حیوانات</h3><button class="close">✕</button></header>
+      <div class="doc-form">
+        <p class="model-hint">صدای حیوانی را که می‌خواهی انتخاب کن و پخش کن.</p>
+        <div id="animalList" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+        <div id="animalResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
   </div>

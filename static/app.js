@@ -1460,7 +1460,36 @@ $("#converseOverlay")?.addEventListener("click", e => {
 });
 $("#convClear")?.addEventListener("click", () => {
   convHistory = []; $("#convLog").innerHTML = ""; $("#convStatus").textContent = "";
+  convStopDeadline();
 });
+
+/* مدت گفتگو: با نخستین نوبت شروع می‌شود و در پایان مدت، گفتگو بسته می‌شود */
+let convDeadline = 0, convTimer = null;
+function convStartDeadline() {
+  const mins = parseInt($("#convDur")?.value, 10) || 0;
+  if (mins <= 0 || convDeadline) return;          // ۰ = بی‌نهایت
+  convDeadline = Date.now() + mins * 60000;
+  convTimer = setInterval(() => {
+    const left = convDeadline - Date.now();
+    if (left <= 0) {
+      convStopDeadline();
+      if (convRecording && convRec) { try { convRec.stop(); } catch (e) {} }
+      convAdd("assistant", "⏱️ مدت گفتگو به پایان رسید. برای شروع دوباره، «پاک‌کردن» را بزن.");
+      $("#convStatus").textContent = "⏱️ پایان مدت گفتگو";
+      const b = $("#convMic"); if (b) b.disabled = true;
+      return;
+    }
+    const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
+    const el2 = $("#convTimeLeft");
+    if (el2) el2.textContent = `⏱️ ${m}:${String(s).padStart(2, "0")}`;
+  }, 1000);
+}
+function convStopDeadline() {
+  if (convTimer) { clearInterval(convTimer); convTimer = null; }
+  convDeadline = 0;
+  const el2 = $("#convTimeLeft"); if (el2) el2.textContent = "";
+  const b = $("#convMic"); if (b) b.disabled = false;
+}
 function convAdd(role, text) {
   const b = el(`<div style="padding:8px 12px;border-radius:12px;max-width:85%;${role === "user"
     ? "align-self:flex-start;background:var(--surface-2,rgba(128,128,128,.12))"
@@ -1478,6 +1507,7 @@ $("#convMic")?.addEventListener("click", async () => {
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    convStartDeadline();                 // شمارش مدت از نخستین نوبت آغاز می‌شود
     convRec = new MediaRecorder(stream);
     convChunks = [];
     convRec.ondataavailable = e => { if (e.data.size) convChunks.push(e.data); };
@@ -1509,6 +1539,117 @@ $("#convMic")?.addEventListener("click", async () => {
     btn.classList.add("on"); btn.textContent = "⏹ پایان و ارسال";
     status.textContent = "🎙️ در حال شنیدن… حرف بزنید و بعد «پایان» را بزنید.";
   } catch (e) { status.textContent = "دسترسی به میکروفون داده نشد."; }
+});
+
+/* ---------- ترجمه و دوبله‌ی ویدیو ---------- */
+let dubFileObj = null, dubLangsLoaded = false;
+async function loadDubLangs() {
+  if (dubLangsLoaded) return;
+  try {
+    const r = await fetch("/api/translate/langs");
+    if (!r.ok) return;
+    const d = await r.json();
+    const src = $("#dubSource"), tgt = $("#dubTarget");
+    src.innerHTML = ""; tgt.innerHTML = "";
+    Object.entries(d.languages).forEach(([code, name]) => {
+      src.insertAdjacentHTML("beforeend", `<option value="${code}">${escapeHtml(name)}</option>`);
+      if (code !== "auto") tgt.insertAdjacentHTML("beforeend", `<option value="${code}">${escapeHtml(name)}</option>`);
+    });
+    src.value = "auto"; tgt.value = "fa";
+    dubLangsLoaded = true;
+  } catch (e) {}
+}
+async function loadDubStatus() {
+  const box = $("#dubStatusBox");
+  if (!box) return;
+  try {
+    const r = await fetch("/api/video_dub/status");
+    const d = await r.json();
+    if (!r.ok) { box.textContent = ""; return; }
+    if (d.ready) {
+      box.innerHTML = '<span style="color:var(--accent)">✓ آماده است</span>';
+    } else {
+      const miss = [];
+      if (!d.ffmpeg) miss.push("ffmpeg روی سرور");
+      if (!d.stt) miss.push("کلید تبدیل صدا به متن");
+      if (!d.tts) miss.push("کلید صداسازی");
+      box.innerHTML = `<span style="color:var(--danger,#e06)">⚠️ هنوز فعال نیست — نیازمند: ${escapeHtml(miss.join("، "))}</span>`;
+    }
+  } catch (e) { box.textContent = ""; }
+}
+$("#dubBtn")?.addEventListener("click", e => {
+  e.preventDefault(); closeSidebar();
+  loadDubLangs(); loadDubStatus();
+  $("#dubResult").innerHTML = ""; $("#dubFileName").textContent = ""; dubFileObj = null;
+  $("#dubOverlay").classList.add("show");
+});
+$("#dubOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "dubOverlay" || e.target.classList.contains("close"))
+    $("#dubOverlay").classList.remove("show");
+});
+$("#dubUpBtn")?.addEventListener("click", () => $("#dubFile").click());
+$("#dubFile")?.addEventListener("change", e => {
+  dubFileObj = e.target.files[0] || null;
+  $("#dubFileName").textContent = dubFileObj
+    ? `🎬 ${dubFileObj.name} (${(dubFileObj.size / 1048576).toFixed(1)} مگابایت)` : "";
+});
+$("#dubGo")?.addEventListener("click", async () => {
+  const res = $("#dubResult");
+  if (!dubFileObj) { res.innerHTML = '<div style="color:var(--danger,#e06)">اول یک ویدیو انتخاب کنید.</div>'; return; }
+  const fd = new FormData();
+  fd.append("file", dubFileObj);
+  fd.append("target", $("#dubTarget").value);
+  fd.append("source", $("#dubSource").value);
+  fd.append("voice", $("#dubVoice").value);
+  $("#dubGo").disabled = true;
+  res.innerHTML = '<span class="spin"></span> در حال ترجمه و دوبله… (بسته به طول ویدیو ممکن است چند دقیقه طول بکشد)';
+  try {
+    const r = await fetch("/api/video_dub", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) {
+      res.innerHTML = `<div style="color:var(--danger,#e06)">${escapeHtml(d.detail || "خطا در دوبله")}</div>`;
+    } else {
+      res.innerHTML =
+        `<video src="${d.url}" controls playsinline style="width:100%;border-radius:12px;margin-bottom:8px"></video>` +
+        `<div><a href="${d.url}" download class="btn-secondary">⬇️ دانلود ویدیوی دوبله‌شده</a></div>` +
+        `<div class="tr-word-card" style="margin-top:10px"><div class="code-wrap">` +
+        `<button type="button" class="code-copy">📋 کپی</button>` +
+        `<pre class="twc-mean"><code>${escapeHtml(d.translation || "")}</code></pre></div></div>`;
+    }
+  } catch (e) {
+    res.innerHTML = '<div style="color:var(--danger,#e06)">خطای شبکه؛ دوباره تلاش کنید.</div>';
+  }
+  $("#dubGo").disabled = false;
+});
+
+/* ---------- صدای حیوانات ---------- */
+$("#animalBtn")?.addEventListener("click", async e => {
+  e.preventDefault(); closeSidebar();
+  const list = $("#animalList"), res = $("#animalResult");
+  list.innerHTML = '<span class="spin"></span>'; res.textContent = "";
+  $("#animalOverlay").classList.add("show");
+  try {
+    const r = await fetch("/api/animal_sounds");
+    const d = await r.json();
+    if (!r.ok) { list.innerHTML = ""; res.textContent = d.detail || "خطا"; return; }
+    list.innerHTML = "";
+    const names = Object.keys(d.sounds || {});
+    if (!names.length) {
+      res.innerHTML = `<span style="color:var(--muted)">${escapeHtml(d.note || "هنوز صدایی تعریف نشده است.")}</span>`;
+      return;
+    }
+    names.forEach(name => {
+      const b = el(`<button class="tool-chip" type="button">🔊 ${escapeHtml(name)}</button>`);
+      b.addEventListener("click", () => {
+        res.innerHTML = `<audio src="${d.sounds[name]}" controls autoplay style="width:100%"></audio>`;
+      });
+      list.appendChild(b);
+    });
+  } catch (err) { list.innerHTML = ""; res.textContent = "خطای شبکه؛ دوباره تلاش کنید."; }
+});
+$("#animalOverlay")?.addEventListener("click", e => {
+  if (e.target.id === "animalOverlay" || e.target.classList.contains("close"))
+    $("#animalOverlay").classList.remove("show");
 });
 
 $("#convUpBtn")?.addEventListener("click", () => $("#convFile").click());

@@ -2,12 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# LibreOffice (برای ساخت PDF با ظاهر دقیقاً مثل Word) + فونت‌ها
+# LibreOffice (برای ساخت PDF با ظاهر دقیقاً مثل Word) + فونت‌ها + ffmpeg (دوبله‌ی ویدیو)
 # libreoffice-writer سبک‌تر از کل libreoffice است و برای تبدیل docx→pdf کافی است.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-writer \
         fonts-noto-core \
         fontconfig \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

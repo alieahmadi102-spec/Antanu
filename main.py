@@ -1614,7 +1614,36 @@ async def api_converse(request: Request, file: UploadFile | None = File(None),
     return {"you_said": said, "reply": reply, "audio_url": audio_url}
 
 
-# ---------------- صدای حیوانات (اسکلت افزونه‌ای — برای اپ آینده) ----------------
+# ---------------- صدای حیوانات ----------------
+
+def _animal_text_to_map(text: str) -> str:
+    """متنِ «نام = آدرس» (هر خط یکی) را به JSON تبدیل می‌کند.
+    فقط آدرس‌های داخلی /download/... یا https:// پذیرفته می‌شوند."""
+    mapping = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        name, _, url = line.partition("=")
+        name, url = name.strip(), url.strip()
+        if not name or not url:
+            continue
+        if not (url.startswith("/download/") or url.startswith("https://")):
+            continue
+        mapping[name] = url
+    return json.dumps(mapping, ensure_ascii=False)
+
+
+def _animal_map_to_text(raw: str) -> str:
+    """JSON ذخیره‌شده را برای نمایش در پنل به متنِ «نام = آدرس» برمی‌گرداند."""
+    try:
+        mapping = json.loads(raw) if raw else {}
+        if not isinstance(mapping, dict):
+            return ""
+    except Exception:
+        return ""
+    return "\n".join(f"{k} = {v}" for k, v in mapping.items())
+
 
 @app.get("/api/animal_sounds")
 def animal_sounds(request: Request):
@@ -4080,6 +4109,8 @@ def admin_services_get(request: Request):
         "twilio_sid": get_setting("twilio_sid", ""),
         "has_twilio_token": bool(get_setting("twilio_token", "").strip()),
         "twilio_phone": get_setting("twilio_phone", ""),
+        "phone_greeting": get_setting("phone_greeting", ""),
+        "animal_sounds_text": _animal_map_to_text(get_setting("animal_sounds", "")),
     }
 
 
@@ -4103,6 +4134,9 @@ async def admin_services_set(request: Request):
     set_setting("image_base", (body.get("image_base") or "").strip())
     set_setting("twilio_sid", (body.get("twilio_sid") or "").strip())
     set_setting("twilio_phone", (body.get("twilio_phone") or "").strip())
+    set_setting("phone_greeting", (body.get("phone_greeting") or "").strip())
+    if "animal_sounds_text" in body:
+        set_setting("animal_sounds", _animal_text_to_map(body.get("animal_sounds_text") or ""))
     return {"ok": True, "message": "✅ کلیدهای سرویس‌های جانبی ذخیره شد."}
 
 
