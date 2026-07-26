@@ -531,6 +531,74 @@ def clean_foreign(text: str) -> str:
     return _FOREIGN_RE.sub("", text) if text else text
 
 
+# بلوک ترجمه [[TR: ... ]] عمداً حاوی حروف غیرفارسی است (چینی، ژاپنی، روسی، پین‌یین لهجه‌دار و…)
+# پس هرگز نباید از فیلتر بالا رد شود؛ وگرنه «你好 / nǐ hǎo» به «/ N ho» تبدیل می‌شود.
+_TR_OPEN, _TR_CLOSE = "[[TR:", "]]"
+_TR_BLOCK_RE = re.compile(r"(\[\[TR:[\s\S]*?\]\])")
+
+
+def clean_foreign_keep_tr(text: str) -> str:
+    """مثل clean_foreign، ولی محتوای بلوک‌های [[TR: ...]] را دست‌نخورده نگه می‌دارد."""
+    if not text:
+        return text
+    return "".join(
+        part if part.startswith(_TR_OPEN) else clean_foreign(part)
+        for part in _TR_BLOCK_RE.split(text)
+    )
+
+
+def _partial_marker_tail(s: str, marker: str) -> int:
+    """طول دنباله‌ای از s که می‌تواند آغازِ نیمه‌کاره‌ی marker باشد (برای استریم)."""
+    for k in range(min(len(marker) - 1, len(s)), 0, -1):
+        if s.endswith(marker[:k]):
+            return k
+    return 0
+
+
+class ForeignFilter:
+    """نسخه‌ی حالت‌دارِ clean_foreign برای استریم.
+    چون پاسخ تکه‌تکه می‌رسد و یک بلوک [[TR: ...]] ممکن است بین چند تکه بشکند،
+    وضعیت «داخل بلوک بودن» نگه داشته می‌شود و محتوای بلوک بدون فیلتر رد می‌شود."""
+
+    def __init__(self):
+        self._buf = ""
+        self._inside = False
+
+    def feed(self, chunk: str) -> str:
+        self._buf += chunk or ""
+        out = []
+        while self._buf:
+            if not self._inside:
+                i = self._buf.find(_TR_OPEN)
+                if i == -1:
+                    keep = _partial_marker_tail(self._buf, _TR_OPEN)
+                    cut = len(self._buf) - keep
+                    out.append(clean_foreign(self._buf[:cut]))
+                    self._buf = self._buf[cut:]
+                    break
+                out.append(clean_foreign(self._buf[:i]))
+                out.append(_TR_OPEN)
+                self._buf = self._buf[i + len(_TR_OPEN):]
+                self._inside = True
+            else:
+                j = self._buf.find(_TR_CLOSE)
+                if j == -1:
+                    keep = _partial_marker_tail(self._buf, _TR_CLOSE)
+                    cut = len(self._buf) - keep
+                    out.append(self._buf[:cut])        # داخل بلوک: بدون فیلتر
+                    self._buf = self._buf[cut:]
+                    break
+                out.append(self._buf[:j + len(_TR_CLOSE)])
+                self._buf = self._buf[j + len(_TR_CLOSE):]
+                self._inside = False
+        return "".join(out)
+
+    def flush(self) -> str:
+        """ته‌مانده‌ی نگه‌داشته‌شده را در پایان استریم بیرون می‌دهد."""
+        rest, self._buf = self._buf, ""
+        return rest if self._inside else clean_foreign(rest)
+
+
 # مثل clean_foreign ولی الفبای لاتین (انگلیسی) را نگه می‌دارد — مخصوص ارجاع‌ها و DOI
 _FOREIGN_RE_NONLATIN = re.compile(
     r"[Ͱ-Ͽ"            # یونانی
@@ -686,6 +754,9 @@ BASE_SYSTEM_PROMPT = (
     "۸) بسیار مهم: خروجی فقط با حروف فارسی (و در صورت نیاز، معادل انگلیسی داخل پرانتز) باشد؛ "
     "هرگز واژه‌های روسی، هندی، چینی، ویتنامی، فرانسوی، اسپانیایی یا هر زبان دیگری را وسط متن فارسی نیاور. "
     "اگر واژه‌ای را نمی‌دانی، ساده‌ترین معادل فارسی را بنویس. جمله ناتمام یا شکسته ننویس. "
+    "استثنای مهم این قاعده: وقتی کاربر «ترجمه» خواسته است، متنِ ترجمه‌شده باید با خطِ اصلیِ همان زبان مقصد "
+    "نوشته شود (چینی با حروف چینی 你好، ژاپنی با ژاپنی، روسی با سیریلیک، ارمنی با ارمنی و…) "
+    "و این متن را داخل بلوک [[TR: ...]] بگذار. این تنها جایی است که نوشتن خطِ غیرفارسی لازم و درست است. "
     "۹) نگارش تمیز و مرتب: متن را با ساختار روشن بنویس؛ برای عنوان‌ها از # و ## و ### استفاده کن، "
     "برای فهرست‌ها از «- »، و جدول‌ها را با قالب استاندارد مارک‌داون (خط سرستون و خط جداکننده |---|) بساز. "
     "از خطوط خالیِ اضافه، نویسه‌های درهم و کاراکترهای زائد پرهیز کن تا خروجی Word و PDF مرتب باشد. "
@@ -1152,7 +1223,7 @@ async def api_translate(request: Request):
         raise HTTPException(503, "سرویس ترجمه فعلاً در دسترس نیست؛ کمی بعد تلاش کنید.")
 
     # خروجی نباید از فیلتر clean_foreign رد شود؛ متن مقصد عمداً غیرفارسی است
-    out = await _call_model_once(c, prompt, max_tokens=2600)
+    out = await _call_model_once(c, prompt, max_tokens=2600, keep_foreign=True)
 
     translations = []
     try:
@@ -1365,7 +1436,7 @@ async def api_voice_translate(request: Request, file: UploadFile = File(...),
             except Exception:
                 pass
             prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], arm_hint)
-            out = await _call_model_once(c, prompt, max_tokens=1500)
+            out = await _call_model_once(c, prompt, max_tokens=1500, keep_foreign=True)
             try:
                 m = re.search(r"\{.*\}", out or "", re.S)
                 d = json.loads(m.group(0)) if m else {}
@@ -1624,7 +1695,7 @@ async def api_video_dub(request: Request, file: UploadFile = File(...),
             c = next((x for x in catalog if x.get("key")), None)
             if c:
                 prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], "")
-                out = await _call_model_once(c, prompt, max_tokens=2000)
+                out = await _call_model_once(c, prompt, max_tokens=2000, keep_foreign=True)
                 try:
                     m = re.search(r"\{.*\}", out or "", re.S)
                     d = json.loads(m.group(0)) if m else {}
@@ -2696,6 +2767,7 @@ async def stream_model(messages, stars: int, model: str, base: str, key: str):
         payload["max_tokens"] = MAX_TOKENS[stars]
 
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    ffilter = ForeignFilter()   # فیلتر حالت‌دار: بلوک‌های [[TR: ...]] را دست‌نخورده رد می‌کند
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
         async with client.stream(
@@ -2716,7 +2788,7 @@ async def stream_model(messages, stars: int, model: str, base: str, key: str):
                     continue
                 choices = obj.get("choices") or [{}]
                 delta = choices[0].get("delta") or {}
-                chunk = clean_foreign(delta.get("content") or "")
+                chunk = ffilter.feed(delta.get("content") or "")
                 # عکس‌های تولیدشده توسط مدل‌های عکس‌ساز (مثل gemini-2.5-flash-image)
                 for im in (delta.get("images") or []) + (delta.get("videos") or []):
                     url = ((im or {}).get("image_url") or (im or {}).get("video_url") or {}).get("url") or ""
@@ -2730,6 +2802,9 @@ async def stream_model(messages, stars: int, model: str, base: str, key: str):
                             chunk += f"\n\n[[ANTANU_VID:/download/{fname}]]\n\n"
                 if chunk:
                     yield chunk
+    tail = ffilter.flush()
+    if tail:
+        yield tail
 
 
 @app.post("/api/chat")
@@ -3403,8 +3478,10 @@ async def api_export(request: Request):
 
 
 async def _call_model_once(c, prompt: str | None = None, system: str | None = None,
-                           max_tokens: int = 1800, messages=None) -> str:
-    """یک فراخوانی بدون استریم — با دو تلاش مجدد در صورت شلوغی"""
+                           max_tokens: int = 1800, messages=None,
+                           keep_foreign: bool = False) -> str:
+    """یک فراخوانی بدون استریم — با دو تلاش مجدد در صورت شلوغی.
+    keep_foreign=True برای ترجمه: خروجی عمداً غیرفارسی است و نباید فیلتر شود."""
     if messages is None:
         messages = ([{"role": "system", "content": system}] if system else []) + [
             {"role": "user", "content": prompt}
@@ -3417,7 +3494,8 @@ async def _call_model_once(c, prompt: str | None = None, system: str | None = No
         if r.status_code == 200:
             data = r.json()
             msg_obj = (data.get("choices") or [{}])[0].get("message") or {}
-            out = clean_foreign(msg_obj.get("content", "") or "")
+            raw_out = msg_obj.get("content", "") or ""
+            out = raw_out if keep_foreign else clean_foreign_keep_tr(raw_out)
             for im in (msg_obj.get("images") or []):
                 url = ((im or {}).get("image_url") or {}).get("url") or ""
                 if url.startswith("data:image"):
