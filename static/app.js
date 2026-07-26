@@ -83,13 +83,11 @@ function renderMD(text) {
     });
     html = tmp.innerHTML;
   }
-  // کارت‌های ترجمه (کلمه بالا، معنی در باکس کپی، تلفظ فنگلیش پایین — همه با برچسب)
+  // کارت‌های ترجمه: فقط باکس کپیِ معنی + تلفظ فنگلیش (خط «کلمه» و برچسب «معنی» به‌خواست کاربر حذف شد)
   for (const t of trCards) {
     html += `<div class="tr-word-card">` +
-      (t.word ? `<div class="twc-term"><span class="twc-label">📖 کلمه:</span> <b>${escapeHtml(t.word)}</b></div>` : "") +
-      `<div class="twc-meanwrap"><div class="twc-label">🔤 معنی:</div>` +
       `<div class="code-wrap"><button type="button" class="code-copy">📋 کپی</button>` +
-      `<pre class="twc-mean"><code>${escapeHtml(t.mean)}</code></pre></div></div>` +
+      `<pre class="twc-mean"><code>${escapeHtml(t.mean)}</code></pre></div>` +
       (t.pron ? `<div class="twc-pron"><span class="twc-label">🗣️ تلفظ:</span> ${escapeHtml(t.pron)}</div>` : "") +
       `</div>`;
   }

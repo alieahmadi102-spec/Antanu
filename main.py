@@ -1061,14 +1061,12 @@ async def api_translate(request: Request):
     quota_check(db, user, "chat")
     db.close()
 
-    # اگر ارمنی در کار باشد (مبدأ/مقصد/متن) قاعده‌ی سه‌ستونه‌ی واژه‌نامه اعمال می‌شود
+    # اگر ارمنی یا انگلیسی در کار باشد (مبدأ/مقصد/متن) قاعده‌ی واژه‌نامه اعمال می‌شود
     arm_hint = ""
     try:
         import glossary as _gl
-        if target == "hy" or source == "hy" or _gl.extract_words(text, "hy"):
-            arm_hint = _gl.prompt_hint_for_text(text) or (
-                "برای واژه‌های ارمنی، خروجی را سه‌بخشی بده: کلمه‌ی ارمنی، ترجمه‌ی فارسی، تلفظ فینگلیش."
-            )
+        force = {l for l in (target, source) if l in ("hy", "en")}
+        arm_hint = _gl.prompt_hint_for_text(text, force_langs=force)
     except Exception:
         pass
 
@@ -1287,8 +1285,8 @@ async def api_voice_translate(request: Request, file: UploadFile = File(...),
             arm_hint = ""
             try:
                 import glossary as _gl
-                if target == "hy" or source == "hy" or _gl.extract_words(transcript, "hy"):
-                    arm_hint = _gl.prompt_hint_for_text(transcript) or ""
+                force = {l for l in (target, source) if l in ("hy", "en")}
+                arm_hint = _gl.prompt_hint_for_text(transcript, force_langs=force)
             except Exception:
                 pass
             prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], arm_hint)
