@@ -63,8 +63,33 @@
       <span id="mainTestResult" style="font-size:12px"></span>
     </div>
 
-    <h3 style="font-size:14px;margin:18px 0 10px;color:#2dd4bf">هوش مصنوعی‌های دیگر (به همین تعداد در منوی کاربر نمایش داده می‌شود)</h3>
+    <h3 style="font-size:14px;margin:18px 0 10px;color:#2dd4bf">هوش مصنوعی‌های دیگر — برای هرکدام «کار» تعیین کن</h3>
+    <p class="sub" style="margin-bottom:10px">
+      ستون «کار» مهم‌ترین بخش است: آنتانو از متن درخواستِ کاربر تشخیص می‌دهد چه کاری می‌خواهد
+      (ترجمه، کدنویسی، آمار، مقاله، دیدن عکس…) و <b>خودکار همان مدل را انتخاب می‌کند</b>.
+      اگر مدل خطا داد، خودش سراغ بعدی می‌رود. ردیف‌هایی که کارشان را «عمومی» بگذاری، جانشین همه‌کاره‌اند.
+      <a href="#" id="modelAdviceToggle" style="color:#2dd4bf">پیشنهاد مدل برای هر کار را ببین</a>
+    </p>
+    <div id="modelAdvice" style="display:none;margin-bottom:12px">
+      <table>
+        <thead><tr><th>کار</th><th>مدل پیشنهادی</th><th>پلتفرم</th><th>چرا</th></tr></thead>
+        <tbody>
+          <tr><td>گفتگوی عمومی</td><td style="direction:ltr">google/gemini-2.5-flash</td><td>OpenRouter</td><td>فارسیِ روان، سریع، سهمیه‌ی خوب</td></tr>
+          <tr><td>پاسخ کوتاه و سریع</td><td style="direction:ltr">llama-3.3-70b-versatile</td><td>Groq</td><td>سریع‌ترین گزینه و رایگان</td></tr>
+          <tr><td>ترجمه و زبان‌ها</td><td style="direction:ltr">google/gemini-2.5-flash</td><td>OpenRouter</td><td>بهترین در زبان‌های کم‌کاربرد مثل ارمنی</td></tr>
+          <tr><td>کدنویسی و رفع خطا</td><td style="direction:ltr">deepseek/deepseek-v4-pro</td><td>OpenRouter</td><td>قوی‌ترین در کد با هزینه‌ی کم</td></tr>
+          <tr><td>آمار و ریاضی</td><td style="direction:ltr">deepseek/deepseek-v4-pro</td><td>OpenRouter</td><td>استدلال عددی دقیق</td></tr>
+          <tr><td>مقاله و متن بلند</td><td style="direction:ltr">anthropic/claude-sonnet-5</td><td>OpenRouter</td><td>بهترین نگارش دانشگاهی فارسی</td></tr>
+          <tr><td>دیدن عکس و فایل</td><td style="direction:ltr">google/gemini-2.5-flash</td><td>OpenRouter</td><td>مدل تصویری با سهمیه‌ی مناسب</td></tr>
+          <tr><td>ساخت عکس</td><td style="direction:ltr">google/gemini-2.5-flash-image</td><td>OpenRouter</td><td>تنها نوعی که تصویر تولید می‌کند</td></tr>
+        </tbody>
+      </table>
+      <p class="sub" style="margin-top:8px">نکته: برای هر کار حتماً لازم نیست مدل جدا بگذاری؛ هر کاری که مدل نداشته باشد، خودکار به «عمومی» و بعد به مدل اصلی می‌افتد.</p>
+    </div>
     <div id="aiRows"></div>
+    <div style="margin-top:10px;font-size:12px">
+      <span style="color:var(--muted)">پوشش کارها:</span> <span id="roleCoverage"></span>
+    </div>
     <div class="row" style="margin-top:10px">
       <button class="mini" id="addAiRow" type="button">＋ افزودن هوش مصنوعی</button>
       <button id="saveAiBtn" type="button">💾 ذخیره تنظیمات</button>
@@ -406,6 +431,17 @@ const DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
   antanu: "antanu-1",
 };
+const ROLE_OPTIONS = `
+  <option value="">— کار: تعیین نشده —</option>
+  <option value="general">عمومی (جانشین همه)</option>
+  <option value="fast">پاسخ کوتاه و سریع</option>
+  <option value="translate">ترجمه و زبان‌ها</option>
+  <option value="code">کدنویسی و رفع خطا</option>
+  <option value="stats">آمار، ریاضی و داده</option>
+  <option value="article">مقاله و متن بلند</option>
+  <option value="vision">دیدن عکس و فایل</option>
+  <option value="image">ساخت عکس</option>
+  <option value="video">ساخت ویدیو</option>`;
 const SERVICE_OPTIONS = `
   <option value="gemini">Gemini (جمنای)</option>
   <option value="groq">Groq (گراک)</option>
@@ -429,11 +465,13 @@ function addAiRow(data = {}) {
     <select class="ai-service">${SERVICE_OPTIONS}</select>
     <input type="text" class="ai-model" placeholder="نام مدل" style="direction:ltr;width:200px" value="${esc(data.model || "")}">
     <input type="text" class="ai-key" placeholder="کلید API" style="direction:ltr;flex:1;min-width:180px" value="${esc(data.key || "")}">
+    <select class="ai-role" title="این مدل برای چه کاری استفاده شود">${ROLE_OPTIONS}</select>
     <button class="mini ai-test" type="button">🧪 تست</button>
     <button class="mini danger ai-del" type="button">حذف</button>
     <span class="ai-result" style="font-size:12px;width:100%"></span>`;
   const sel = row.querySelector(".ai-service");
   sel.value = data.service || "gemini";
+  row.querySelector(".ai-role").value = data.role || "";
   const modelInput = row.querySelector(".ai-model");
   if (!modelInput.value) modelInput.value = DEFAULT_MODELS[sel.value] || "";
   sel.addEventListener("change", () => {
@@ -455,6 +493,36 @@ function addAiRow(data = {}) {
 }
 
 $("#addAiRow").addEventListener("click", () => addAiRow());
+
+$("#modelAdviceToggle").addEventListener("click", e => {
+  e.preventDefault();
+  const box = $("#modelAdvice");
+  box.style.display = box.style.display === "none" ? "" : "none";
+});
+
+/* خلاصه‌ی پوشش کارها: به مدیر نشان می‌دهد کدام کار مدل اختصاصی دارد و کدام ندارد */
+const ROLE_LABELS = {
+  general: "عمومی", fast: "سریع", translate: "ترجمه", code: "کد",
+  stats: "آمار", article: "مقاله", vision: "دیدن عکس", image: "ساخت عکس", video: "ویدیو",
+};
+function refreshRoleCoverage() {
+  const box = $("#roleCoverage");
+  if (!box) return;
+  const used = new Set([...document.querySelectorAll(".ai-row")]
+    .filter(r => r.querySelector(".ai-key").value.trim() && r.querySelector(".ai-model").value.trim())
+    .map(r => r.querySelector(".ai-role").value)
+    .filter(Boolean));
+  box.innerHTML = Object.entries(ROLE_LABELS).map(([k, label]) =>
+    used.has(k)
+      ? `<span class="tag ok">${label} ✓</span>`
+      : `<span class="tag">${label} — مدل اصلی</span>`
+  ).join(" ");
+}
+document.addEventListener("change", e => {
+  if (e.target.classList && (e.target.classList.contains("ai-role") ||
+      e.target.classList.contains("ai-key") || e.target.classList.contains("ai-model")))
+    refreshRoleCoverage();
+});
 
 $("#mainProvider").addEventListener("change", () => {
   const m = $("#mainModel");
@@ -480,6 +548,7 @@ $("#saveAiBtn").addEventListener("click", async () => {
     service: r.querySelector(".ai-service").value,
     model: r.querySelector(".ai-model").value.trim(),
     key: r.querySelector(".ai-key").value.trim(),
+    role: r.querySelector(".ai-role").value,
   })).filter(a => a.key && a.model);
   const res = await post("/admin/ai_settings", {
     provider: $("#mainProvider").value,
@@ -499,6 +568,7 @@ async function loadAiSettings() {
   $("#mainModel").value = cfg.model || DEFAULT_MODELS[cfg.provider || "groq"] || "";
   (cfg.ais || []).forEach(a => addAiRow(a));
   if (!(cfg.ais || []).length) addAiRow();
+  refreshRoleCoverage();
 }
 
 /* نسخه و اطلاع‌رسانی */

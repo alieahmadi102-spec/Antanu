@@ -204,6 +204,7 @@ def get_ai_catalog():
                 catalog.append({
                     "id": "auto", "name": "آنتانو (خودکار)",
                     "base": resolve_base(prov), "model": model, "key": main_key,
+                    "role": (cfg.get("main_role") or "general").strip().lower(),
                 })
             for i, ai in enumerate(cfg.get("ais") or [], 1):
                 if not (ai.get("key") or "").strip() or not (ai.get("model") or "").strip():
@@ -214,6 +215,7 @@ def get_ai_catalog():
                     "base": resolve_base(ai.get("service")),
                     "model": ai["model"].strip(),
                     "key": ai["key"].strip(),
+                    "role": (ai.get("role") or "").strip().lower(),
                 })
             if catalog:
                 # اگر کلید اصلی خالی بود، «آنتانو (خودکار)» با اولین هوش مصنوعیِ دارای کلید کار کند
@@ -229,6 +231,23 @@ def get_ai_catalog():
         if withkey:
             cat[0].update({"base": withkey["base"], "model": withkey["model"], "key": withkey["key"]})
     return cat
+
+
+def pick_model_for(task: str, catalog=None):
+    """مدلِ مناسبِ یک کار مشخص را برمی‌گرداند (اولین گزینه‌ی دارای کلید).
+
+    اگر مدیر برای آن کار مدلی تعیین نکرده باشد، به مدل اصلی برمی‌گردد —
+    پس هر قابلیت همیشه کار می‌کند، حتی بدون تنظیم نقش‌ها.
+    """
+    cat = catalog if catalog is not None else get_ai_catalog()
+    if not cat:
+        return None
+    try:
+        import router as _router
+        ordered = _router.order_catalog(cat, task)
+    except Exception:
+        ordered = list(cat)
+    return next((c for c in ordered if c.get("key")), cat[0])
 
 
 def add_knowledge(question: str, answer: str):
@@ -1217,8 +1236,7 @@ async def api_translate(request: Request):
         pass
 
     prompt = te.build_translate_prompt(text, target, source, tones, arm_hint)
-    catalog = get_ai_catalog()
-    c = catalog[0] if catalog else None
+    c = pick_model_for("translate")
     if not c or not c.get("key"):
         raise HTTPException(503, "سرویس ترجمه فعلاً در دسترس نیست؛ کمی بعد تلاش کنید.")
 
@@ -1425,8 +1443,7 @@ async def api_voice_translate(request: Request, file: UploadFile = File(...),
 
     translation = transcript
     if target and target != "auto" and target in te.LANGUAGES:
-        catalog = get_ai_catalog()
-        c = catalog[0] if catalog else None
+        c = pick_model_for("translate")
         if c and c.get("key"):
             arm_hint = ""
             try:
@@ -1597,9 +1614,8 @@ async def api_converse(request: Request, file: UploadFile | None = File(None),
             messages.append({"role": role, "content": str(content)[:2000]})
     messages.append({"role": "user", "content": said})
 
-    # ۳) پاسخ مدل
-    catalog = get_ai_catalog()
-    c = next((x for x in catalog if x.get("key")), None)
+    # ۳) پاسخ مدل — منشی باید سریع جواب بدهد
+    c = pick_model_for("fast")
     if not c:
         raise HTTPException(503, "سرویس گفتگو موقتاً در دسترس نیست.")
     reply = await _call_model_once(c, messages=messages, max_tokens=600)
@@ -1720,8 +1736,7 @@ async def api_video_dub(request: Request, file: UploadFile = File(...),
         # ۲) ترجمه
         translation = transcript
         if target and target != "auto" and target in te.LANGUAGES:
-            catalog = get_ai_catalog()
-            c = next((x for x in catalog if x.get("key")), None)
+            c = pick_model_for("translate")
             if c:
                 prompt = te.build_translate_prompt(transcript, target, source, ["friendly"], "")
                 out = await _call_model_once(c, prompt, max_tokens=2000, keep_foreign=True)
@@ -1800,8 +1815,7 @@ async def api_footnote(request: Request, file: UploadFile = File(...)):
     quota_check(db, user, "chat")
     db.close()
 
-    catalog = get_ai_catalog()
-    c = catalog[0] if catalog else None
+    c = pick_model_for("article")
     if not c or not c.get("key"):
         raise HTTPException(503, "سرویس فعلاً در دسترس نیست؛ کمی بعد تلاش کنید.")
 
@@ -2336,8 +2350,7 @@ async def parse_reference(request: Request):
     raw = (body.get("text") or "").strip()
     if len(raw) < 8:
         raise HTTPException(400, "متن ارجاع را کامل بچسبانید")
-    catalog = get_ai_catalog()
-    c = catalog[0]
+    c = pick_model_for("article")
     if not c.get("key"):
         raise HTTPException(400, "برای تشخیص خودکار، مدیر باید کلید API را در پنل تنظیم کند")
     prompt = (
@@ -2488,8 +2501,7 @@ async def references_translate(request: Request):
     text = (body.get("text") or "").strip()
     if len(text) < 5:
         raise HTTPException(400, "متن ارجاع را وارد کنید")
-    catalog = get_ai_catalog()
-    c = catalog[0]
+    c = pick_model_for("translate")
     if not c.get("key"):
         raise HTTPException(400, "برای ترجمه، مدیر باید کلید API را در پنل تنظیم کند")
     prompt = (
@@ -2737,8 +2749,7 @@ async def _learn_glossary_words(message: str):
         unknown = [w for w in unknown if len(w) >= 2][:12]
         if not unknown:
             return
-        catalog = get_ai_catalog()
-        c = catalog[0] if catalog else None
+        c = pick_model_for("fast")
         if not c or not c.get("key"):
             return
         prompt = (
@@ -2908,6 +2919,8 @@ async def api_chat(request: Request):
     # مدل‌های انتخاب‌شده توسط کاربر (یکی یا چندتا)
     catalog = get_ai_catalog()
     chosen = [c for c in catalog if c["id"] in selected_ids]
+    # اگر کاربر خودش مدل مشخصی (غیر از «خودکار») انتخاب کرده، مسیریاب دخالت نمی‌کند
+    explicit_pick = bool(chosen) and not (len(chosen) == 1 and chosen[0]["id"] == "auto")
     if not chosen:
         chosen = [catalog[0]]
 
@@ -3047,14 +3060,36 @@ async def api_chat(request: Request):
 
     stars = user["stars"]
 
+    # ---------- سوئیچ خودکار مدل بر اساس نوع درخواست ----------
+    # نوع کار پیام تشخیص داده می‌شود (ترجمه، کد، آمار، مقاله، دیدن عکس، پاسخ سریع…)
+    # و مدلی که مدیر برای همان کار در پنل تعیین کرده، اولِ صف می‌آید.
+    # اگر برای آن کار مدلی تعیین نشده باشد، رفتار مثل قبل است (مدل اصلی اول).
+    route_order = list(catalog)
+    if not research and not explicit_pick:
+        try:
+            import router as _router
+            _task = _router.detect_task(
+                message,
+                has_images=bool(images_b64),
+                has_files=bool(attach_names),
+                is_translate=_tr_target is not None,
+                kind=kind,
+            )
+            route_order = _router.order_catalog(catalog, _task)
+            if route_order and route_order[0].get("key"):
+                chosen = [route_order[0]]
+        except Exception:
+            route_order = list(catalog)
+
     async def gen():
         full = ""
         c0 = chosen[0]
 
         async def try_stream(messages):
-            """تلاش روی مدل اصلی و در صورت خطا/پاسخ نامعتبر، خودکار روی بقیه مدل‌های دارای کلید"""
+            """تلاش روی مدلِ مناسبِ همین کار و در صورت خطا، خودکار روی بقیه مدل‌های دارای کلید"""
             nonlocal full
-            candidates = [c0] + [c for c in catalog if c["id"] != c0["id"] and c.get("key")]
+            ordered = [c for c in route_order if c.get("key")]
+            candidates = [c0] + [c for c in ordered if c["id"] != c0["id"]]
             last_err = None
             for c in candidates:
                 buf = ""
@@ -3272,8 +3307,7 @@ async def stats_run(request: Request):
         return {"result": result, "interpretation": ""}
 
     # تفسیر دانشگاهی توسط هوش مصنوعی
-    catalog = get_ai_catalog()
-    c = catalog[0]
+    c = pick_model_for("stats")
     interpretation = ""
     if c.get("key"):
         try:
@@ -3326,8 +3360,7 @@ async def make_design_spec(topic: str, style: str = "auto", smart: bool = True):
     if style not in DESIGN_STYLES:
         style = "auto"
     if smart and style == "auto":
-        catalog = get_ai_catalog()
-        c = catalog[0]
+        c = pick_model_for("article")
         if c.get("key"):
             prompt = (
                 "بر اساس این موضوع، بهترین سبک طراحی سند/ارائه و یک پالت رنگ حرفه‌ای انتخاب کن. "
@@ -3565,8 +3598,7 @@ async def api_longdoc(request: Request):
     ld_smart = bool(body.get("smart_design"))
     ld_style = (body.get("style") or "auto").strip()
 
-    catalog = get_ai_catalog()
-    c = catalog[0]
+    c = pick_model_for("article")
     if not c.get("key"):
         raise HTTPException(400, "ابتدا در پنل مدیریت، کلید API را تنظیم کنید")
 
@@ -3812,14 +3844,16 @@ async def admin_save_ai_settings(request: Request):
         "provider": (body.get("provider") or "groq").strip(),
         "api_key": (body.get("api_key") or "").strip(),
         "model": (body.get("model") or "").strip(),
+        "main_role": (body.get("main_role") or "general").strip().lower(),
         "ais": [
             {
                 "name": (a.get("name") or "").strip(),
                 "service": (a.get("service") or "").strip(),
                 "model": (a.get("model") or "").strip(),
                 "key": (a.get("key") or "").strip(),
+                "role": (a.get("role") or "").strip().lower(),
             }
-            for a in (body.get("ais") or [])[:10]
+            for a in (body.get("ais") or [])[:20]
         ],
     }
     db = get_db()
