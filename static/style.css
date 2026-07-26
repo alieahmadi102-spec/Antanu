@@ -325,6 +325,7 @@ header h1 span { font-size: 11px; color: var(--muted); letter-spacing: 3px; marg
 }
 .md pre {
   background: #0a0d13;
+  color: #e8ebf2;            /* جعبه همیشه تیره است؛ متن باید در هر دو تم روشن بماند */
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px;
@@ -333,7 +334,7 @@ header h1 span { font-size: 11px; color: var(--muted); letter-spacing: 3px; marg
   text-align: left;
   margin: 10px 0;
 }
-.md pre code { background: none; border: none; padding: 0; }
+.md pre code { background: none; border: none; padding: 0; color: inherit; }
 .code-wrap { position: relative; }
 .code-wrap pre { padding-top: 36px; }
 .code-copy {
