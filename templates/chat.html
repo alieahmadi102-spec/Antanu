@@ -98,68 +98,68 @@
         <div class="model-wrap">
           <button id="modelBtn" class="tool-chip">🧠 <span id="modelLabel">{{ t("chat.tool_model")[2:] }}</span> ▾</button>
           <div id="modelPanel">
-            <label class="model-item all"><input type="checkbox" id="modelAll"> انتخاب همه</label>
+            <label class="model-item all"><input type="checkbox" id="modelAll"> {{ t("tool.select_all") }}</label>
             <div id="modelList"></div>
-            <p class="model-hint">می‌توانید یک یا چند هوش مصنوعی را همزمان انتخاب کنید</p>
+            <p class="model-hint">{{ t("tool.multi_hint") }}</p>
           </div>
         </div>
-        <select id="toneSelect" class="tool-chip" title="لحن و سبک پاسخ آنتانو">
+        <select id="toneSelect" class="tool-chip" title="{{ t('tool.tone_title') }}">
           <option value="">{{ t("chat.tool_tone") }}: {{ t("chat.tone_default") }}</option>
-          <option value="academic">🎓 رسمی و دانشگاهی</option>
-          <option value="simple">💬 ساده و روان</option>
-          <option value="concise">⚡ کوتاه و مختصر</option>
-          <option value="detailed">📖 کامل و مفصل</option>
-          <option value="creative">✨ خلاقانه</option>
+          <option value="academic">{{ t("tone.academic") }}</option>
+          <option value="simple">{{ t("tone.simple") }}</option>
+          <option value="concise">{{ t("tone.concise") }}</option>
+          <option value="detailed">{{ t("tone.detailed") }}</option>
+          <option value="creative">{{ t("tone.creative") }}</option>
         </select>
       </div>
 
       <!-- پنل انتخاب نوع محتوا (تیک‌دار) -->
       <div id="ctypePanel">
         <div class="ctype-head">
-          <span>✍️ چه محتوایی می‌خواهید بسازید؟ (یک یا چند مورد را تیک بزنید)</span>
-          <button id="ctypeClear" type="button">پاک کردن</button>
+          <span>{{ t("ct.head") }}</span>
+          <button id="ctypeClear" type="button">{{ t("ct.clear") }}</button>
         </div>
         <div class="ctype-grid">
-          <label><input type="checkbox" class="ctype" value="پروپوزال"> 📋 پروپوزال</label>
-          <label><input type="checkbox" class="ctype" value="فهرست"> 📑 فهرست پایان‌نامه</label>
-          <label><input type="checkbox" class="ctype" value="پیشینه"> 📚 پیشینه پژوهش</label>
-          <label><input type="checkbox" class="ctype" value="مبانی"> 🧠 مبانی نظری</label>
-          <label><input type="checkbox" class="ctype" value="فرضیه"> 🎯 فرضیه‌سازی</label>
-          <label><input type="checkbox" class="ctype" value="موضوع"> 💡 موضوع‌یابی</label>
-          <label><input type="checkbox" class="ctype" value="منبع"> 🔖 منبع و ارجاع</label>
-          <label><input type="checkbox" class="ctype" value="داور"> ⚖️ نقد داور علمی</label>
-          <label><input type="checkbox" class="ctype" value="پرسشنامه"> 📝 پرسشنامه</label>
-          <label><input type="checkbox" class="ctype" value="دلفی"> 🔢 دلفی فازی</label>
-          <label><input type="checkbox" class="ctype" value="مصاحبه"> 🎤 مصاحبه خبرگان</label>
-          <label><input type="checkbox" class="ctype" value="مقاله"> 📄 مقاله بلند</label>
-          <label><input type="checkbox" class="ctype" value="آماری"> 📊 تحلیل آماری</label>
+          <label><input type="checkbox" class="ctype" value="پروپوزال"> {{ t("ct.proposal") }}</label>
+          <label><input type="checkbox" class="ctype" value="فهرست"> {{ t("ct.toc") }}</label>
+          <label><input type="checkbox" class="ctype" value="پیشینه"> {{ t("ct.background") }}</label>
+          <label><input type="checkbox" class="ctype" value="مبانی"> {{ t("ct.theory") }}</label>
+          <label><input type="checkbox" class="ctype" value="فرضیه"> {{ t("ct.hypothesis") }}</label>
+          <label><input type="checkbox" class="ctype" value="موضوع"> {{ t("ct.topic") }}</label>
+          <label><input type="checkbox" class="ctype" value="منبع"> {{ t("ct.refs") }}</label>
+          <label><input type="checkbox" class="ctype" value="داور"> {{ t("ct.review") }}</label>
+          <label><input type="checkbox" class="ctype" value="پرسشنامه"> {{ t("ct.survey") }}</label>
+          <label><input type="checkbox" class="ctype" value="دلفی"> {{ t("ct.delphi") }}</label>
+          <label><input type="checkbox" class="ctype" value="مصاحبه"> {{ t("ct.interview") }}</label>
+          <label><input type="checkbox" class="ctype" value="مقاله"> {{ t("ct.longdoc") }}</label>
+          <label><input type="checkbox" class="ctype" value="آماری"> {{ t("ct.stats") }}</label>
         </div>
         <!-- تنظیمات خروجی: فقط وقتی «مقاله بلند» تیک بخورد -->
         <div id="ctypeDocOpts" style="display:none">
           <div class="ctype-opts-row">
-            <label>صفحه <input type="number" id="cPages" value="10" min="1" max="500"></label>
-            <label>فونت
+            <label>{{ t("common.page") }} <input type="number" id="cPages" value="10" min="1" max="500"></label>
+            <label>{{ t("conv2.font") }}
               <select id="cFont">
                 <option>Vazirmatn</option><option>B Nazanin</option><option>B Zar</option>
                 <option>IRANSans</option><option>B Titr</option><option>Tahoma</option>
                 <option>Times New Roman</option><option>Calibri</option><option>Arial</option>
               </select>
             </label>
-            <label>اندازه <input type="number" id="cSize" value="14" min="8" max="36"></label>
-            <label>چین
+            <label>{{ t("conv2.size") }} <input type="number" id="cSize" value="14" min="8" max="36"></label>
+            <label>{{ t("common.align") }}
               <select id="cAlign">
-                <option value="justify" selected>هم‌تراز</option><option value="right">راست</option><option value="center">وسط</option><option value="left">چپ</option>
+                <option value="justify" selected>{{ t("common.justify") }}</option><option value="right">{{ t("common.right") }}</option><option value="center">{{ t("common.center") }}</option><option value="left">{{ t("common.left") }}</option>
               </select>
             </label>
-            <label>خروجی
+            <label>{{ t("conv2.out") }}
               <select id="cFormat">
                 <option value="docx">Word</option><option value="pdf">PDF</option>
-                <option value="xlsx">Excel</option><option value="pptx">پاورپوینت</option>
-                <option value="txt">متن (TXT)</option><option value="md">Markdown</option>
-                <option value="both" selected>Word+PDF</option><option value="all">همه</option>
+                <option value="xlsx">Excel</option><option value="pptx">{{ t("conv2.pptx") }}</option>
+                <option value="txt">{{ t("conv2.txt") }}</option><option value="md">Markdown</option>
+                <option value="both" selected>Word+PDF</option><option value="all">{{ t("common.all") }}</option>
               </select>
             </label>
-            <label class="ck"><input type="checkbox" id="cWeb"> 🌐 منابع وب</label>
+            <label class="ck"><input type="checkbox" id="cWeb"> {{ t("ref.web_short") }}</label>
           </div>
         </div>
       </div>
@@ -169,7 +169,7 @@
 
       <!-- نوار ورودی تلگرامی -->
       <div class="inputbar">
-        <button id="ctypeBtn" class="icon-btn" title="نوع محتوا: مقاله، پروپوزال، تحلیل آماری و...">✍️</button>
+        <button id="ctypeBtn" class="icon-btn" title="{{ t('tool.ctype_title') }}">✍️</button>
         <button id="attachBtn" class="icon-btn" title="{{ t('chat.attach') }}">📎</button>
         <input type="file" id="fileInput" multiple
                accept=".txt,.pdf,.docx,.xlsx,.csv,.md,.json,.py,.html,.xml,.log,.jpg,.jpeg,.png,.webp,image/*,text/plain,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json"
@@ -197,7 +197,7 @@
   <div id="profileOverlay">
     <div class="mem-panel">
       <header>
-        <h3>👤 پروفایل من</h3>
+        <h3>{{ t("prof.title") }}</h3>
         <button class="close">✕</button>
       </header>
       <div class="profile-body">
@@ -205,23 +205,23 @@
           <img id="pAvatar" class="profile-avatar" src="" style="display:none" alt="">
           <div id="pAvatarPh" class="profile-avatar">👤</div>
           <div>
-            <button id="pAvatarBtn" class="mini" type="button">🖼 تغییر عکس پروفایل</button>
+            <button id="pAvatarBtn" class="mini" type="button">{{ t("prof.avatar") }}</button>
             <input type="file" id="pAvatarInput" accept="image/*" hidden>
           </div>
         </div>
         <div class="p-info">
-          <div><span>نام کاربری:</span> <b id="pUser"></b></div>
-          <div><span>اشتراک:</span> <b id="pStars"></b></div>
-          <div><span>تاریخ عضویت:</span> <b id="pJoined"></b></div>
-          <div><span>اعتبار اشتراک:</span> <b id="pExpire"></b></div>
+          <div><span>{{ t("prof.username") }}</span> <b id="pUser"></b></div>
+          <div><span>{{ t("prof.plan") }}</span> <b id="pStars"></b></div>
+          <div><span>{{ t("prof.joined") }}</span> <b id="pJoined"></b></div>
+          <div><span>{{ t("prof.valid") }}</span> <b id="pExpire"></b></div>
         </div>
-        <h4 class="p-sec">🔑 تغییر گذرواژه</h4>
-        <input type="password" id="pOld" class="p-inp" placeholder="گذرواژه فعلی">
-        <input type="password" id="pNew" class="p-inp" placeholder="گذرواژه جدید (حداقل ۶ حرف)">
-        <button id="pPassBtn" class="btn-primary" type="button" style="margin-top:6px">تغییر گذرواژه</button>
+        <h4 class="p-sec">{{ t("prof.pw_title") }}</h4>
+        <input type="password" id="pOld" class="p-inp" placeholder="{{ t('prof.pw_current') }}">
+        <input type="password" id="pNew" class="p-inp" placeholder="{{ t('prof.pw_new') }}">
+        <button id="pPassBtn" class="btn-primary" type="button" style="margin-top:6px">{{ t("prof.pw_save") }}</button>
         <p id="pMsg" style="font-size:12.5px;margin-top:8px"></p>
         <form method="post" action="/logout" style="margin-top:14px">
-          <button type="submit" class="mini danger" style="width:100%;padding:9px">🚪 خروج از حساب</button>
+          <button type="submit" class="mini danger" style="width:100%;padding:9px">{{ t("side.logout_btn") }}</button>
         </form>
       </div>
     </div>
@@ -231,7 +231,7 @@
   <div id="memOverlay">
     <div class="mem-panel">
       <header>
-        <h3>🧠 حافظه بلندمدت آنتانو</h3>
+        <h3>{{ t("mem.title") }}</h3>
         <button class="close">✕</button>
       </header>
       <div class="mem-list"></div>
@@ -241,24 +241,24 @@
   <!-- پنجره ابزار پایان‌نامه -->
   <div id="acadOverlay">
     <div class="mem-panel">
-      <header><h3>🎓 ابزار پایان‌نامه</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("acad.title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <div class="doc-field">
-          <label>موضوع / رشته / متغیرهای پژوهش</label>
-          <textarea id="acadTopic" rows="2" placeholder="مثلاً: تأثیر کیفیت خدمات بر وفاداری مشتری در بانک‌های خصوصی"></textarea>
+          <label>{{ t("acad.field") }}</label>
+          <textarea id="acadTopic" rows="2" placeholder="{{ t('acad.field_ph') }}"></textarea>
         </div>
         <div class="acad-tools">
-          <button class="acad-t" data-t="موضوع">💡 موضوع‌یابی (۵ عنوان)</button>
-          <button class="acad-t" data-t="پروپوزال">📋 نوشتن پروپوزال</button>
-          <button class="acad-t" data-t="فهرست">📑 فهرست پایان‌نامه</button>
-          <button class="acad-t" data-t="پیشینه">📚 پیشینه پژوهش</button>
-          <button class="acad-t" data-t="مبانی">🧠 مبانی نظری</button>
-          <button class="acad-t" data-t="فرضیه">🎯 فرضیه‌سازی</button>
-          <button class="acad-t" data-t="منبع">🔖 منبع و ارجاع (APA)</button>
-          <button class="acad-t" data-t="داور">⚖️ نقد داور علمی</button>
-          <button class="acad-t" data-t="پرسشنامه">📝 ساخت پرسشنامه</button>
-          <button class="acad-t" data-t="دلفی">🔢 پرسشنامه دلفی فازی</button>
-          <button class="acad-t" data-t="مصاحبه">🎤 مصاحبه با خبرگان</button>
+          <button class="acad-t" data-t="موضوع">{{ t("acad.topics") }}</button>
+          <button class="acad-t" data-t="پروپوزال">{{ t("acad.proposal") }}</button>
+          <button class="acad-t" data-t="فهرست">{{ t("ct.toc") }}</button>
+          <button class="acad-t" data-t="پیشینه">{{ t("ct.background") }}</button>
+          <button class="acad-t" data-t="مبانی">{{ t("ct.theory") }}</button>
+          <button class="acad-t" data-t="فرضیه">{{ t("ct.hypothesis") }}</button>
+          <button class="acad-t" data-t="منبع">{{ t("acad.refs") }}</button>
+          <button class="acad-t" data-t="داور">{{ t("ct.review") }}</button>
+          <button class="acad-t" data-t="پرسشنامه">{{ t("acad.survey") }}</button>
+          <button class="acad-t" data-t="دلفی">{{ t("acad.delphi") }}</button>
+          <button class="acad-t" data-t="مصاحبه">{{ t("acad.interview") }}</button>
         </div>
       </div>
     </div>
@@ -267,21 +267,21 @@
   <!-- پنجره تبدیل فایل -->
   <div id="convertOverlay">
     <div class="mem-panel">
-      <header><h3>🔄 تبدیل فایل</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("conv2.title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">Word، PDF و PowerPoint را به یکدیگر تبدیل کنید. (تبدیل بر پایه‌ی استخراج متن است؛ متن، عنوان‌ها و جدول‌ها منتقل می‌شوند.)</p>
-        <button id="convUpBtn" class="btn-primary" type="button">📁 انتخاب فایل ورودی</button>
+        <p class="model-hint">{{ t("conv2.hint") }}</p>
+        <button id="convUpBtn" class="btn-primary" type="button">{{ t("conv2.pick") }}</button>
         <input type="file" id="convFile" accept=".docx,.pdf,.pptx,.txt,.md" hidden>
         <div id="convFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
         <div class="doc-field">
-          <label>خروجی به فرمت:</label>
+          <label>{{ t("conv2.to") }}</label>
           <select id="convTarget">
             <option value="docx">Word (.docx)</option>
             <option value="pdf">PDF</option>
             <option value="pptx">PowerPoint (.pptx)</option>
           </select>
         </div>
-        <button id="convGoBtn" class="btn-primary" type="button" style="margin-top:12px">🔄 تبدیل کن</button>
+        <button id="convGoBtn" class="btn-primary" type="button" style="margin-top:12px">{{ t("conv2.go") }}</button>
         <div id="convResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
@@ -292,19 +292,19 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.feedback_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">هر ایده، نیاز یا نظری برای پیشرفت آنتانو دارید بنویسید — تیم ما همه را می‌خواند. 🙌</p>
+        <p class="model-hint">{{ t("fb.hint") }}</p>
         <div class="doc-field">
-          <label>نوع پیام:</label>
+          <label>{{ t("fb.kind") }}</label>
           <select id="fbCategory">
-            <option value="idea">💡 ایده / پیشنهاد</option>
-            <option value="feature">✨ قابلیت جدیدی که نیاز دارم</option>
-            <option value="bug">🐞 گزارش مشکل</option>
-            <option value="other">💬 نظر دیگر</option>
+            <option value="idea">{{ t("fb.kind_idea") }}</option>
+            <option value="feature">{{ t("fb.kind_feature") }}</option>
+            <option value="bug">{{ t("fb.kind_bug") }}</option>
+            <option value="other">{{ t("fb.kind_other") }}</option>
           </select>
         </div>
-        <textarea id="fbContent" rows="5" placeholder="نظر یا ایده‌ی خود را اینجا بنویسید…"
+        <textarea id="fbContent" rows="5" placeholder="{{ t('fb.placeholder') }}"
                   style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
-        <button id="fbSendBtn" class="btn-primary" type="button" style="margin-top:12px">ارسال نظر</button>
+        <button id="fbSendBtn" class="btn-primary" type="button" style="margin-top:12px">{{ t("fb.send") }}</button>
         <div id="fbResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
@@ -315,14 +315,14 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.song_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">سبک و حال‌وهوای آهنگ را توصیف کن؛ آنتانو یک قطعه‌ی موسیقی می‌سازد. (نیازمند کلید Replicate در پنل مدیریت)</p>
-        <textarea id="songPrompt" rows="3" placeholder="مثلاً: یک ملودی آرام و امیدوارکننده با پیانو و ویولن…"
+        <p class="model-hint">{{ t("song.hint") }}</p>
+        <textarea id="songPrompt" rows="3" placeholder="{{ t('song.placeholder') }}"
                   style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
         <div class="doc-field" style="margin-top:10px">
-          <label>مدت (ثانیه):</label>
+          <label>{{ t("song.duration") }}</label>
           <input type="number" id="songDur" value="8" min="3" max="30" style="width:90px">
         </div>
-        <button id="songGo" class="btn-primary" type="button" style="margin-top:12px">🎵 بساز</button>
+        <button id="songGo" class="btn-primary" type="button" style="margin-top:12px">{{ t("song.go") }}</button>
         <div id="songResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
@@ -333,18 +333,18 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.converse_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">دکمه‌ی «شروع» را بزن و حرف بزن؛ آنتانو گوش می‌دهد، پاسخ می‌دهد و با صدا می‌خواند. برای پایان، دوباره روی همان دکمه بزن. (نیازمند کلید Whisper و ElevenLabs در پنل مدیریت)</p>
+        <p class="model-hint">{{ t("conv.hint") }}</p>
         <div class="doc-field">
-          <label>نقش/شخصیت منشی (اختیاری):</label>
-          <input type="text" id="convPersona" placeholder="مثلاً: منشیِ مؤدبِ یک مطب پزشکی که وقت می‌دهد" style="width:100%">
+          <label>{{ t("conv.persona") }}</label>
+          <input type="text" id="convPersona" placeholder="{{ t('conv.persona_ph') }}" style="width:100%">
         </div>
         <div class="doc-field" style="margin-top:8px">
-          <label>مدت گفتگو (دقیقه — ۰ یعنی بی‌نهایت):</label>
+          <label>{{ t("conv.duration") }}</label>
           <input type="number" id="convDur" value="0" min="0" max="120" style="width:90px">
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
-          <button id="convMic" class="btn-primary" type="button">🎙️ شروع گفتگو</button>
-          <button id="convClear" class="btn-secondary" type="button">🗑️ پاک‌کردن</button>
+          <button id="convMic" class="btn-primary" type="button">{{ t("conv.start") }}</button>
+          <button id="convClear" class="btn-secondary" type="button">{{ t("conv.clear") }}</button>
           <span id="convTimeLeft" style="font-size:13px;font-weight:700;color:var(--accent)"></span>
           <span id="convStatus" style="font-size:13px;color:var(--muted)"></span>
         </div>
@@ -358,28 +358,28 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.dub_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">یک ویدیو بده تا آنتانو گفتار آن را بشنود، به زبان دلخواه ترجمه کند و با صدای انتخابی‌ات دوباره روی ویدیو بگذارد.</p>
+        <p class="model-hint">{{ t("dub.hint") }}</p>
         <div id="dubStatusBox" style="font-size:12.5px;color:var(--muted);margin-bottom:10px"></div>
         <div class="tr-row">
-          <label>از زبان
+          <label>{{ t("tr.from") }}
             <select id="dubSource"></select>
           </label>
-          <label>به زبان
+          <label>{{ t("tr.to") }}
             <select id="dubTarget"></select>
           </label>
         </div>
         <div class="doc-field" style="margin-top:10px">
-          <label>صدای دوبله:</label>
+          <label>{{ t("dub.voice") }}</label>
           <select id="dubVoice">
-            <option value="self">صدای پیش‌فرض آنتانو</option>
-            <option value="female">صدای زنانه</option>
-            <option value="male">صدای مردانه</option>
+            <option value="self">{{ t("dub.voice_self") }}</option>
+            <option value="female">{{ t("dub.voice_female") }}</option>
+            <option value="male">{{ t("dub.voice_male") }}</option>
           </select>
         </div>
-        <button id="dubUpBtn" class="btn-primary" type="button" style="margin-top:12px">📁 انتخاب ویدیو</button>
+        <button id="dubUpBtn" class="btn-primary" type="button" style="margin-top:12px">{{ t("dub.pick") }}</button>
         <input type="file" id="dubFile" accept="video/*" hidden>
         <div id="dubFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
-        <button id="dubGo" class="btn-primary" type="button">🎬 ترجمه و دوبله کن</button>
+        <button id="dubGo" class="btn-primary" type="button">{{ t("dub.go") }}</button>
         <div id="dubResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
@@ -390,7 +390,7 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.animals_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">صدای حیوانی را که می‌خواهی انتخاب کن و پخش کن.</p>
+        <p class="model-hint">{{ t("animal.hint") }}</p>
         <div id="animalList" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
         <div id="animalResult" style="margin-top:12px;font-size:13px"></div>
       </div>
@@ -402,11 +402,11 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.footnote_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">یک فایل (Word، PDF، متن) بده تا آنتانو به اصطلاحات و مفاهیم مهم آن پاورقی علمی (با معادل انگلیسی/توضیح) اضافه کند و فایل Word با پانوشت واقعی بسازد.</p>
-        <button id="fnUpBtn" class="btn-primary" type="button">📁 انتخاب فایل</button>
+        <p class="model-hint">{{ t("fn.hint") }}</p>
+        <button id="fnUpBtn" class="btn-primary" type="button">{{ t("common.pick_file") }}</button>
         <input type="file" id="fnFile" accept=".docx,.pdf,.txt,.md" hidden>
         <div id="fnFileName" style="margin:10px 0;font-size:13px;color:var(--muted)"></div>
-        <button id="fnGo" class="btn-primary" type="button" style="margin-top:6px">📌 پاورقی بگذار</button>
+        <button id="fnGo" class="btn-primary" type="button" style="margin-top:6px">{{ t("fn.go") }}</button>
         <div id="fnResult" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
@@ -417,25 +417,25 @@
     <div class="mem-panel">
       <header><h3>{{ t("modal.translate_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">متن را وارد کن، زبان مقصد را انتخاب کن؛ آنتانو چند ترجمه با لحن‌های مختلف می‌دهد تا بهترین را کپی کنی. (ارمنی به‌صورت سه‌ستونه: کلمه/ترجمه/تلفظ)</p>
+        <p class="model-hint">{{ t("tr.hint") }}</p>
         <div class="tr-row">
-          <label>از زبان
+          <label>{{ t("tr.from") }}
             <select id="trSource"></select>
           </label>
-          <label>به زبان
+          <label>{{ t("tr.to") }}
             <select id="trTarget"></select>
           </label>
         </div>
         <div id="trTones" class="tr-tones"></div>
         <div class="row" style="margin-top:10px;align-items:center;gap:8px">
-          <button id="trRec" class="tool-chip" type="button">🎙 ضبط صدا</button>
-          <button id="trV2V" class="tool-chip" type="button" title="صدا را بگیر، ترجمه کن و با صدا پخش کن">🔊 ویس‌به‌ویس</button>
+          <button id="trRec" class="tool-chip" type="button">{{ t("tr.record") }}</button>
+          <button id="trV2V" class="tool-chip" type="button" title="{{ t('tr.v2v_title') }}">{{ t("tr.v2v") }}</button>
           <span id="trRecStatus" style="font-size:12px;color:var(--muted)"></span>
         </div>
         <div id="trV2VResult" style="margin-top:8px"></div>
-        <textarea id="trText" rows="5" placeholder="متن را اینجا بنویس، جای‌گذاری کن یا با 🎙 صحبت کن…"
+        <textarea id="trText" rows="5" placeholder="{{ t('tr.placeholder') }}"
                   style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--border,rgba(128,128,128,.3));background:transparent;color:var(--text);font-family:inherit;resize:vertical"></textarea>
-        <button id="trGo" class="btn-primary" type="button" style="margin-top:12px">🌍 ترجمه کن</button>
+        <button id="trGo" class="btn-primary" type="button" style="margin-top:12px">{{ t("tr.go") }}</button>
         <div id="trResult" style="margin-top:14px"></div>
       </div>
     </div>
@@ -444,20 +444,20 @@
   <!-- پنجره تحلیل آماری -->
   <div id="statsOverlay">
     <div class="mem-panel">
-      <header><h3>📊 تحلیل آماری فصل چهارم</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("stats.title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">فایل داده را آپلود کنید تا تحلیل واقعی انجام شود — Excel، CSV، SPSS، Stata، JSON، PDF، Word و هر فایل داده‌ی دیگر (جدول‌ها از PDF و Word خودکار استخراج می‌شوند).</p>
-        <button id="statsUpBtn" class="btn-primary" type="button">📁 آپلود فایل داده</button>
+        <p class="model-hint">{{ t("stats.hint") }}</p>
+        <button id="statsUpBtn" class="btn-primary" type="button">{{ t("stats.upload") }}</button>
         <input type="file" id="statsFile" hidden>
         <div id="statsInfo" style="margin-top:12px;font-size:13px"></div>
         <div id="statsTools" class="acad-tools" style="display:none">
-          <button class="stat-t" data-a="overview">📋 توصیف داده</button>
-          <button class="stat-t" data-a="assumptions">✅ پیش‌فرض‌ها</button>
-          <button class="stat-t" data-a="reliability">🔒 پایایی (کرونباخ)</button>
-          <button class="stat-t" data-a="correlation">🔗 همبستگی</button>
-          <button class="stat-t" data-a="regression">📈 رگرسیون</button>
-          <button class="stat-t" data-a="mediation">🔀 میانجی‌گری</button>
-          <button class="stat-t" data-a="factor_analysis">🧩 تحلیل عاملی</button>
+          <button class="stat-t" data-a="overview">{{ t("stats.describe") }}</button>
+          <button class="stat-t" data-a="assumptions">{{ t("doc.defaults") }}</button>
+          <button class="stat-t" data-a="reliability">{{ t("stats.reliability") }}</button>
+          <button class="stat-t" data-a="correlation">{{ t("stats.correlation") }}</button>
+          <button class="stat-t" data-a="regression">{{ t("stats.regression") }}</button>
+          <button class="stat-t" data-a="mediation">{{ t("stats.mediation") }}</button>
+          <button class="stat-t" data-a="factor_analysis">{{ t("stats.factor") }}</button>
           <button class="stat-t" data-a="anova">📊 ANOVA</button>
           <button class="stat-t" data-a="sem_pls">🏗 SEM-PLS</button>
           <button class="stat-t" data-a="sem_cfa">🔺 SEM/CFA</button>
@@ -469,24 +469,24 @@
   <!-- پنجره کتابخانه منابع -->
   <div id="refOverlay">
     <div class="mem-panel ref-panel">
-      <header><h3>🔖 کتابخانه منابع پژوهشی</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("ref.title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
-        <p class="model-hint">منابع پژوهش را ذخیره کنید و با یک کلیک فهرست منابع به سبک APA یا IEEE بسازید.</p>
+        <p class="model-hint">{{ t("ref.hint") }}</p>
 
         <div class="ref-quickadd">
-          <label>🔍 جست‌وجوی خودکار منبع (عنوان مقاله یا DOI) — از پایگاه‌های Crossref و OpenAlex</label>
-          <input type="text" id="refLookupQuery" placeholder="مثلاً: Attention is all you need  یا  10.5555/3295222" style="direction:ltr;width:100%;margin-bottom:6px">
-          <button id="refLookupBtn" class="mini" type="button">🔎 پیدا کن و APA را کامل کن</button>
+          <label>{{ t("ref.lookup_hint") }}</label>
+          <input type="text" id="refLookupQuery" placeholder="{{ t('ref.lookup_ph') }}" style="direction:ltr;width:100%;margin-bottom:6px">
+          <button id="refLookupBtn" class="mini" type="button">{{ t("ref.lookup_go") }}</button>
           <span id="refLookupMsg" style="font-size:12px"></span>
           <div id="refLookupResults"></div>
         </div>
 
         <div class="ref-quickadd">
-          <label>تشخیص خودکار از روی متن ارجاع، یا ترجمه‌ی ارجاع انگلیسی به فارسی</label>
-          <textarea id="refParseText" rows="2" placeholder="ارجاع را از مقاله کپی و اینجا بچسبانید…"></textarea>
-          <button id="refParseBtn" class="mini" type="button">✨ تشخیص خودکار فیلدها</button>
-          <button id="refTranslateBtn" class="mini" type="button">🌐 ترجمه به فارسی</button>
-          <button id="refImportBtn" class="mini" type="button">📄 استخراج منابع از فایل آپلودی</button>
+          <label>{{ t("ref.parse_hint") }}</label>
+          <textarea id="refParseText" rows="2" placeholder="{{ t('ref.parse_ph') }}"></textarea>
+          <button id="refParseBtn" class="mini" type="button">{{ t("ref.parse_go") }}</button>
+          <button id="refTranslateBtn" class="mini" type="button">{{ t("ref.translate") }}</button>
+          <button id="refImportBtn" class="mini" type="button">{{ t("ref.import") }}</button>
           <span id="refParseMsg" style="font-size:12px"></span>
           <div id="refTranslateOut" style="display:none;margin-top:8px;font-size:13px;line-height:2"></div>
           <div id="refImportResults"></div>
@@ -494,39 +494,39 @@
 
         <div class="ref-form">
           <select id="refType">
-            <option value="article">مقاله</option>
-            <option value="book">کتاب</option>
-            <option value="website">وب‌سایت</option>
-            <option value="thesis">پایان‌نامه</option>
-            <option value="conference">کنفرانس</option>
+            <option value="article">{{ t("ref.t_article") }}</option>
+            <option value="book">{{ t("ref.t_book") }}</option>
+            <option value="website">{{ t("ref.t_website") }}</option>
+            <option value="thesis">{{ t("ref.t_thesis") }}</option>
+            <option value="conference">{{ t("ref.t_conference") }}</option>
           </select>
-          <input type="text" id="refAuthors" placeholder="نویسندگان (با ؛ جدا کنید)">
-          <input type="text" id="refTitle" placeholder="عنوان اثر *">
-          <input type="text" id="refYear" placeholder="سال" style="width:80px">
-          <input type="text" id="refSource" placeholder="نام مجله / ناشر">
-          <input type="text" id="refVolume" placeholder="دوره" style="width:70px">
-          <input type="text" id="refIssue" placeholder="شماره" style="width:70px">
-          <input type="text" id="refPages" placeholder="صفحات" style="width:90px">
-          <input type="text" id="refUrl" placeholder="نشانی / DOI" style="direction:ltr">
-          <button id="refAddBtn" class="btn-primary" type="button">＋ افزودن به کتابخانه</button>
+          <input type="text" id="refAuthors" placeholder="{{ t('ref.f_authors') }}">
+          <input type="text" id="refTitle" placeholder="{{ t('ref.f_title') }}">
+          <input type="text" id="refYear" placeholder="{{ t('ref.f_year') }}" style="width:80px">
+          <input type="text" id="refSource" placeholder="{{ t('ref.f_journal') }}">
+          <input type="text" id="refVolume" placeholder="{{ t('ref.f_volume') }}" style="width:70px">
+          <input type="text" id="refIssue" placeholder="{{ t('ref.f_issue') }}" style="width:70px">
+          <input type="text" id="refPages" placeholder="{{ t('ref.f_pages') }}" style="width:90px">
+          <input type="text" id="refUrl" placeholder="{{ t('ref.f_url') }}" style="direction:ltr">
+          <button id="refAddBtn" class="btn-primary" type="button">{{ t("ref.add") }}</button>
         </div>
 
         <div class="ref-listhead">
-          <span>منابع من (<b id="refCount">0</b>)</span>
+          <span>{{ t("ref.mine") }}<b id="refCount">0</b>)</span>
           <div class="ref-genbar">
             <select id="refStyle">
-              <option value="apa">سبک APA</option>
-              <option value="ieee">سبک IEEE</option>
+              <option value="apa">{{ t("ref.style_apa") }}</option>
+              <option value="ieee">{{ t("ref.style_ieee") }}</option>
             </select>
-            <button id="refGenBtn" class="mini" type="button">📑 ساخت فهرست منابع</button>
+            <button id="refGenBtn" class="mini" type="button">{{ t("ref.build") }}</button>
           </div>
         </div>
         <div id="refList" class="ref-list"></div>
 
         <div id="refBibBox" style="display:none">
-          <label>فهرست منابع آماده (کپی کنید یا در انتهای مقاله بگذارید)</label>
+          <label>{{ t("ref.output") }}</label>
           <textarea id="refBib" rows="6" readonly></textarea>
-          <button id="refCopyBib" class="mini" type="button">📋 کپی فهرست</button>
+          <button id="refCopyBib" class="mini" type="button">{{ t("ref.copy") }}</button>
         </div>
       </div>
     </div>
@@ -536,25 +536,25 @@
   <div id="docOverlay">
     <div class="mem-panel">
       <header>
-        <h3 id="docTitle">📄 ساخت مقاله بلند</h3>
+        <h3 id="docTitle">{{ t("doc.build") }}</h3>
         <button class="close">✕</button>
       </header>
       <div class="doc-form">
         <div id="docHubTools" class="acad-tools" style="margin:0 22px 4px">
-          <button class="acad-t" data-hub="acad"><b>🎓 ابزار پایان‌نامه</b>موضوع، پروپوزال، فهرست، پیشینه، مبانی، منبع</button>
-          <button class="acad-t" data-hub="stats"><b>📊 تحلیل آماری</b>رگرسیون، SEM، پایایی، میانجی‌گری</button>
+          <button class="acad-t" data-hub="acad"><b>{{ t("acad.title") }}</b>{{ t("acad.sub") }}</button>
+          <button class="acad-t" data-hub="stats"><b>{{ t("ct.stats") }}</b>{{ t("stats.sub") }}</button>
         </div>
         <div class="doc-field" id="topicField">
-          <label>موضوع مقاله</label>
-          <textarea id="docTopic" rows="2" placeholder="مثلاً: تأثیر هوش مصنوعی بر حسابداری مدیریت"></textarea>
+          <label>{{ t("doc.topic") }}</label>
+          <textarea id="docTopic" rows="2" placeholder="{{ t('doc.topic_ph') }}"></textarea>
         </div>
         <div class="doc-row">
           <div class="doc-field" id="pagesField">
-            <label>تعداد صفحه (۱ تا ۵۰۰)</label>
+            <label>{{ t("doc.pages") }}</label>
             <input type="number" id="docPages" value="10" min="1" max="500">
           </div>
           <div class="doc-field">
-            <label>نوع فونت (Word)</label>
+            <label>{{ t("doc.font") }}</label>
             <select id="docFont">
               <option>Vazirmatn</option>
               <option>B Nazanin</option>
@@ -568,38 +568,38 @@
             </select>
           </div>
           <div class="doc-field">
-            <label>اندازه فونت</label>
+            <label>{{ t("doc.font_size") }}</label>
             <input type="number" id="docSize" value="14" min="8" max="36">
           </div>
           <div class="doc-field">
-            <label>چین متن</label>
+            <label>{{ t("doc.align") }}</label>
             <select id="docAlign">
-              <option value="justify" selected>هم‌تراز (Justify)</option>
-              <option value="right">راست‌چین</option>
-              <option value="center">وسط‌چین</option>
-              <option value="left">چپ‌چین</option>
+              <option value="justify" selected>{{ t("doc.align_justify") }}</option>
+              <option value="right">{{ t("doc.align_right") }}</option>
+              <option value="center">{{ t("doc.align_center") }}</option>
+              <option value="left">{{ t("doc.align_left") }}</option>
             </select>
           </div>
           <div class="doc-field">
-            <label>قالب خروجی</label>
+            <label>{{ t("doc.format") }}</label>
             <select id="docFormat">
               <option value="docx">Word</option>
               <option value="pdf">PDF</option>
               <option value="xlsx">Excel</option>
-              <option value="txt">متن (TXT)</option>
+              <option value="txt">{{ t("conv2.txt") }}</option>
               <option value="md">Markdown</option>
               <option value="both" selected>Word + PDF</option>
               <option value="all">Word + PDF + Excel</option>
-              <option value="pptx">پاورپوینت</option>
+              <option value="pptx">{{ t("conv2.pptx") }}</option>
             </select>
           </div>
         </div>
         <div class="doc-field" id="docSrcField">
-          <label>منابع مقاله (اختیاری — فایل یا عکس خودتان)</label>
+          <label>{{ t("doc.sources") }}</label>
           <div class="row" style="gap:8px">
-            <button type="button" id="docAttachBtn" class="mini">📎 افزودن فایل / عکس منبع</button>
+            <button type="button" id="docAttachBtn" class="mini">{{ t("doc.add_source") }}</button>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer">
-              <input type="checkbox" id="docWeb" style="accent-color:var(--accent)"> 🌐 جستجوی وب برای منابع
+              <input type="checkbox" id="docWeb" style="accent-color:var(--accent)"> {{ t("ref.web") }}
             </label>
           </div>
           <div id="docChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
@@ -608,30 +608,30 @@
         </div>
         <div class="doc-field" id="docExtrasField">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer">
-            <input type="checkbox" id="docToc" checked style="accent-color:var(--accent)"> 📑 ساخت فهرست مطالب خودکار (Word)
+            <input type="checkbox" id="docToc" checked style="accent-color:var(--accent)"> {{ t("doc.toc") }}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;margin-top:6px">
-            <input type="checkbox" id="docNumbering" checked style="accent-color:var(--accent)"> 🔢 شماره‌گذاری سرفصل‌ها (۱-۱-۱)
+            <input type="checkbox" id="docNumbering" checked style="accent-color:var(--accent)"> {{ t("doc.numbering") }}
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--accent);cursor:pointer;margin-top:6px;font-weight:700">
-            <input type="checkbox" id="docSmart" checked style="accent-color:var(--accent)"> 🎨 طراحی هوشمند (جلد، رنگ‌بندی و استایل اختصاصی بر اساس موضوع)
+            <input type="checkbox" id="docSmart" checked style="accent-color:var(--accent)"> {{ t("doc.smart_design") }}
           </label>
           <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
-            <span style="font-size:12.5px;color:var(--muted)">سبک:</span>
+            <span style="font-size:12.5px;color:var(--muted)">{{ t("doc.style") }}</span>
             <select id="docStyle" style="padding:5px 8px;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12.5px">
-              <option value="auto" selected>خودکار (تشخیص هوش مصنوعی)</option>
-              <option value="tech">فناوری — مدرن و تیره</option>
-              <option value="medical">پزشکی — سفید و آبی</option>
-              <option value="finance">مالی — رسمی و مینیمال</option>
-              <option value="education">آموزشی — رنگی و خوانا</option>
-              <option value="kids">کودک — شاد و کارتونی</option>
-              <option value="academic">دانشگاهی — کلاسیک</option>
-              <option value="creative">خلاق — پرانرژی</option>
+              <option value="auto" selected>{{ t("doc.style_auto") }}</option>
+              <option value="tech">{{ t("doc.style_tech") }}</option>
+              <option value="medical">{{ t("doc.style_medical") }}</option>
+              <option value="finance">{{ t("doc.style_finance") }}</option>
+              <option value="education">{{ t("doc.style_edu") }}</option>
+              <option value="kids">{{ t("doc.style_kids") }}</option>
+              <option value="academic">{{ t("doc.style_academic") }}</option>
+              <option value="creative">{{ t("doc.style_creative") }}</option>
             </select>
           </div>
         </div>
-        <button id="docStart" class="btn-primary" style="margin-top:14px">شروع ساخت</button>
-        <p class="model-hint" id="docHint">مقاله‌های بلند بخش‌به‌بخش ساخته می‌شوند؛ هر چه صفحات بیشتر، زمان بیشتر (مثلاً ۲۰۰ صفحه ممکن است چند دقیقه طول بکشد).</p>
+        <button id="docStart" class="btn-primary" style="margin-top:14px">{{ t("common.start_build") }}</button>
+        <p class="model-hint" id="docHint">{{ t("doc.build_note") }}</p>
       </div>
     </div>
   </div>
