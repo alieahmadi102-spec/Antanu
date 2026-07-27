@@ -387,8 +387,55 @@ def _compute_asset_ver() -> str:
 _jinja.globals["asset_ver"] = _compute_asset_ver()
 
 
-def render(name: str, status_code: int = 200, **context) -> HTMLResponse:
-    html = _jinja.get_template(name).render(**context)
+# ---------------- چندزبانه‌سازی (زبان پیش‌فرض: انگلیسی) ----------------
+
+import i18n
+
+LANG_COOKIE = "antanu_lang"
+
+
+def resolve_lang(request: Request | None = None, user=None) -> str:
+    """زبان این درخواست را تعیین می‌کند، به این ترتیب:
+    ۱) زبان ذخیره‌شده در حساب کاربر (روی همه‌ی دستگاه‌ها یکسان)
+    ۲) کوکی مرورگر (برای کاربر مهمان و صفحه‌ی ورود)
+    ۳) زبان مرورگر (Accept-Language)
+    ۴) زبان پیش‌فرض سایت = انگلیسی
+    """
+    if user is not None:
+        try:
+            u_lang = user["lang"] if "lang" in user.keys() else None
+        except Exception:
+            u_lang = None
+        if u_lang and i18n.is_supported(u_lang):
+            return u_lang
+    if request is not None:
+        cookie = request.cookies.get(LANG_COOKIE)
+        if cookie and i18n.is_supported(cookie):
+            return cookie
+        header = request.headers.get("accept-language", "")
+        if header:
+            return i18n.pick_from_header(header)
+    return i18n.DEFAULT_LANG
+
+
+def render(name: str, status_code: int = 200, request: Request | None = None,
+           lang: str | None = None, **context) -> HTMLResponse:
+    """قالب را با زبان درست رندر می‌کند و تابع t() را در اختیار قالب می‌گذارد.
+    زبان از حساب کاربر (اگر در context باشد) یا کوکی/مرورگر گرفته می‌شود."""
+    code = lang or resolve_lang(request, context.get("user"))
+    ctx = {
+        "lang": code,
+        "dir": i18n.direction(code),
+        "is_rtl": i18n.direction(code) == "rtl",
+        "t": lambda key, **kw: i18n.t(key, code, **kw),
+        # واژه‌نامه برای پیام‌های سمت مرورگر (app.js) — با window.T(key) خوانده می‌شود
+        "i18n_js": i18n.catalog(code),
+        "languages": i18n.language_list(),
+        "current_lang": code,
+        "lang_native": i18n.native_name(code),
+        **context,
+    }
+    html = _jinja.get_template(name).render(**ctx)
     return HTMLResponse(html, status_code=status_code)
 
 
@@ -546,8 +593,27 @@ JUNK_RE = re.compile(
 )
 
 
+# زبان جاری این درخواست. فیلتر «حروف غیرفارسی» فقط وقتی معنا دارد که خروجی باید فارسی باشد؛
+# اگر کاربر زبان دیگری انتخاب کرده (آلمانی، چینی، ژاپنی…) فیلتر باید کامل خاموش شود،
+# وگرنه حتی «ä ö ü é ñ» آلمانی/فرانسوی/اسپانیایی هم پاک می‌شود.
+import contextvars
+
+_lang_ctx = contextvars.ContextVar("antanu_lang", default="fa")
+
+
+def current_lang_code() -> str:
+    try:
+        return _lang_ctx.get()
+    except Exception:
+        return "fa"
+
+
 def clean_foreign(text: str) -> str:
-    return _FOREIGN_RE.sub("", text) if text else text
+    if not text:
+        return text
+    if current_lang_code() != "fa":
+        return text          # زبان کاربر فارسی نیست → دست به خروجی نزن
+    return _FOREIGN_RE.sub("", text)
 
 
 # بلوک ترجمه [[TR: ... ]] عمداً حاوی حروف غیرفارسی است (چینی، ژاپنی، روسی، پین‌یین لهجه‌دار و…)
@@ -577,13 +643,19 @@ def _partial_marker_tail(s: str, marker: str) -> int:
 class ForeignFilter:
     """نسخه‌ی حالت‌دارِ clean_foreign برای استریم.
     چون پاسخ تکه‌تکه می‌رسد و یک بلوک [[TR: ...]] ممکن است بین چند تکه بشکند،
-    وضعیت «داخل بلوک بودن» نگه داشته می‌شود و محتوای بلوک بدون فیلتر رد می‌شود."""
+    وضعیت «داخل بلوک بودن» نگه داشته می‌شود و محتوای بلوک بدون فیلتر رد می‌شود.
 
-    def __init__(self):
+    enabled=False یعنی هیچ فیلتری اعمال نشود — برای وقتی زبان کاربر فارسی نیست
+    (مثلاً چینی یا روسی) و خروجی عمداً با خط دیگری نوشته می‌شود."""
+
+    def __init__(self, enabled: bool = True):
         self._buf = ""
         self._inside = False
+        self._enabled = enabled
 
     def feed(self, chunk: str) -> str:
+        if not self._enabled:
+            return chunk or ""
         self._buf += chunk or ""
         out = []
         while self._buf:
@@ -615,6 +687,8 @@ class ForeignFilter:
     def flush(self) -> str:
         """ته‌مانده‌ی نگه‌داشته‌شده را در پایان استریم بیرون می‌دهد."""
         rest, self._buf = self._buf, ""
+        if not self._enabled:
+            return rest
         return rest if self._inside else clean_foreign(rest)
 
 
@@ -975,7 +1049,7 @@ def root(request: Request):
 def login_page(request: Request):
     if current_user(request):
         return RedirectResponse("/chat")
-    return render("login.html", error=None, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
+    return render("login.html", request=request, error=None, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
 
 
 @app.post("/login", response_class=HTMLResponse)
@@ -984,7 +1058,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     locked, remain = login_locked(lock_key)
     if locked:
         mins = max(1, remain // 60)
-        return render("login.html",
+        return render("login.html", request=request,
                       error=f"به‌دلیل تلاش‌های ناموفق زیاد، ورود موقتاً قفل شد. حدود {mins} دقیقه دیگر دوباره تلاش کنید.",
                       status_code=429, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
 
@@ -997,7 +1071,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
     def fail(msg):
         db.close()
-        return render("login.html", error=msg, status_code=400, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
+        return render("login.html", request=request, error=msg, status_code=400, version=get_setting("app_version", "1.0"), contact=ADMIN_CONTACT)
 
     if not user or not verify_pw(password, user["password"]):
         login_fail(lock_key)
@@ -1028,7 +1102,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 def register_page(request: Request):
     if current_user(request):
         return RedirectResponse("/chat")
-    return render("register.html", error=None, version=get_setting("app_version", "1.0"))
+    return render("register.html", request=request, error=None, version=get_setting("app_version", "1.0"))
 
 
 @app.post("/register", response_class=HTMLResponse)
@@ -1044,7 +1118,7 @@ def register(
 
     def fail(msg):
         db.close()
-        return render("register.html", error=msg, status_code=400, version=get_setting("app_version", "1.0"))
+        return render("register.html", request=request, error=msg, status_code=400, version=get_setting("app_version", "1.0"))
 
     if len(username) < 3:
         return fail("نام کاربری باید حداقل ۳ حرف باشد.")
@@ -1085,7 +1159,7 @@ def guest_page(request: Request):
     """صفحه‌ی ثبت‌نام رایگان مهمان (با ایمیل)."""
     if current_user(request):
         return RedirectResponse("/chat")
-    return render("guest.html", error=None, version=get_setting("app_version", "1.0"))
+    return render("guest.html", request=request, error=None, version=get_setting("app_version", "1.0"))
 
 
 @app.post("/guest", response_class=HTMLResponse)
@@ -1102,7 +1176,7 @@ def guest_register(
     password = password or ""
 
     def fail(msg):
-        return render("guest.html", error=msg, status_code=400,
+        return render("guest.html", request=request, error=msg, status_code=400,
                       version=get_setting("app_version", "1.0"))
 
     if not EMAIL_RE.match(email):
@@ -1150,7 +1224,7 @@ def logout(request: Request):
 
 @app.get("/buy", response_class=HTMLResponse)
 def buy_page(request: Request):
-    return render("buy.html", contact=ADMIN_CONTACT)
+    return render("buy.html", request=request, contact=ADMIN_CONTACT)
 
 
 # ---------------- صندوق ایده‌ها و نظرات کاربران ----------------
@@ -1927,7 +2001,7 @@ def help_page(request: Request):
                 break
             except Exception:
                 pass
-    return render("help.html", content_html=render_markdown_html(content))
+    return render("help.html", request=request, content_html=render_markdown_html(content))
 
 
 @app.get("/chat", response_class=HTMLResponse)
@@ -1945,7 +2019,7 @@ def chat_page(request: Request):
         elif days_left is not None and days_left <= 5:
             sub_warn = (f"⏳ تنها {days_left} روز از اشتراک شما باقی مانده است (پایان: {end_date}). "
                         f"برای تمدید به مدیر پیام دهید — {ADMIN_CONTACT}")
-    return render("chat.html", user=user, daily_limit=limit_txt,
+    return render("chat.html", request=request, user=user, daily_limit=limit_txt,
                   version=get_setting("app_version", "1.0"),
                   announcement=get_setting("announcement", ""),
                   sub_warn=sub_warn)
@@ -1958,7 +2032,7 @@ def admin_page(request: Request):
         return RedirectResponse("/login")
     if not user["is_admin"]:
         return RedirectResponse("/chat")
-    return render("admin.html", user=user)
+    return render("admin.html", request=request, user=user)
 
 
 # ---------------- API پروفایل کاربر ----------------
@@ -2183,7 +2257,7 @@ def shared_conversation(token: str, request: Request):
     ).fetchall()
     db.close()
     msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
-    return render("shared.html",
+    return render("shared.html", request=request,
                   title=conv["title"] or "گفتگوی آنتانو",
                   messages=json.dumps(msgs, ensure_ascii=False))
 
@@ -2601,6 +2675,90 @@ def _search_web_sync(query: str) -> str:
     return "\n".join(lines)
 
 
+# ---------------- انتخاب زبان سایت ----------------
+
+@app.middleware("http")
+async def _lang_middleware(request: Request, call_next):
+    """زبان این درخواست را از کوکی/مرورگر می‌خواند و در دسترس بقیه‌ی کد می‌گذارد.
+    (بدون کوئری دیتابیس تا سرعت کم نشود؛ کوکی همیشه با انتخاب کاربر هم‌گام است.)"""
+    try:
+        cookie = request.cookies.get(LANG_COOKIE)
+        if cookie and i18n.is_supported(cookie):
+            _lang_ctx.set(cookie)
+        else:
+            _lang_ctx.set(i18n.pick_from_header(request.headers.get("accept-language", "")))
+    except Exception:
+        pass
+    return await call_next(request)
+
+
+@app.get("/api/languages")
+def api_languages(request: Request):
+    """فهرست زبان‌های موجود + زبان فعلی (برای منوی انتخاب زبان)."""
+    user = current_user(request)
+    return {"current": resolve_lang(request, user),
+            "default": i18n.DEFAULT_LANG,
+            "languages": i18n.language_list()}
+
+
+def _apply_lang_cookie(response, code: str):
+    """زبان را یک سال در کوکی نگه می‌دارد تا در بازدید بعدی هم همان باشد."""
+    response.set_cookie(LANG_COOKIE, code, max_age=365 * 24 * 3600,
+                        httponly=False, samesite="lax", path="/")
+    return response
+
+
+@app.post("/api/lang")
+async def api_set_lang(request: Request):
+    """تغییر زبان سایت. برای کاربر وارد‌شده در حساب هم ذخیره می‌شود
+    تا روی همه‌ی دستگاه‌هایش یکسان باشد."""
+    body = await request.json()
+    code = i18n.normalize(body.get("lang"), fallback="")
+    if not code:
+        raise HTTPException(400, "Unsupported language.")
+    user = current_user(request)
+    if user:
+        db = get_db()
+        db.execute("UPDATE users SET lang = ? WHERE id = ?", (code, user["id"]))
+        db.commit()
+        db.close()
+    out = JSONResponse({"ok": True, "lang": code, "dir": i18n.direction(code),
+                        "message": i18n.t("lang.saved", code)})
+    return _apply_lang_cookie(out, code)
+
+
+@app.get("/lang/redirect")
+def set_lang_from_query(request: Request, code: str = ""):
+    """مسیر بدون جاوااسکریپت (noscript) — زبان از پارامتر code خوانده می‌شود."""
+    return set_lang_redirect(code, request)
+
+
+@app.get("/lang/{code}")
+def set_lang_redirect(code: str, request: Request):
+    """تغییر زبان بدون جاوااسکریپت (برای صفحه‌ی ورود) — بعدش به همان صفحه برمی‌گردد."""
+    norm = i18n.normalize(code, fallback="")
+    if not norm:
+        norm = i18n.DEFAULT_LANG
+    back = request.headers.get("referer") or "/"
+    if not back.startswith("/") and "://" in back:
+        # فقط به مسیرهای همین سایت برگرد (جلوگیری از ریدایرکت به بیرون)
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(back)
+            back = p.path or "/"
+            if p.query:
+                back += "?" + p.query
+        except Exception:
+            back = "/"
+    user = current_user(request)
+    if user:
+        db = get_db()
+        db.execute("UPDATE users SET lang = ? WHERE id = ?", (norm, user["id"]))
+        db.commit()
+        db.close()
+    return _apply_lang_cookie(RedirectResponse(back, status_code=303), norm)
+
+
 # ---------------- API فهرست مدل‌ها و آپلود فایل ----------------
 
 @app.get("/api/models")
@@ -2723,8 +2881,21 @@ TONE_INSTRUCTIONS = {
 }
 
 
-def build_system_prompt(user, memories, tone: str | None = None) -> str:
+def build_system_prompt(user, memories, tone: str | None = None, lang: str | None = None) -> str:
     prompt = BASE_SYSTEM_PROMPT
+    # زبان پاسخ: کاربر هر زبانی را که در سایت انتخاب کرده، آنتانو به همان زبان جواب می‌دهد.
+    code = i18n.normalize(lang)
+    if code != "fa":
+        lname = i18n.english_name(code)
+        prompt += (
+            f"\n\n[RESPONSE LANGUAGE — HIGHEST PRIORITY] The user's interface language is {lname}. "
+            f"Write every answer in {lname}, using that language's own script and natural style. "
+            f"This overrides any earlier instruction that told you to answer in Persian: "
+            f"ignore those Persian-only writing rules and apply the same care "
+            f"(clean grammar, correct punctuation, no mixed-in foreign words, no broken sentences) to {lname} instead. "
+            f"Only switch away from {lname} when the user explicitly asks for another language "
+            f"or asks you to translate something. Keep the [[TR: ...]] format rule for translations."
+        )
     prompt += (f"\n\nتاریخ و ساعت کنونی: {now_string()}. "
                "هر جا درباره تاریخ، روز، سال یا ساعت پرسیده شد، دقیقاً از همین استفاده کن و نگو که نمی‌دانی.")
     if user["stars"] >= 4:
@@ -2800,14 +2971,16 @@ def _save_gen_image(dataurl: str):
         return None
 
 
-async def stream_model(messages, stars: int, model: str, base: str, key: str):
-    """استریم پاسخ از هر سرویس سازگار با OpenAI — هر مدل با آدرس و کلید خودش"""
+async def stream_model(messages, stars: int, model: str, base: str, key: str,
+                       filter_foreign: bool = True):
+    """استریم پاسخ از هر سرویس سازگار با OpenAI — هر مدل با آدرس و کلید خودش.
+    filter_foreign=False برای زبان‌های غیرفارسی، تا خط آن زبان پاک نشود."""
     payload = {"model": model, "messages": messages, "stream": True}
     if MAX_TOKENS.get(stars, -1) > 0:
         payload["max_tokens"] = MAX_TOKENS[stars]
 
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    ffilter = ForeignFilter()   # فیلتر حالت‌دار: بلوک‌های [[TR: ...]] را دست‌نخورده رد می‌کند
+    ffilter = ForeignFilter(filter_foreign)   # فیلتر حالت‌دار: بلوک‌های [[TR: ...]] را دست‌نخورده رد می‌کند
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15)) as client:
         async with client.stream(
@@ -3013,7 +3186,10 @@ async def api_chat(request: Request):
 
     # دانش خودآموز: پاسخ‌های مشابه قبلی از پایگاه دانش آنتانو
     kb = search_knowledge(message, limit=2)
-    sys_content = build_system_prompt(user, memories, tone)
+    # زبان کاربر: آنتانو به همان زبانی جواب می‌دهد که کاربر در سایت انتخاب کرده
+    user_lang = resolve_lang(request, user)
+    _lang_ctx.set(user_lang)      # تا فیلتر حروف هم بداند خروجی به چه زبانی است
+    sys_content = build_system_prompt(user, memories, tone, lang=user_lang)
     if kb:
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
@@ -3095,7 +3271,8 @@ async def api_chat(request: Request):
                 buf = ""
                 emitted = False
                 try:
-                    async for chunk in stream_model(messages, stars, c["model"], c["base"], c["key"]):
+                    async for chunk in stream_model(messages, stars, c["model"], c["base"], c["key"],
+                                                    filter_foreign=(user_lang == "fa")):
                         if not emitted:
                             buf += chunk
                             if len(buf) >= 60:

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
   <meta charset="utf-8">
   <link rel="icon" href="/static/logo.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ورود | آنتانو</title>
+  <title>{{ t("login.page_title") }}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_ver }}">
@@ -14,43 +14,45 @@
 <body class="auth-body">
   <div class="auth-card">
     <img src="/static/logo.png" class="logo-auth" alt="ANTANU" width="90" height="90" style="display:block;width:90px;height:90px;border-radius:50%;margin:0 auto 10px">
-    <div class="logo">آنتانو<small>ANTANU</small></div>
-    <h2>ورود به حساب کاربری</h2>
+    <div class="logo">{{ t("app.name") }}<small>ANTANU</small></div>
+    <h2>{{ t("login.heading") }}</h2>
+
+    {% include "_langpicker.html" %}
 
     {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
 
     <form method="post" action="/login">
       <div class="field">
-        <label>نام کاربری یا ایمیل</label>
+        <label>{{ t("login.username_or_email") }}</label>
         <input type="text" name="username" class="ltr" required autocomplete="username">
       </div>
       <div class="field">
-        <label>گذرواژه</label>
+        <label>{{ t("login.password") }}</label>
         <div class="pw-wrap">
           <input type="password" name="password" class="ltr" required autocomplete="current-password">
-          <button type="button" class="pw-toggle" tabindex="-1" title="نمایش گذرواژه">👁</button>
+          <button type="button" class="pw-toggle" tabindex="-1" title="{{ t('login.show_password') }}">👁</button>
         </div>
       </div>
       <input type="hidden" name="fingerprint" value="">
-      <button type="submit" class="btn-primary">ورود</button>
+      <button type="submit" class="btn-primary">{{ t("login.submit") }}</button>
     </form>
 
-    <div class="or-divider"><span>یا</span></div>
+    <div class="or-divider"><span>{{ t("common.or") }}</span></div>
 
-    <a href="/guest" class="btn-guest" style="display:block;text-align:center;text-decoration:none">🚀 ثبت‌نام رایگان با ایمیل</a>
-    <p class="guest-note">فعلاً رایگان — گفتگو، متن و مقاله (بدون ساخت عکس و ویدیو)</p>
+    <a href="/guest" class="btn-guest" style="display:block;text-align:center;text-decoration:none">{{ t("login.free_signup") }}</a>
+    <p class="guest-note">{{ t("login.free_note") }}</p>
 
     <details class="forgot">
-      <summary>رمز خود را فراموش کرده‌اید؟</summary>
-      <p>با ادمین تماس بگیرید تا رمز جدید برایتان بسازد و بفرستد:<br><b>{{ contact }}</b></p>
+      <summary>{{ t("login.forgot") }}</summary>
+      <p>{{ t("login.forgot_help") }}<br><b>{{ contact }}</b></p>
     </details>
 
     <div class="auth-links">
-      حساب ندارید؟ <a href="/register">ثبت‌نام با کد</a>
+      {{ t("login.no_account") }} <a href="/register">{{ t("login.register_with_code") }}</a>
       &nbsp;•&nbsp;
-      <a href="/buy">خرید اشتراک</a>
+      <a href="/buy">{{ t("login.buy") }}</a>
     </div>
-    <p class="ver-line" style="text-align:center;margin-top:14px">نسخه {{ version }}</p>
+    <p class="ver-line" style="text-align:center;margin-top:14px">{{ t("common.version", version=version) }}</p>
   </div>
   <script src="/static/fingerprint.js"></script>
 </body>

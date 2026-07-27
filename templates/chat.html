@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>آنتانو — دستیار هوشمند</title>
+  <title>{{ t("chat.page_title") }}</title>
   <link rel="icon" href="/static/logo.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
@@ -30,34 +30,35 @@
 
   <aside id="sidebar">
     <div class="side-bottom">
-      <div class="user-box" id="profileBtn" title="پروفایل من">
+      <div class="user-box" id="profileBtn" title="{{ t('side.profile') }}">
         <span class="ub-right">
           {% if user.avatar %}<img src="{{ user.avatar }}" class="user-avatar">{% else %}<span class="user-avatar">👤</span>{% endif %}
           <span>{{ user.username }}</span>
         </span>
-        <span class="badge">اشتراک {{ user.stars }} ستاره</span>
+        <span class="badge">{{ t("side.plan_stars", stars=user.stars) }}</span>
       </div>
-      <a href="/help" target="_blank" class="side-link">❓ راهنمای استفاده</a>
-      <a href="#" id="feedbackBtn" class="side-link">💡 ایده‌ها و نظرات شما</a>
-      <a href="#" id="translateBtn" class="side-link">🌍 ترجمه چند‌لحنه</a>
-      <a href="#" id="refBtn" class="side-link">🔖 کتابخانه منابع</a>
-      <a href="#" id="convertBtn" class="side-link">🔄 تبدیل فایل (Word/PDF/PPT)</a>
-      <a href="#" id="footnoteBtn" class="side-link">📌 پاورقی‌گذاری روی فایل</a>
-      <a href="#" id="songBtn" class="side-link">🎵 ساخت آهنگ</a>
-      <a href="#" id="converseBtn" class="side-link">🎙️ منشی گفتگو (صوتی)</a>
-      <a href="#" id="dubBtn" class="side-link">🎬 ترجمه و دوبله ویدیو</a>
-      <a href="#" id="animalBtn" class="side-link">🐾 صدای حیوانات</a>
-      <a href="#" id="shareConvBtn" class="side-link">🔗 اشتراک‌گذاری این گفتگو</a>
-      <a href="#" id="convExportBtn" class="side-link">📄 خروجی این گفتگو</a>
-      <a href="#" id="themeBtn" class="side-link">🌗 تغییر تم (روشن/تیره)</a>
+      <div id="langSideWrap">{% include "_langpicker.html" %}</div>
+      <a href="/help" target="_blank" class="side-link">{{ t("side.help") }}</a>
+      <a href="#" id="feedbackBtn" class="side-link">{{ t("side.feedback") }}</a>
+      <a href="#" id="translateBtn" class="side-link">{{ t("side.translate") }}</a>
+      <a href="#" id="refBtn" class="side-link">{{ t("side.references") }}</a>
+      <a href="#" id="convertBtn" class="side-link">{{ t("side.convert") }}</a>
+      <a href="#" id="footnoteBtn" class="side-link">{{ t("side.footnote") }}</a>
+      <a href="#" id="songBtn" class="side-link">{{ t("side.song") }}</a>
+      <a href="#" id="converseBtn" class="side-link">{{ t("side.converse") }}</a>
+      <a href="#" id="dubBtn" class="side-link">{{ t("side.dub") }}</a>
+      <a href="#" id="animalBtn" class="side-link">{{ t("side.animals") }}</a>
+      <a href="#" id="shareConvBtn" class="side-link">{{ t("side.share") }}</a>
+      <a href="#" id="convExportBtn" class="side-link">{{ t("side.export") }}</a>
+      <a href="#" id="themeBtn" class="side-link">{{ t("side.theme") }}</a>
       {% if user.is_admin %}
-      <a href="#" id="memBtn" class="side-link">🧠 حافظه آنتانو</a>
-      <a href="/admin" class="side-link">⚙️ پنل مدیریت</a>
+      <a href="#" id="memBtn" class="side-link">{{ t("side.memory") }}</a>
+      <a href="/admin" class="side-link">{{ t("side.admin") }}</a>
       {% endif %}
       <form method="post" action="/logout">
-        <button type="submit" class="side-link danger">🚪 خروج از حساب</button>
+        <button type="submit" class="side-link danger">{{ t("side.logout") }}</button>
       </form>
-      <div class="ver-line">آنتانو — نسخه {{ version }}</div>
+      <div class="ver-line">{{ t("app.name") }} — {{ t("common.version", version=version) }}</div>
     </div>
   </aside>
 
@@ -65,8 +66,8 @@
     <header>
       <button id="menuBtn">☰</button>
       <img src="/static/logo.png" class="logo-sm" alt="ANTANU" width="34" height="34" style="width:34px;height:34px;border-radius:50%">
-      <h1>آنتانو <span>ANTANU</span></h1>
-      <button id="convPanelBtn" title="گفتگوهای من">💬</button>
+      <h1>{{ t("app.name") }} <span>ANTANU</span></h1>
+      <button id="convPanelBtn" title="{{ t('chat.my_chats') }}">💬</button>
     </header>
 
     {% if sub_warn %}
@@ -79,14 +80,13 @@
     <div id="messages">
       <div id="welcome">
         <img src="/static/logo.png" class="logo-lg" alt="ANTANU" width="110" height="110" style="width:110px;height:110px;border-radius:50%">
-        <h2>سلام! من آنتانو هستم</h2>
-        <p>دستیار هوشمند فارسی‌زبان شما. سؤال بپرسید، فایل بفرستید،
-        با میکروفون صحبت کنید یا چند هوش مصنوعی را همزمان به کار بگیرید.</p>
+        <h2>{{ t("chat.welcome_title") }}</h2>
+        <p>{{ t("chat.welcome_text") }}</p>
         <div class="sugg">
-          <button class="sug" data-q="یک مقاله کوتاه درباره تأثیر هوش مصنوعی بر آموزش بنویس">✍️ مقاله درباره هوش مصنوعی</button>
-          <button class="sug" data-q="آزمون تی مستقل را با یک مثال ساده توضیح بده">📊 آموزش آزمون آماری</button>
-          <button class="sug" data-q="قیمت دلار امروز چند است؟">🌐 قیمت دلار امروز</button>
-          <button class="sug" data-q="یک برنامه مطالعه یک‌ماهه برای امتحانات برایم بچین">🗓 برنامه مطالعه</button>
+          <button class="sug" data-q="{{ t('chat.suggest_article') }}">{{ t("chat.suggest_article") }}</button>
+          <button class="sug" data-q="{{ t('chat.suggest_stats') }}">{{ t("chat.suggest_stats") }}</button>
+          <button class="sug" data-q="{{ t('chat.suggest_price') }}">{{ t("chat.suggest_price") }}</button>
+          <button class="sug" data-q="{{ t('chat.suggest_plan') }}">{{ t("chat.suggest_plan") }}</button>
         </div>
       </div>
     </div>
@@ -94,9 +94,9 @@
     <footer>
       <!-- انتخابگر مدل‌ها -->
       <div class="toolbar">
-        <button id="researchBtn" class="tool-chip" title="همه هوش مصنوعی‌ها + جستجوی وب">🔬 تحقیق گروهی</button>
+        <button id="researchBtn" class="tool-chip">{{ t("chat.tool_research") }}</button>
         <div class="model-wrap">
-          <button id="modelBtn" class="tool-chip">🧠 <span id="modelLabel">آنتانو (خودکار)</span> ▾</button>
+          <button id="modelBtn" class="tool-chip">🧠 <span id="modelLabel">{{ t("chat.tool_model")[2:] }}</span> ▾</button>
           <div id="modelPanel">
             <label class="model-item all"><input type="checkbox" id="modelAll"> انتخاب همه</label>
             <div id="modelList"></div>
@@ -104,7 +104,7 @@
           </div>
         </div>
         <select id="toneSelect" class="tool-chip" title="لحن و سبک پاسخ آنتانو">
-          <option value="">🎨 لحن: پیش‌فرض</option>
+          <option value="">{{ t("chat.tool_tone") }}: {{ t("chat.tone_default") }}</option>
           <option value="academic">🎓 رسمی و دانشگاهی</option>
           <option value="simple">💬 ساده و روان</option>
           <option value="concise">⚡ کوتاه و مختصر</option>
@@ -170,25 +170,25 @@
       <!-- نوار ورودی تلگرامی -->
       <div class="inputbar">
         <button id="ctypeBtn" class="icon-btn" title="نوع محتوا: مقاله، پروپوزال، تحلیل آماری و...">✍️</button>
-        <button id="attachBtn" class="icon-btn" title="پیوست فایل و عکس (jpg, png, pdf, docx, xlsx, txt, csv)">📎</button>
+        <button id="attachBtn" class="icon-btn" title="{{ t('chat.attach') }}">📎</button>
         <input type="file" id="fileInput" multiple
                accept=".txt,.pdf,.docx,.xlsx,.csv,.md,.json,.py,.html,.xml,.log,.jpg,.jpeg,.png,.webp,image/*,text/plain,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json"
                hidden>
-        <textarea id="input" rows="1" placeholder="پیام خود را بنویسید…"></textarea>
-        <button id="webBtn" class="icon-btn" title="جستجوی وب">🌐</button>
-        <button id="micBtn" class="icon-btn" title="گفتن پیام با میکروفون">🎤</button>
-        <button id="send" title="ارسال">➤</button>
+        <textarea id="input" rows="1" placeholder="{{ t('chat.input_placeholder') }}"></textarea>
+        <button id="webBtn" class="icon-btn" title="{{ t('chat.web_search') }}">🌐</button>
+        <button id="micBtn" class="icon-btn" title="{{ t('chat.mic') }}">🎤</button>
+        <button id="send" title="{{ t('chat.send') }}">➤</button>
       </div>
-      <p class="hint">آنتانو ممکن است اشتباه کند؛ اطلاعات مهم را حتماً بررسی کنید.</p>
+      <p class="hint">{{ t("chat.disclaimer") }}</p>
     </footer>
   </main>
 
   <!-- پنل گفتگوها (سمت چپ) — از نوار ابزار جدا شد تا فهرست گفتگوها همیشه جا داشته باشد -->
   <aside id="convPanel">
-    <div class="cp-head">💬 گفتگوهای من</div>
+    <div class="cp-head">{{ t("chat.my_chats") }}</div>
     <div class="side-top">
-      <button id="newChat">＋ گفتگوی جدید</button>
-      <input type="text" id="convSearch" placeholder="🔍 جستجوی گفتگوها…">
+      <button id="newChat">{{ t("chat.new_chat") }}</button>
+      <input type="text" id="convSearch" placeholder="{{ t('chat.search_chats') }}">
     </div>
     <nav id="convList"></nav>
   </aside>
@@ -290,7 +290,7 @@
   <!-- پنجره ایده‌ها و نظرات کاربران -->
   <div id="feedbackOverlay">
     <div class="mem-panel">
-      <header><h3>💡 ایده‌ها و نظرات شما</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.feedback_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">هر ایده، نیاز یا نظری برای پیشرفت آنتانو دارید بنویسید — تیم ما همه را می‌خواند. 🙌</p>
         <div class="doc-field">
@@ -313,7 +313,7 @@
   <!-- پنجره ساخت آهنگ -->
   <div id="songOverlay">
     <div class="mem-panel">
-      <header><h3>🎵 ساخت آهنگ</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.song_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">سبک و حال‌وهوای آهنگ را توصیف کن؛ آنتانو یک قطعه‌ی موسیقی می‌سازد. (نیازمند کلید Replicate در پنل مدیریت)</p>
         <textarea id="songPrompt" rows="3" placeholder="مثلاً: یک ملودی آرام و امیدوارکننده با پیانو و ویولن…"
@@ -331,7 +331,7 @@
   <!-- پنجره منشی گفتگوی صوتی -->
   <div id="converseOverlay">
     <div class="mem-panel">
-      <header><h3>🎙️ منشی گفتگو (صوتی)</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.converse_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">دکمه‌ی «شروع» را بزن و حرف بزن؛ آنتانو گوش می‌دهد، پاسخ می‌دهد و با صدا می‌خواند. برای پایان، دوباره روی همان دکمه بزن. (نیازمند کلید Whisper و ElevenLabs در پنل مدیریت)</p>
         <div class="doc-field">
@@ -356,7 +356,7 @@
   <!-- پنجره ترجمه و دوبله‌ی ویدیو -->
   <div id="dubOverlay">
     <div class="mem-panel">
-      <header><h3>🎬 ترجمه و دوبله ویدیو</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.dub_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">یک ویدیو بده تا آنتانو گفتار آن را بشنود، به زبان دلخواه ترجمه کند و با صدای انتخابی‌ات دوباره روی ویدیو بگذارد.</p>
         <div id="dubStatusBox" style="font-size:12.5px;color:var(--muted);margin-bottom:10px"></div>
@@ -388,7 +388,7 @@
   <!-- پنجره صدای حیوانات -->
   <div id="animalOverlay">
     <div class="mem-panel">
-      <header><h3>🐾 صدای حیوانات</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.animals_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">صدای حیوانی را که می‌خواهی انتخاب کن و پخش کن.</p>
         <div id="animalList" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
@@ -400,7 +400,7 @@
   <!-- پنجره پاورقی‌گذاری روی فایل -->
   <div id="footnoteOverlay">
     <div class="mem-panel">
-      <header><h3>📌 پاورقی‌گذاری روی فایل</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.footnote_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">یک فایل (Word، PDF، متن) بده تا آنتانو به اصطلاحات و مفاهیم مهم آن پاورقی علمی (با معادل انگلیسی/توضیح) اضافه کند و فایل Word با پانوشت واقعی بسازد.</p>
         <button id="fnUpBtn" class="btn-primary" type="button">📁 انتخاب فایل</button>
@@ -415,7 +415,7 @@
   <!-- پنجره ترجمه چند‌لحنه -->
   <div id="translateOverlay">
     <div class="mem-panel">
-      <header><h3>🌍 ترجمه چند‌لحنه</h3><button class="close">✕</button></header>
+      <header><h3>{{ t("modal.translate_title") }}</h3><button class="close">✕</button></header>
       <div class="doc-form">
         <p class="model-hint">متن را وارد کن، زبان مقصد را انتخاب کن؛ آنتانو چند ترجمه با لحن‌های مختلف می‌دهد تا بهترین را کپی کنی. (ارمنی به‌صورت سه‌ستونه: کلمه/ترجمه/تلفظ)</p>
         <div class="tr-row">
@@ -636,7 +636,17 @@
     </div>
   </div>
 
-  <script>window.USER_AVATAR = {{ (user.avatar or '')|tojson }};</script>
+  <script>
+    window.USER_AVATAR = {{ (user.avatar or '')|tojson }};
+    /* زبان جاری + واژه‌نامه برای پیام‌های سمت مرورگر */
+    window.ANTANU_LANG = {{ lang|tojson }};
+    window.ANTANU_DIR = {{ dir|tojson }};
+    window.ANTANU_I18N = {{ i18n_js|tojson }};
+    window.T = function (key, fallback) {
+      var v = (window.ANTANU_I18N || {})[key];
+      return v || fallback || key;
+    };
+  </script>
   <script src="/static/app.js?v={{ asset_ver }}"></script>
 </body>
 </html>

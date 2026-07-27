@@ -1,0 +1,10 @@
+{# انتخاب زبان — بدون جاوااسکریپت کار می‌کند تا در صفحه‌ی ورود هم مطمئن باشد #}
+<form method="get" action="/lang/redirect" class="lang-picker" id="langPickerForm">
+  <label for="langSelect">🌐 {{ t("lang.picker_label") }}</label>
+  <select id="langSelect" name="code" onchange="location.href='/lang/'+this.value">
+    {% for l in languages %}
+    <option value="{{ l.code }}" {% if l.code == current_lang %}selected{% endif %}>{{ l.flag }} {{ l.native }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button type="submit" class="mini">{{ t("common.save") }}</button></noscript>
+</form>

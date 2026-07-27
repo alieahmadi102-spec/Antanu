@@ -194,6 +194,11 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
     except Exception:
         pass
+    # زبان انتخابی کاربر (خالی = زبان پیش‌فرض سایت، یعنی انگلیسی)
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
+    except Exception:
+        pass
     # جلوگیری از ثبت‌نام دوباره با یک ایمیل (یکتا بودن ایمیل‌های واقعی)
     try:
         conn.execute(

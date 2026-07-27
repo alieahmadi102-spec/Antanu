@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
   <meta charset="utf-8">
   <link rel="icon" href="/static/logo.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ثبت‌نام رایگان | آنتانو</title>
+  <title>{{ t("guest.page_title") }}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_ver }}">
@@ -14,39 +14,41 @@
 <body class="auth-body">
   <div class="auth-card">
     <img src="/static/logo.png" class="logo-auth" alt="ANTANU" width="90" height="90" style="display:block;width:90px;height:90px;border-radius:50%;margin:0 auto 10px">
-    <div class="logo">آنتانو<small>ANTANU</small></div>
-    <h2>🚀 ثبت‌نام رایگان با ایمیل</h2>
+    <div class="logo">{{ t("app.name") }}<small>ANTANU</small></div>
+    <h2>{{ t("guest.heading") }}</h2>
 
-    <p class="guest-note" style="margin-bottom:16px">فعلاً رایگان — گفتگو، نوشتن متن و مقاله در دسترس است<br>(ساخت عکس و ویدیو نیاز به اشتراک دارد)</p>
+    {% include "_langpicker.html" %}
+
+    <p class="guest-note" style="margin-bottom:16px">{{ t("guest.note")|safe }}</p>
 
     {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
 
     <form method="post" action="/guest">
       <div class="field">
-        <label>ایمیل</label>
+        <label>{{ t("guest.email") }}</label>
         <input type="email" name="email" class="ltr" required autocomplete="email" placeholder="name@example.com">
       </div>
       <div class="field">
-        <label>نام کاربری دلخواه</label>
+        <label>{{ t("guest.username") }}</label>
         <input type="text" name="username" class="ltr" required minlength="3" autocomplete="username">
       </div>
       <div class="field">
-        <label>گذرواژه (حداقل ۶ حرف)</label>
+        <label>{{ t("guest.password") }}</label>
         <div class="pw-wrap">
           <input type="password" name="password" class="ltr" required minlength="6" autocomplete="new-password">
-          <button type="button" class="pw-toggle" tabindex="-1" title="نمایش گذرواژه">👁</button>
+          <button type="button" class="pw-toggle" tabindex="-1" title="{{ t('login.show_password') }}">👁</button>
         </div>
       </div>
-      <button type="submit" class="btn-primary">ثبت‌نام و شروع رایگان</button>
+      <button type="submit" class="btn-primary">{{ t("guest.submit") }}</button>
     </form>
 
     <div class="auth-links">
-      ⚠️ هر ایمیل فقط یک‌بار قابل ثبت‌نام است.<br>
-      حساب دارید؟ <a href="/login">ورود</a>
+      {{ t("guest.one_per_email") }}<br>
+      {{ t("guest.have_account") }} <a href="/login">{{ t("login.submit") }}</a>
       &nbsp;•&nbsp;
-      امکانات بیشتر؟ <a href="/buy">خرید اشتراک</a>
+      {{ t("guest.more_features") }} <a href="/buy">{{ t("login.buy") }}</a>
     </div>
-    <p class="ver-line" style="text-align:center;margin-top:14px">نسخه {{ version }}</p>
+    <p class="ver-line" style="text-align:center;margin-top:14px">{{ t("common.version", version=version) }}</p>
   </div>
   <script src="/static/fingerprint.js"></script>
 </body>

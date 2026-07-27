@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
   <meta charset="utf-8">
   <link rel="icon" href="/static/logo.png">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#0d1017">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>خرید اشتراک | آنتانو</title>
+  <title>{{ t("buy.page_title") }}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_ver }}">
@@ -14,8 +14,10 @@
 <body class="auth-body">
   <div class="auth-card wide">
     <img src="/static/logo.png" class="logo-auth" alt="ANTANU" width="90" height="90" style="display:block;width:90px;height:90px;border-radius:50%;margin:0 auto 10px">
-    <div class="logo">آنتانو<small>ANTANU</small></div>
-    <h2>انتخاب اشتراک</h2>
+    <div class="logo">{{ t("app.name") }}<small>ANTANU</small></div>
+    <h2>{{ t("buy.heading") }}</h2>
+
+    {% include "_langpicker.html" %}
 
     <div class="plans">
       <a class="plan" href="https://t.me/Anuyouka" target="_blank" rel="noopener">
