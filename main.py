@@ -442,6 +442,7 @@ def _build_report() -> dict:
     checks = [
         ("نوار تبلیغاتی: حرکت فریم‌به‌فریم", "static/app.js", "requestAnimationFrame(frame)"),
         ("کتابخانه‌ی دائمی آنتانو", "knowledge_base.py", "seed_knowledge_if_needed"),
+        ("تحلیل خودکار آماری (SPSS/EViews/SmartPLS)", "analysis_planner.py", "validate_plan"),
         ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
         ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
         ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
@@ -3663,6 +3664,167 @@ async def stats_run(request: Request):
         print("[ANTANU] stats chart failed:", _e)
 
     return {"result": result, "interpretation": interpretation}
+
+
+@app.post("/api/stats/auto")
+async def stats_auto(request: Request):
+    """تحلیل خودکار: کاربر فایل را داده و به زبان ساده می‌گوید چه می‌خواهد.
+
+    آنتانو ساختار داده را می‌شناسد، نقشه‌ی تحلیل می‌سازد، آن را اعتبارسنجی و اجرا
+    می‌کند و گزارش مرتب می‌دهد. پاسخ جریانی است تا کاربر پیشرفت کار را ببیند.
+    """
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    fname = body.get("file") or ""
+    ask = (body.get("request") or "").strip()[:1200]
+    want_files = bool(body.get("export", True))
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", fname):
+        raise HTTPException(400, "نام فایل نامعتبر")
+    try:
+        import export_utils, analysis_planner, stats_report
+    except ImportError as _e:
+        raise HTTPException(500, f"کتابخانه‌ها نصب نیستند: {_e}")
+    path = os.path.join(export_utils.EXPORT_DIR, fname)
+    if not os.path.exists(path):
+        raise HTTPException(404, "فایل داده پیدا نشد؛ دوباره آپلود کنید")
+
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO conversations (user_id, title) VALUES (?, ?)",
+        (user["id"], f"تحلیل آماری: {(ask or 'خودکار')[:60]}"),
+    )
+    conv_id = cur.lastrowid
+    db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+               (conv_id, f"📊 تحلیل خودکار داده — درخواست: {ask or '(بدون توضیح)'}"))
+    db.commit(); db.close()
+
+    async def gen():
+        full_log = ""
+
+        def log(t):
+            nonlocal full_log
+            full_log += t
+            return t
+
+        try:
+            yield log("📊 **تحلیل خودکار داده**\n\n⏳ در حال شناخت ساختار داده…\n")
+            prof = await run_in_threadpool(analysis_planner.profile, path)
+            if prof.get("error"):
+                yield log(f"\n⚠️ {prof['error']}")
+                return
+            yield log(f"✅ {prof['تعداد سطر']} مشاهده و {prof['تعداد ستون']} متغیر شناسایی شد.\n")
+            if prof.get("ساختار تابلویی"):
+                yield log("   نوع داده: تابلویی (پانل)\n")
+            elif prof.get("سری‌زمانی است"):
+                yield log("   نوع داده: سری‌زمانی\n")
+            if prof.get("سازه‌های حدسی"):
+                yield log(f"   سازه‌های احتمالی: {'، '.join(prof['سازه‌های حدسی'].keys())}\n")
+
+            # ---------- نقشه‌ی تحلیل ----------
+            yield log("\n⏳ انتخاب آزمون‌های مناسب…\n")
+            c = pick_model_for("stats")
+            steps, dropped = [], []
+            if c.get("key"):
+                try:
+                    raw = await _call_model_once(
+                        c, analysis_planner.build_prompt(prof, ask or "تحلیل متعارف این داده"),
+                        system=analysis_planner.PLAN_SYSTEM, max_tokens=1400)
+                    steps, dropped = analysis_planner.validate_plan(
+                        analysis_planner.parse_plan(raw), prof)
+                except Exception:
+                    steps = []
+            if not steps:
+                yield log("   (نقشه‌ی پیش‌فرض بر پایه‌ی ساختار داده استفاده شد)\n")
+                steps, dropped = analysis_planner.validate_plan(
+                    analysis_planner.fallback_plan(prof), prof)
+            if not steps:
+                yield log("\n⚠️ برای این داده تحلیل مناسبی پیدا نشد. "
+                          "لطفاً فایل داده‌ی جدولی با ستون‌های عددی بفرستید.")
+                return
+            for d in dropped[:4]:
+                yield log(f"   ↷ «{d['تحلیل']}» کنار گذاشته شد: {d['دلیل']}\n")
+            yield log(f"✅ {len(steps)} تحلیل انتخاب شد: "
+                      f"{'، '.join(s['title'] for s in steps)}\n\n")
+
+            # ---------- اجرا ----------
+            results = []
+            for i, st in enumerate(steps, 1):
+                yield log(f"⏳ ({round((i-1)*100/len(steps))}٪) اجرای «{st['title']}»…\n")
+                r = await run_in_threadpool(
+                    lambda s=st: analysis_planner.execute(path, [s])[0])
+                results.append(r)
+                if r["result"].get("error"):
+                    yield log(f"   ⚠️ {r['result']['error'][:120]}\n")
+            yield log("\n✅ همه‌ی تحلیل‌ها اجرا شد.\n")
+
+            # ---------- تفسیر ----------
+            interpretation = ""
+            if c.get("key"):
+                yield log("\n⏳ نوشتن تفسیر دانشگاهی…\n")
+                try:
+                    digest = stats_report.summarize_for_model(results)
+                    interpretation = await _call_model_once(
+                        c,
+                        "تو متخصص آمار و مشاور روش تحقیق هستی. این خروجی‌های واقعی تحلیل آماری "
+                        f"روی داده‌ی کاربر است (درخواست کاربر: «{ask}»):\n\n{digest}\n\n"
+                        "برای فصل چهارم رساله، به فارسی دانشگاهی و دقیق تفسیر کن: معناداری‌ها را "
+                        "توضیح بده، فرضیه‌ها را تأیید یا رد کن، اندازه‌ی اثر را تفسیر کن و اگر "
+                        "پیش‌فرضی نقض شده هشدار بده. عدد‌ها را از همین خروجی بردار و چیزی از خودت "
+                        "نساز.",
+                        system=BASE_SYSTEM_PROMPT, max_tokens=2000)
+                    qdb = get_db(); quota_add(qdb, user, "chat", 4000); qdb.commit(); qdb.close()
+                except Exception:
+                    interpretation = ""
+
+            # ---------- گزارش ----------
+            md = stats_report.build_report(results, prof, ask, interpretation)
+            yield log("\n---\n\n" + md + "\n")
+
+            # ---------- نمودار و فایل خروجی ----------
+            try:
+                import sem_plot
+                png = None
+                pls = next((r for r in results if r["analysis"] == "pls_sem"
+                            and r["result"].get("سازه‌ها")), None)
+                if pls:
+                    png = await run_in_threadpool(sem_plot.render_pls_diagram,
+                                                  pls["result"], "مدل مسیر پژوهش")
+                elif any(r["analysis"] == "correlation" for r in results):
+                    png = await run_in_threadpool(sem_plot.render_corr_heatmap, path,
+                                                  "pearson", None)
+                if png:
+                    yield log(f"\n![نمودار](/download/{png})\n")
+            except Exception:
+                pass
+
+            if want_files:
+                yield log("\n⏳ ساخت فایل خروجی…\n")
+                try:
+                    blocks = export_utils.md_to_blocks(md)
+                    links = []
+                    name = await run_in_threadpool(export_utils.build_docx, blocks,
+                                                   "Vazirmatn", 14, "گزارش تحلیل آماری")
+                    links.append(f"[📄 دانلود Word](/download/{name})")
+                    try:
+                        xn = await run_in_threadpool(export_utils.build_xlsx, blocks,
+                                                     "Vazirmatn", 12, "گزارش تحلیل آماری")
+                        links.append(f"[📊 دانلود Excel](/download/{xn})")
+                    except Exception:
+                        pass
+                    yield log("\n" + "  |  ".join(links) + "\n")
+                except Exception as e:
+                    yield log(f"⚠️ ساخت فایل خروجی ممکن نشد: {e}\n")
+        except Exception as e:
+            yield log(f"\n⚠️ خطای غیرمنتظره در تحلیل خودکار: {e}")
+        finally:
+            d = get_db()
+            d.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
+                      (conv_id, full_log or "…"))
+            d.commit(); d.close()
+
+    return StreamingResponse(gen(), media_type="text/plain; charset=utf-8",
+                             headers={"X-Conversation-Id": str(conv_id)})
 
 
 # ---------------- خروجی Word / PDF و سازنده مقاله بلند ----------------

@@ -35,27 +35,49 @@ def _series(df, col):
 
 
 def detect_time_column(df):
-    """ستون تاریخ/زمان را حدس می‌زند (برای تشخیص خودکار سری‌زمانی بودن داده)."""
+    """ستون تاریخ/زمان را حدس می‌زند (برای تشخیص خودکار سری‌زمانی بودن داده).
+
+    نکته‌ی مهم: pandas یک ستون عددیِ معمولی را هم به‌عنوان «تعداد نانوثانیه از مبدأ»
+    به تاریخ تبدیل می‌کند؛ اگر همین را ملاک بگیریم، ستونی مثل «نمره» تاریخ حساب
+    می‌شود. پس ستون عددی فقط وقتی زمان است که مثل «سال» یا شماره‌ی دوره‌ی مرتب
+    به‌نظر برسد.
+    """
     import pandas as pd
-    best, best_ok = None, 0
+    n = len(df)
+    best, best_score = None, 0
     for c in df.columns:
         name = str(c).lower()
         hinted = any(k in name for k in
-                     ("date", "time", "year", "تاریخ", "زمان", "سال", "ماه", "دوره"))
-        try:
-            parsed = pd.to_datetime(df[c], errors="coerce")
-            ok = int(parsed.notna().sum())
-        except Exception:
-            ok = 0
-        # ستون سالِ عددی (۱۳۰۰ تا ۲۱۰۰) هم زمان محسوب می‌شود
-        if ok == 0 and hinted:
-            nums = pd.to_numeric(df[c], errors="coerce").dropna()
-            if len(nums) and nums.between(1300, 2100).mean() > 0.8:
-                ok = len(nums)
+                     ("date", "time", "year", "period", "quarter", "month",
+                      "تاریخ", "زمان", "سال", "ماه", "فصل", "دوره"))
+        s = df[c].dropna()
+        if s.empty:
+            continue
+        nums = pd.to_numeric(s, errors="coerce")
+        is_numeric = float(nums.notna().mean()) > 0.9
+        ok = 0
+        if is_numeric:
+            v = nums.dropna()
+            whole = float((v % 1 == 0).mean()) > 0.95
+            year_like = whole and float(v.between(1300, 2100).mean()) > 0.9
+            # شماره‌ی دوره: عدد صحیحِ کوچک، مرتب و بدون تکرارِ زیاد
+            seq_like = (whole and hinted and v.min() >= 0 and v.max() <= 5000
+                        and v.nunique() >= max(3, 0.5 * len(v)))
+            if year_like or seq_like:
+                ok = len(v)
+        else:
+            # ستون متنی/تاریخی: تبدیل واقعی به تاریخ معنا دارد
+            try:
+                parsed = pd.to_datetime(s, errors="coerce")
+                ok = int(parsed.notna().sum())
+            except Exception:
+                ok = 0
+        if not ok:
+            continue
         score = ok * (2 if hinted else 1)
-        if score > best_ok:
-            best, best_ok = c, score
-    return best if best_ok >= max(5, 0.6 * len(df)) else None
+        if score > best_score:
+            best, best_score = c, score
+    return best if best_score >= max(5, 0.6 * n) else None
 
 
 def detect_panel(df):
@@ -148,7 +170,13 @@ def unit_root(path: str, cols=None, regression: str = "c", max_diff: int = 2) ->
             pass
         # --- KPSS (فرض صفر برعکس است) ---
         try:
-            kstat, kp, _, _ = kpss(s, regression=regression, nlags="auto")
+            # وقتی آماره بیرون از جدولِ مقدارهای بحرانی باشد، statsmodels هشدار
+            # می‌دهد و p را به نزدیک‌ترین کران می‌بَرد؛ همین کافی است و هشدارش
+            # فقط لاگ را شلوغ می‌کند.
+            import warnings as _w
+            with _w.catch_warnings():
+                _w.simplefilter("ignore")
+                kstat, kp, _, _ = kpss(s, regression=regression, nlags="auto")
             item["KPSS"] = round(float(kstat), 3)
             item["sig (KPSS)"] = round(float(kp), 4)
             item["KPSS نتیجه"] = "مانا" if kp >= 0.05 else "نامانا"

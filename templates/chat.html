@@ -460,6 +460,16 @@
         <button id="statsUpBtn" class="btn-primary" type="button">{{ t("stats.upload") }}</button>
         <input type="file" id="statsFile" hidden>
         <div id="statsInfo" style="margin-top:12px;font-size:13px"></div>
+
+        {# تحلیل خودکار: کاربر فقط می‌نویسد چه می‌خواهد #}
+        <div id="statsAutoBox" style="display:none;margin-top:14px">
+          <p class="model-hint" style="margin-bottom:6px">{{ t("stats.auto_hint") }}</p>
+          <textarea id="statsAsk" rows="2" style="width:100%"
+                    placeholder="{{ t('stats.auto_placeholder') }}"></textarea>
+          <button id="statsAutoBtn" class="btn-primary" type="button"
+                  style="margin-top:8px">{{ t("stats.auto_run") }}</button>
+        </div>
+
         <div id="statsTools" class="acad-tools" style="display:none">
           <button class="stat-t" data-a="overview">{{ t("stats.describe") }}</button>
           <button class="stat-t" data-a="assumptions">{{ t("doc.defaults") }}</button>
@@ -469,8 +479,19 @@
           <button class="stat-t" data-a="mediation">{{ t("stats.mediation") }}</button>
           <button class="stat-t" data-a="factor_analysis">{{ t("stats.factor") }}</button>
           <button class="stat-t" data-a="anova">📊 ANOVA</button>
+          <button class="stat-t" data-a="frequencies">🔢 {{ t("stats.frequencies") }}</button>
+          <button class="stat-t" data-a="crosstab">▦ {{ t("stats.crosstab") }}</button>
+          <button class="stat-t" data-a="nonparametric">≠ {{ t("stats.nonparam") }}</button>
           <button class="stat-t" data-a="sem_pls">🏗 SEM-PLS</button>
           <button class="stat-t" data-a="sem_cfa">🔺 SEM/CFA</button>
+          <button class="stat-t" data-a="unit_root">📉 {{ t("stats.unit_root") }}</button>
+          <button class="stat-t" data-a="cointegration">🔗 {{ t("stats.coint") }}</button>
+          <button class="stat-t" data-a="granger">➡️ {{ t("stats.granger") }}</button>
+          <button class="stat-t" data-a="arima">📈 ARIMA</button>
+          <button class="stat-t" data-a="var_model">🔀 VAR</button>
+          <button class="stat-t" data-a="garch">💹 GARCH</button>
+          <button class="stat-t" data-a="panel">🏢 {{ t("stats.panel") }}</button>
+          <button class="stat-t" data-a="ts_diagnostics">🩺 {{ t("stats.diagnostics") }}</button>
         </div>
       </div>
     </div>

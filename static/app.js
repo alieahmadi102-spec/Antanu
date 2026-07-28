@@ -1914,8 +1914,46 @@ $("#statsFile")?.addEventListener("change", async e => {
       (o.total_missing ? ` — ${o.total_missing} داده گمشده` : "") +
       `<br><span style="color:var(--muted);font-size:12px">متغیرها: ${o.columns.join("، ")}</span>`;
     $("#statsTools").style.display = "grid";
+    const ab = $("#statsAutoBox");
+    if (ab) ab.style.display = "block";
   } catch { $("#statsInfo").textContent = "❌ خطا در آپلود"; }
   e.target.value = "";
+});
+
+/* ---------- تحلیل خودکار: کاربر فقط می‌نویسد چه می‌خواهد ---------- */
+$("#statsAutoBtn")?.addEventListener("click", async () => {
+  if (!statsFileName) { toast("ابتدا فایل داده را آپلود کنید"); return; }
+  const ask = ($("#statsAsk")?.value || "").trim();
+  $("#statsOverlay").classList.remove("show");
+  const aDiv = addMsg("assistant", "");
+  const mdEl = aDiv.querySelector(".md");
+  mdEl.innerHTML = '<span class="spin"></span> در حال تحلیل خودکار…';
+  try {
+    const r = await fetch("/api/stats/auto", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: statsFileName, request: ask }),
+    });
+    if (!r.ok) {
+      const er = await r.json().catch(() => ({}));
+      mdEl.innerHTML = renderMD("⚠️ " + (er.detail || "خطا در تحلیل خودکار"));
+      return;
+    }
+    // پاسخ جریانی است: هر تکه که رسید نشان داده می‌شود
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      mdEl.innerHTML = renderMD(buf);
+      aDiv.dataset.raw = buf;
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
+    loadConvs();
+  } catch {
+    mdEl.innerHTML = renderMD("⚠️ خطا در تحلیل خودکار");
+  }
 });
 
 /* برچسب فارسی برای کلیدهای انگلیسی خروجی آماری (برای نمایش زیباتر جدول) */
@@ -2025,6 +2063,46 @@ document.querySelectorAll(".stat-t").forEach(btn => {
       const dep = prompt("متغیر وابسته (عددی):"); if (!dep) return;
       const fac = prompt("متغیر گروه‌بندی:"); if (!fac) return;
       params = { dependent: dep.trim(), factor: fac.trim() };
+    } else if (analysis === "crosstab") {
+      const rw = prompt("متغیر سطر (طبقه‌ای):"); if (!rw) return;
+      const cl = prompt("متغیر ستون (طبقه‌ای):"); if (!cl) return;
+      params = { row: rw.trim(), col: cl.trim() };
+    } else if (analysis === "nonparametric") {
+      const kind = prompt(
+        "کدام آزمون؟\nmannwhitney = من‌ویتنی (دو گروه مستقل)\nkruskal = کروسکال-والیس (چند گروه)\n" +
+        "wilcoxon = ویلکاکسون (دو سنجش زوجی)\nfriedman = فریدمن (چند سنجش تکراری)",
+        "kruskal");
+      if (!kind) return;
+      params = { kind: kind.trim() };
+      if (params.kind === "friedman") {
+        const cs = prompt("ستون‌های سنجش‌های تکراری (با کاما):"); if (!cs) return;
+        params.cols = cs.split(/[,،]/).map(s => s.trim()).filter(Boolean);
+      } else if (params.kind === "wilcoxon") {
+        const a = prompt("ستون اول:"); if (!a) return;
+        const b = prompt("ستون دوم:"); if (!b) return;
+        params.col = a.trim(); params.value2 = b.trim();
+      } else {
+        const cv = prompt("متغیر کمّی:"); if (!cv) return;
+        const gv = prompt("متغیر گروه‌بندی:"); if (!gv) return;
+        params.col = cv.trim(); params.group = gv.trim();
+      }
+    } else if (analysis === "granger") {
+      const a = prompt("متغیر علت (اختیاری — خالی یعنی همه‌ی جفت‌ها):", "");
+      const b = a ? prompt("متغیر معلول:") : "";
+      if (a && b) params = { cause: a.trim(), effect: b.trim() };
+    } else if (analysis === "arima" || analysis === "garch") {
+      const cv = prompt("نام ستون سری‌زمانی (خالی = اولین ستون عددی):", "");
+      if (cv) params = { col: cv.trim() };
+    } else if (analysis === "panel") {
+      const dep = prompt("متغیر وابسته (خالی = تشخیص خودکار):", "");
+      if (dep) params.dependent = dep.trim();
+      const ind = prompt("متغیرهای مستقل با کاما (خالی = بقیه‌ی ستون‌های عددی):", "");
+      if (ind) params.independents = ind.split(/[,،]/).map(s => s.trim()).filter(Boolean);
+    } else if (analysis === "ts_diagnostics") {
+      const dep = prompt("متغیر وابسته:"); if (!dep) return;
+      const ind = prompt("متغیرهای مستقل با کاما (خالی = بقیه):", "");
+      params = { dependent: dep.trim() };
+      if (ind) params.independents = ind.split(/[,،]/).map(s => s.trim()).filter(Boolean);
     } else if (analysis === "sem_pls" || analysis === "sem_cfa") {
       const raw = prompt(
         "سازه‌ها و گویه‌هایشان را وارد کنید.\nهر سازه در یک خط: نام سازه = گویه۱، گویه۲، ...\n\nمثال:\nکیفیت = q1, q2, q3\nرضایت = s1, s2",
