@@ -12,7 +12,7 @@ import secrets
 import httpx
 from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
 from starlette.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -409,6 +409,41 @@ def service_worker():
     """سرویس‌ورکر باید از ریشه سرو شود تا کل دامنه را پوشش دهد (PWA)"""
     return FileResponse("static/sw.js", media_type="application/javascript",
                         headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/version", response_class=PlainTextResponse)
+def version_info():
+    """نشان می‌دهد سرور دقیقاً کدام نسخه از فایل‌ها را سرو می‌کند.
+
+    وقتی تغییری می‌دهیم ولی روی گوشی دیده نمی‌شود، معمولاً یعنی سرور هنوز
+    نسخه‌ی قدیمی را بالا آورده. این صفحه را در مرورگر باز کن تا مطمئن شوی
+    ساخت (build) تازه واقعاً روی سرور نشسته است.
+    """
+    checks = [
+        ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
+        ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
+        ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
+        ("کتابخانه‌ی DOMPurify روی سرور خودمان", "static/vendor/purify.min.js", None),
+        ("فونت وزیرمتن روی سرور خودمان", "static/vendor/vazirmatn/vazirmatn.css", None),
+    ]
+    lines = [
+        f"ANTANU — نسخه‌ی برنامه: {get_setting('app_version', '1.0')}",
+        f"نسخه‌ی فایل‌های استاتیک (asset_ver): {_jinja.globals.get('asset_ver')}",
+        "",
+        "وضعیت آخرین تغییرها روی این سرور:",
+    ]
+    all_ok = True
+    for label, path, needle in checks:
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                ok = True if needle is None else (needle in fh.read())
+        except OSError:
+            ok = False
+        all_ok = all_ok and ok
+        lines.append(f"  {'✅' if ok else '❌'}  {label}")
+    lines += ["", "✅ همه‌چیز به‌روز است." if all_ok else
+              "❌ سرور هنوز نسخه‌ی قدیمی را اجرا می‌کند — فایل‌ها را جایگزین کن و دوباره build بگیر."]
+    return "\n".join(lines)
 
 
 # رندر مستقیم قالب‌ها با Jinja2 (مستقل از نسخه starlette — بدون خطای ناسازگاری)
