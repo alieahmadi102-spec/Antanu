@@ -1304,7 +1304,7 @@ async def api_translate(request: Request):
     arm_hint = ""
     try:
         import glossary as _gl
-        force = {l for l in (target, source) if l in ("hy", "en")}
+        force = {l for l in (target, source) if l in _gl.GLOSSARY_LANGS}
         arm_hint = _gl.prompt_hint_for_text(text, force_langs=force)
     except Exception:
         pass
@@ -1522,7 +1522,7 @@ async def api_voice_translate(request: Request, file: UploadFile = File(...),
             arm_hint = ""
             try:
                 import glossary as _gl
-                force = {l for l in (target, source) if l in ("hy", "en")}
+                force = {l for l in (target, source) if l in _gl.GLOSSARY_LANGS}
                 arm_hint = _gl.prompt_hint_for_text(transcript, force_langs=force)
             except Exception:
                 pass

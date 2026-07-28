@@ -12,45 +12,71 @@ from db import get_db
 _BASE = os.path.dirname(os.path.abspath(__file__))
 
 # بازه‌های یونیکد برای تشخیص خط هر زبان (برای استخراج خودکارِ واژه‌های ناشناخته)
-# فقط زبان‌هایی که «یاد می‌گیریم» اینجا هستند؛ انگلیسی واژه‌نامه‌ی کاملِ ۱۰٬۰۰۰تایی دارد و نیازی به یادگیری خودکار ندارد.
 SCRIPT_RANGES = {
     "hy": (0x0530, 0x058F),   # ارمنی
 }
-LANG_NAMES = {"hy": "ارمنی", "en": "انگلیسی"}
-
-# زبان‌هایی که هنگام ترجمه از واژه‌نامه راهنما می‌گیرند
-HINT_LANGS = ("hy", "en")
-
-# فایل‌های اولیه‌ی هر زبان: (نام فایل، حداقل تعداد برای «پُر بودن»)
-_SEED_FILES = {
-    "hy": ("glossary_hy.tsv", 100),
-    "en": ("glossary_en.tsv", 100),
+LANG_NAMES = {
+    "hy": "ارمنی", "en": "انگلیسی", "ru": "روسی", "hi": "هندی", "zh": "چینی",
+    "ar": "عربی", "de": "آلمانی", "fr": "فرانسوی", "it": "ایتالیایی",
 }
 
-# الگوی کلمه‌ی ارمنی (حروف ارمنی، شامل عبارت‌های چندکلمه‌ای با فاصله)
+# زبان‌هایی که خطشان یکتاست و می‌شود خودکار در متن تشخیصشان داد.
+# آلمانی/فرانسوی/ایتالیایی خط لاتین دارند و با انگلیسی اشتباه می‌شوند؛
+# برای آن‌ها فقط وقتی راهنما می‌دهیم که صفحه‌ی ترجمه صراحتاً بخواهد (force_langs).
+HINT_LANGS = ("hy", "ru", "hi", "zh", "ar", "en")
+
+# همه‌ی زبان‌هایی که واژه‌نامه‌ی ذخیره‌شده دارند
+GLOSSARY_LANGS = ("hy", "en", "ru", "hi", "zh", "ar", "de", "fr", "it")
+
+# فایل‌های اولیه‌ی هر زبان
+_SEED_FILES = {lang: f"glossary_{lang}.tsv" for lang in GLOSSARY_LANGS}
+
+# الگوهای واژه بر اساس خط هر زبان
 _ARM_CHAR = "Ա-֏"
 _ARM_WORD_RE = re.compile(f"[{_ARM_CHAR}]+(?:\\s+[{_ARM_CHAR}]+)*")
-# الگوی واژه‌ی انگلیسی و فارسی
 _EN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]+")
 _FA_WORD_RE = re.compile(r"[آ-یءئؤإأ]{2,}")
+_RU_WORD_RE = re.compile(r"[А-Яа-яЁё]{2,}(?:\s+[А-Яа-яЁё]{2,})*")
+_HI_WORD_RE = re.compile(r"[ऀ-ॿ]+(?:\s+[ऀ-ॿ]+)*")
+_AR_WORD_RE = re.compile(r"[ء-ي]{2,}(?:\s+[ء-ي]{2,})*")
+_ZH_RUN_RE = re.compile(r"[一-鿿]+")
+# لاتینِ لهجه‌دار برای آلمانی/فرانسوی/ایتالیایی
+_LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+")
+
+_WORD_RES = {
+    "hy": _ARM_WORD_RE, "en": _EN_WORD_RE, "ru": _RU_WORD_RE,
+    "hi": _HI_WORD_RE, "ar": _AR_WORD_RE,
+    "de": _LATIN_WORD_RE, "fr": _LATIN_WORD_RE, "it": _LATIN_WORD_RE,
+}
 # نشانه‌های «درخواست ترجمه/معنی» — تا راهنمای انگلیسی فقط وقتی لازم است تزریق شود
 _TRANSLATE_CUES = (
     "ترجمه", "معنی", "معنا", "معادل", "برگردان", "به فارسی", "به انگلیسی",
-    "به ارمنی", "دیکشنری", "واژه", "translate", "meaning",
+    "به ارمنی", "به روسی", "به هندی", "به چینی", "به عربی", "به آلمانی",
+    "به فرانسوی", "به ایتالیایی", "دیکشنری", "واژه", "translate", "meaning",
 )
 
 
 def _seed_lang(db, lang):
-    """یک زبان را در صورت خالی‌بودن از فایل TSV بارگذاری می‌کند و تعداد افزوده‌شده را برمی‌گرداند."""
-    fname, min_count = _SEED_FILES.get(lang, (None, 100))
+    """یک زبان را از فایل TSV بارگذاری می‌کند و تعداد افزوده‌شده را برمی‌گرداند.
+
+    اگر تعداد مدخل‌های دیتابیس کمتر از سطرهای فایل باشد یعنی فایل تازه یا کامل‌تر شده،
+    پس دوباره خوانده می‌شود. تکراری‌ها با INSERT OR IGNORE رد می‌شوند، بنابراین
+    واژه‌های ثبت‌شده‌ی قبلی (و ویرایش‌های دستی) دست‌نخورده می‌مانند.
+    """
+    fname = _SEED_FILES.get(lang)
     if not fname:
-        return 0
-    n = db.execute("SELECT COUNT(*) AS c FROM glossary WHERE lang = ?", (lang,)).fetchone()["c"]
-    if n and n > min_count:
         return 0
     path = os.path.join(_BASE, "data", fname)
     if not os.path.exists(path):
         return 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            file_rows = sum(1 for line in f if line.strip())
+    except OSError:
+        return 0
+    have = db.execute("SELECT COUNT(*) AS c FROM glossary WHERE lang = ?", (lang,)).fetchone()["c"]
+    if have >= file_rows:
+        return 0                      # از قبل کامل بارگذاری شده
     count = 0
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -70,7 +96,8 @@ def _seed_lang(db, lang):
 
 
 def seed_glossary_if_empty():
-    """واژه‌نامه‌های ارمنی و انگلیسی را در صورت خالی‌بودن از فایل‌های data/*.tsv بارگذاری می‌کند."""
+    """همه‌ی واژه‌نامه‌های data/glossary_*.tsv را در صورت نیاز بارگذاری می‌کند.
+    افزودن زبان تازه: کافی است فایل TSV را بگذاری و کد زبان را به GLOSSARY_LANGS اضافه کنی."""
     db = get_db()
     try:
         total = 0
@@ -123,12 +150,33 @@ def lookup_terms(terms, lang="hy"):
 
 def extract_words(text, lang="hy"):
     """همه‌ی کلمه‌های آن زبان را از متن استخراج می‌کند (بدون تکرار)."""
-    if lang == "hy":
-        found = _ARM_WORD_RE.findall(text or "")
-    elif lang == "en":
-        found = [w.lower() for w in _EN_WORD_RE.findall(text or "")]
+    text = text or ""
+    if lang == "zh":
+        # چینی فاصله ندارد؛ هر رشته‌ی پیوسته را به پنجره‌های ۱ تا ۴ نویسه‌ای می‌شکنیم
+        # تا واژه‌های واژه‌نامه در آن پیدا شوند (سقف دارد تا کند نشود).
+        found = []
+        for run in _ZH_RUN_RE.findall(text):
+            found.append(run)
+            for size in (4, 3, 2, 1):
+                for i in range(len(run) - size + 1):
+                    found.append(run[i:i + size])
+                    if len(found) > 400:
+                        break
+                if len(found) > 400:
+                    break
     else:
-        return []
+        rx = _WORD_RES.get(lang)
+        if not rx:
+            return []
+        # الگوها عبارت‌های چندکلمه‌ای را هم می‌گیرند (مثل «كتاب الجيب»)؛
+        # ولی تک‌کلمه‌ها را هم جدا می‌کنیم وگرنه یک جمله‌ی کامل می‌شود «یک واژه» و هیچ‌وقت پیدا نمی‌شود.
+        found = []
+        for run in rx.findall(text):
+            found.append(run)
+            if " " in run:
+                found.extend(run.split())
+        if lang in ("en", "de", "fr", "it"):
+            found = [w.lower() for w in found]
     seen, res = set(), []
     for w in found:
         w = w.strip()
@@ -205,16 +253,19 @@ def prompt_hint_for_text(text, force_langs=()):
     force_langs = set(force_langs or ())
     has_cue = any(c in text for c in _TRANSLATE_CUES)
     fa_count = len(_FA_WORD_RE.findall(text))
-    caps = {"hy": 40, "en": 15}
+    caps = {"hy": 40, "en": 15, "ru": 25, "hi": 25, "zh": 25, "ar": 20,
+            "de": 20, "fr": 20, "it": 20}
     hints = []
-    for lang in HINT_LANGS:
+    # زبان‌های خودکار + هر زبانی که صفحه‌ی ترجمه صراحتاً خواسته (مثل آلمانی/فرانسوی/ایتالیایی)
+    langs = list(HINT_LANGS) + [l for l in force_langs if l in GLOSSARY_LANGS and l not in HINT_LANGS]
+    for lang in langs:
         words = extract_words(text, lang)
         if not words:
             continue
         # انگلیسی در متن فارسی زیاد پیدا می‌شود. برای اینکه چت عادی شلوغ نشود، راهنمای انگلیسی فقط وقتی
         # تزریق می‌شود که: صفحه‌ی ترجمه آن را اجبار کند، یا «واژه‌ی نشانه‌ی ترجمه» باشد (معنی/translate…)،
         # یا پیام عملاً از خودِ واژه‌های انگلیسی تشکیل شده باشد (کمتر از ۳ واژه‌ی فارسی) — یعنی پرسشِ معنی.
-        if (lang == "en" and lang not in force_langs
+        if (lang in ("en", "ar") and lang not in force_langs
                 and not (has_cue or fa_count <= 2)):
             continue
         known, unknown = known_and_unknown(text, lang)
