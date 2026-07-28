@@ -301,6 +301,27 @@ def pick_model_for(task: str, catalog=None):
     return next((c for c in ordered if c.get("key")), cat[0])
 
 
+def _library_context(query: str, limit: int = 4, budget: int = 4000) -> str:
+    """بخش‌های مرتبط از «کتابخانه‌ی دائمی» را برای افزودن به پرامپت آماده می‌کند.
+
+    اگر کتابخانه خالی باشد یا چیزی پیدا نشود، رشته‌ی خالی برمی‌گردد تا پرامپت
+    بی‌دلیل بزرگ نشود.
+    """
+    try:
+        import knowledge_base as _kb
+        ctx = _kb.context_for(query, limit=limit, budget=budget)
+    except Exception:
+        return ""
+    if not ctx:
+        return ""
+    return (
+        "\n\n📚 از کتابخانه‌ی آنتانو (کتاب‌ها و جزوه‌های معتبری که مالک سایت افزوده است).\n"
+        "اگر به پرسش مربوط است، از همین‌ها استفاده کن و نامِ منبع را ذکر کن؛ "
+        "اگر ربطی ندارد، نادیده بگیر و از دانش خودت پاسخ بده. چیزی از خودت به این منابع نبند.\n"
+        + ctx
+    )
+
+
 def add_knowledge(question: str, answer: str):
     """ذخیره خودکار پرسش‌وپاسخ در پایگاه دانش آنتانو (بدون تکرار)"""
     q = (question or "").strip()
@@ -420,6 +441,7 @@ def _build_report() -> dict:
     """
     checks = [
         ("نوار تبلیغاتی: حرکت فریم‌به‌فریم", "static/app.js", "requestAnimationFrame(frame)"),
+        ("کتابخانه‌ی دائمی آنتانو", "knowledge_base.py", "seed_knowledge_if_needed"),
         ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
         ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
         ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
@@ -555,6 +577,15 @@ try:
         print(f"[ANTANU] واژه‌نامه بارگذاری شد: {_seeded} واژه")
 except Exception as _e:
     print("[ANTANU] بارگذاری واژه‌نامه انجام نشد:", _e)
+
+# بارگذاری «کتابخانه‌ی دائمی» (کتاب‌ها و جزوه‌های data/knowledge)
+try:
+    import knowledge_base as _kb
+    _kb_seeded = _kb.seed_knowledge_if_needed()
+    if _kb_seeded:
+        print(f"[ANTANU] کتابخانه بارگذاری شد: {_kb_seeded} قطعه متن")
+except Exception as _e:
+    print("[ANTANU] بارگذاری کتابخانه انجام نشد:", _e)
 
 import datetime as _dt
 
@@ -3302,6 +3333,9 @@ async def api_chat(request: Request):
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
 
+    # کتابخانه‌ی دائمی: بخش‌های مرتبط از کتاب‌ها و جزوه‌های ذخیره‌شده
+    sys_content += _library_context(message)
+
     # اگر پیام «درخواست ترجمه» است، آنتانو نباید به سلام/احوالپرسیِ داخل متن پاسخ دهد
     _tr_target = None
     try:
@@ -3980,6 +4014,11 @@ async def api_longdoc(request: Request):
                     digest = digest[:6000]
             src_note = (f"\n\nمنابع کاربر (حتماً مبنای مقاله قرار بده):\n{digest[:5000]}" if digest.strip() else "")
 
+            # کتابخانه‌ی دائمی آنتانو: کتاب‌ها و جزوه‌های ذخیره‌شده درباره‌ی همین موضوع
+            lib_note = _library_context(topic, limit=4, budget=3500)
+            if lib_note:
+                yield log("📚 منابع مرتبط از کتابخانه‌ی آنتانو پیدا شد.\n")
+
             yield log("⏳ گام ۱: طراحی فهرست بخش‌ها…\n")
             outline = await _call_model_once(
                 c,
@@ -3987,7 +4026,7 @@ async def api_longdoc(request: Request):
                 "ساختار باید استاندارد مقاله دانشگاهی باشد: با چکیده و مقدمه شروع شود، سپس مبانی نظری و پیشینه پژوهش "
                 "(داخلی و خارجی)، روش‌شناسی پژوهش، یافته‌ها و تحلیل داده‌ها، بحث و نتیجه‌گیری، و در پایان منابع. "
                 "هر عنوان در یک خط جداگانه، بدون شماره و بدون توضیح اضافه. عنوان‌ها متنوع و بدون هم‌پوشانی باشند."
-                + src_note,
+                + src_note + lib_note,
                 system=sys_prompt,
                 max_tokens=1200,
             )
@@ -4007,6 +4046,8 @@ async def api_longdoc(request: Request):
                     break
                 pct = round((i - 1) * 100 / len(titles))
                 yield log(f"⏳ ({pct}٪) نوشتن بخش {i} از {len(titles)}: «{t}»…\n")
+                # برای هر بخش، مرتبط‌ترین صفحه‌های کتابخانه به همان بخش را می‌آوریم
+                sec_lib = _library_context(f"{topic} {t}", limit=3, budget=2600) or lib_note
                 try:
                     part = await _call_model_once(
                         c,
@@ -4016,7 +4057,7 @@ async def api_longdoc(request: Request):
                         "از تکرار مطالب و واژه‌های بخش‌های قبلی جداً پرهیز کن و مطالب و واژگان کاملاً تازه بیاور. "
                         "فقط به فارسی معیار بنویس و هیچ واژه خارجی وسط متن نیاور. "
                         "خودِ عنوان بخش را ننویس؛ فقط متن."
-                        + src_note,
+                        + src_note + sec_lib,
                         system=sys_prompt,
                     )
                 except ModelError as e:
@@ -4113,6 +4154,17 @@ async def admin_save_app_settings(request: Request):
         spd = 25
     set_setting("ticker_speed", str(spd))
     return {"ok": True}
+
+
+@app.get("/admin/library_stats")
+def admin_library_stats(request: Request):
+    """آمار «کتابخانه‌ی دائمی»: چند سند و چند قطعه متن ذخیره شده."""
+    require_admin(request)
+    try:
+        import knowledge_base as _kb
+        return _kb.stats()
+    except Exception:
+        return {"sources": 0, "chunks": 0, "items": []}
 
 
 @app.get("/admin/build_info")

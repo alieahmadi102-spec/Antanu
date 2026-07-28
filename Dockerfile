@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-core \
         fontconfig \
         ffmpeg \
+        tesseract-ocr \
+        tesseract-ocr-fas \
+        poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

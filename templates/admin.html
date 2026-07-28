@@ -122,6 +122,26 @@
     </div>
   </div>
 
+  <!-- کتابخانه‌ی دائمی -->
+  <div class="card">
+    <h2>📚 کتابخانه‌ی دائمی آنتانو</h2>
+    <p class="sub" style="margin-bottom:12px">
+      کتاب‌ها، جزوه‌ها، مقاله‌ها و پروپوزال‌هایی که در پروژه ذخیره شده‌اند. آنتانو هنگام
+      پاسخ‌دادن و مقاله‌نویسی، بخش‌های مرتبط را از همین‌ها پیدا می‌کند و به کار می‌برد.
+      این داده‌ها همراه خودِ پروژه‌اند، پس با به‌روزرسانی سرور از بین نمی‌روند.
+    </p>
+    <div class="row" style="align-items:center;gap:16px">
+      <span style="font-size:13px">تعداد سند: <b id="libSources">—</b></span>
+      <span style="font-size:13px">قطعه‌ی قابل‌جستجو: <b id="libChunks">—</b></span>
+    </div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table class="data" id="libTable">
+        <thead><tr><th>عنوان</th><th>موضوع</th><th>صفحه</th><th>قطعه</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- نسخه و وضعیت ساخت -->
   <div class="card">
     <h2>🔧 نسخه و وضعیت ساخت</h2>
@@ -621,6 +641,26 @@ $("#saveAppBtn").addEventListener("click", async () => {
   $("#appSaveResult").textContent = "✅ ذخیره شد";
 });
 
+/* کتابخانه‌ی دائمی */
+async function loadLibrary() {
+  const r = await fetch("/admin/library_stats");
+  if (!r.ok) return;
+  const s = await r.json();
+  $("#libSources").textContent = s.sources ?? 0;
+  $("#libChunks").textContent = (s.chunks ?? 0).toLocaleString("fa-IR");
+  const tb = $("#libTable").querySelector("tbody");
+  tb.innerHTML = "";
+  (s.items || []).forEach(it => {
+    const tr = document.createElement("tr");
+    [it.title, it.category || "—", it.pages || "—", it.chunks].forEach(v => {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+}
+
 /* نسخه و وضعیت ساخت */
 async function loadBuildInfo() {
   const r = await fetch("/admin/build_info");
@@ -894,6 +934,7 @@ window.addEventListener("resize", () => {
 });
 
 loadKb();
+loadLibrary();
 loadBuildInfo();
 loadAppSettings();
 loadAiSettings();
