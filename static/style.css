@@ -1149,14 +1149,16 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
           mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
 }
+/* padding-left برابر عرض کاملِ نوار است؛ پس متن از بیرونِ لبه شروع می‌شود و
+   جابه‌جایی ۱۰۰٪ یعنی «عرض نوار + طول خودِ متن» — یعنی جمله کامل رد می‌شود. */
 #ticker .ticker-track {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
+  padding-left: 100%;
+  white-space: nowrap;
   will-change: transform;
 }
 #ticker .ticker-item {
   display: inline-block;
-  padding: 0 2.5rem;          /* فاصله بین دو تکرار */
   white-space: nowrap;
 }
 #ticker a {
@@ -1167,13 +1169,13 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
 #ticker a:hover { color: var(--accent-dark); }
 
-/* متن انگلیسی: از راست وارد می‌شود و به چپ می‌رود */
+/* متن انگلیسی: از لبه‌ی راست وارد می‌شود و از لبه‌ی چپ کامل بیرون می‌رود */
 #ticker.dir-ltr .ticker-track { animation: ticker-left var(--ticker-speed, 25s) linear infinite; }
-/* متن فارسی: از چپ وارد می‌شود و به راست می‌رود */
+/* متن فارسی: از لبه‌ی چپ وارد می‌شود و از لبه‌ی راست کامل بیرون می‌رود */
 #ticker.dir-rtl .ticker-track { animation: ticker-right var(--ticker-speed, 25s) linear infinite; }
 
-@keyframes ticker-left  { from { transform: translateX(0);     } to { transform: translateX(-50%); } }
-@keyframes ticker-right { from { transform: translateX(-50%);  } to { transform: translateX(0);    } }
+@keyframes ticker-left  { from { transform: translateX(0);     } to { transform: translateX(-100%); } }
+@keyframes ticker-right { from { transform: translateX(-100%); } to { transform: translateX(0);     } }
 
 /* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند */
 #ticker:hover .ticker-track { animation-play-state: paused; }
