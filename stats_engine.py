@@ -9,7 +9,31 @@ import json
 import traceback
 
 
+def _clean_columns(df):
+    """نام ستون‌ها را تمیز می‌کند.
+
+    اکسل هنگام ذخیره‌ی CSV یک نشانه‌ی BOM اول فایل می‌گذارد که به نام ستون اول
+    می‌چسبد؛ آن‌وقت «گروه» با «﻿گروه» برابر نمی‌شود و کاربر خطای «ستون پیدا نشد»
+    می‌گیرد. فاصله‌های اضافه و نویسه‌های جهت‌نما هم پاک می‌شوند.
+    """
+    import re as _re
+    try:
+        df.columns = [
+            _re.sub(r"[‎‏‪-‮]", "",
+                    str(c).replace("﻿", "")).strip()
+            for c in df.columns
+        ]
+    except Exception:
+        pass
+    return df
+
+
 def _load_dataframe(path: str):
+    """خواندن فایل داده با هر فرمت رایج، با نام ستون‌های تمیزشده."""
+    return _clean_columns(_load_dataframe_raw(path))
+
+
+def _load_dataframe_raw(path: str):
     """خواندن فایل داده با هر فرمت رایج — و در صورت پسوند ناشناخته، تلاش هوشمند"""
     import pandas as pd
     ext = os.path.splitext(path)[1].lower()
@@ -20,9 +44,13 @@ def _load_dataframe(path: str):
         for kwargs in ({"sep": None, "engine": "python"}, {}, {"sep": "\t"},
                        {"sep": ";"}, {"sep": "|"}, {"delim_whitespace": True}):
             try:
-                d = pd.read_csv(p, **kwargs)
+                # utf-8-sig یعنی اگر فایل BOM داشت (خروجی اکسل) خودکار برداشته شود
+                d = pd.read_csv(p, encoding="utf-8-sig", **kwargs)
             except Exception:
-                continue
+                try:
+                    d = pd.read_csv(p, **kwargs)
+                except Exception:
+                    continue
             if d.shape[0] < 1:
                 continue
             if best is None or d.shape[1] > best.shape[1]:
@@ -400,16 +428,245 @@ def ttest(path: str, kind, col, group=None, value2=None, popmean=0) -> dict:
     return {"error": "نوع آزمون نامعتبر"}
 
 
-def anova(path: str, dependent: str, factor: str) -> dict:
-    """تحلیل واریانس یک‌راهه"""
+def anova(path: str, dependent: str, factor: str, factor2: str = None,
+          posthoc: bool = True) -> dict:
+    """تحلیل واریانس یک‌راهه یا دوراهه، با آزمون لِوین، اندازه‌ی اثر و آزمون تعقیبی توکی.
+
+    اگر factor2 داده شود، ANOVA دوراهه با اثر تعاملی اجرا می‌شود.
+    """
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    df = _load_dataframe(path)
+    if dependent not in df.columns:
+        return {"error": f"متغیر وابسته «{dependent}» در داده نیست"}
+    df[dependent] = pd.to_numeric(df[dependent], errors="coerce")
+
+    # ---------- دوراهه ----------
+    if factor2:
+        try:
+            import statsmodels.api as sm
+            from statsmodels.formula.api import ols
+        except ImportError:
+            return {"error": "برای ANOVA دوراهه نصب statsmodels لازم است"}
+        sub = df[[dependent, factor, factor2]].dropna()
+        if len(sub) < 6:
+            return {"error": "تعداد مشاهده‌های کامل برای ANOVA دوراهه کافی نیست"}
+        sub = sub.rename(columns={dependent: "_y", factor: "_a", factor2: "_b"})
+        model = ols("_y ~ C(_a) + C(_b) + C(_a):C(_b)", data=sub).fit()
+        table = sm.stats.anova_lm(model, typ=2)
+        ss_resid = float(table.loc["Residual", "sum_sq"])
+        rows = []
+        label = {"C(_a)": factor, "C(_b)": factor2, "C(_a):C(_b)": f"{factor} × {factor2}"}
+        for src in table.index:
+            if src == "Residual":
+                continue
+            ss = float(table.loc[src, "sum_sq"])
+            rows.append({
+                "منبع": label.get(src, src),
+                "مجموع مجذورات": round(ss, 3),
+                "df": int(table.loc[src, "df"]),
+                "F": round(float(table.loc[src, "F"]), 3),
+                "sig": round(float(table.loc[src, "PR(>F)"]), 4),
+                "اتای مجذور تفکیکی": round(ss / (ss + ss_resid), 3) if (ss + ss_resid) else None,
+                "معنادار": "بله" if float(table.loc[src, "PR(>F)"]) < 0.05 else "خیر",
+            })
+        return {"software": "معادل خروجی SPSS (Two-Way ANOVA)",
+                "نوع": "دوراهه با اثر تعاملی", "اثرها": rows,
+                "R2": round(float(model.rsquared), 3), "n": int(len(sub))}
+
+    # ---------- یک‌راهه ----------
+    if factor not in df.columns:
+        return {"error": f"متغیر گروه‌بندی «{factor}» در داده نیست"}
+    sub = df[[dependent, factor]].dropna()
+    groups, names = [], []
+    for name, g in sub.groupby(factor):
+        vals = g[dependent].dropna().values
+        if len(vals) > 0:
+            groups.append(vals); names.append(str(name))
+    if len(groups) < 2:
+        return {"error": "برای تحلیل واریانس دست‌کم دو گروه لازم است"}
+
+    f, p = stats.f_oneway(*groups)
+    grand = np.concatenate(groups)
+    ss_between = sum(len(g) * (g.mean() - grand.mean()) ** 2 for g in groups)
+    ss_total = ((grand - grand.mean()) ** 2).sum()
+    eta2 = float(ss_between / ss_total) if ss_total else None
+
+    out = {
+        "software": "معادل خروجی SPSS (One-Way ANOVA)",
+        "نوع": "یک‌راهه",
+        "f": round(float(f), 3), "sig": round(float(p), 4),
+        "df_بین": len(groups) - 1, "df_درون": int(len(grand) - len(groups)),
+        "groups": len(groups), "n": int(len(grand)),
+        "اتای مجذور": round(eta2, 3) if eta2 is not None else None,
+        "اندازه اثر": ("بزرگ" if eta2 and eta2 >= 0.14 else
+                       "متوسط" if eta2 and eta2 >= 0.06 else "کوچک"),
+        "آمار توصیفی": [{"گروه": n, "میانگین": round(float(g.mean()), 3),
+                          "انحراف معیار": round(float(g.std(ddof=1)), 3) if len(g) > 1 else None,
+                          "n": int(len(g))} for n, g in zip(names, groups)],
+        "معنادار": "بله" if p < 0.05 else "خیر",
+    }
+    # آزمون لِوین: برابری واریانس‌ها (پیش‌فرض ANOVA)
+    try:
+        lev_f, lev_p = stats.levene(*groups)
+        out["لِوین"] = {"F": round(float(lev_f), 3), "sig": round(float(lev_p), 4),
+                        "برابری واریانس": "برقرار" if lev_p >= 0.05 else "نقض شده"}
+        if lev_p < 0.05:
+            out["هشدار"] = ("فرض همگنی واریانس‌ها نقض شده است؛ استفاده از آزمون ولچ یا "
+                            "کروسکال-والیس توصیه می‌شود.")
+    except Exception:
+        pass
+    # تعقیبی توکی: کدام جفت گروه با هم تفاوت دارند
+    if posthoc and len(groups) > 2:
+        try:
+            from statsmodels.stats.multicomp import pairwise_tukeyhsd
+            res = pairwise_tukeyhsd(sub[dependent].values, sub[factor].astype(str).values)
+            out["تعقیبی توکی"] = [
+                {"گروه ۱": str(r[0]), "گروه ۲": str(r[1]),
+                 "اختلاف میانگین": round(float(r[2]), 3),
+                 "sig": round(float(r[3]), 4),
+                 "معنادار": "بله" if float(r[3]) < 0.05 else "خیر"}
+                for r in res._results_table.data[1:]
+            ]
+        except Exception:
+            pass
+    return out
+
+
+def frequencies(path: str, cols=None, max_levels: int = 30) -> dict:
+    """جدول فراوانی و درصد — معادل Analyze ▸ Descriptive Statistics ▸ Frequencies در SPSS."""
+    import pandas as pd
+    df = _load_dataframe(path)
+    if cols:
+        use = [c for c in cols if c in df.columns]
+    else:
+        # ستون‌هایی که تعداد مقدارهای یکتایشان کم است، طبقه‌ای‌اند
+        use = [c for c in df.columns if df[c].nunique(dropna=True) <= max_levels]
+    if not use:
+        return {"error": "ستون طبقه‌ای مناسبی پیدا نشد (همه‌ی ستون‌ها مقدارهای یکتای زیادی دارند)"}
+    out = {"software": "معادل خروجی SPSS (Frequencies)", "tables": {}}
+    for c in use:
+        s = df[c].dropna()
+        if s.empty:
+            continue
+        vc = s.value_counts().sort_index()
+        total = int(vc.sum())
+        cum = 0
+        rows = []
+        for val, cnt in vc.items():
+            cum += int(cnt)
+            rows.append({
+                "مقدار": str(val),
+                "فراوانی": int(cnt),
+                "درصد": round(100 * cnt / total, 1),
+                "درصد تجمعی": round(100 * cum / total, 1),
+            })
+        out["tables"][str(c)] = {
+            "rows": rows, "n": total,
+            "گمشده": int(df[c].isna().sum()),
+            "مد": str(s.mode().iloc[0]) if not s.mode().empty else None,
+        }
+    return out
+
+
+def crosstab(path: str, row: str, col: str) -> dict:
+    """جدول توافقی + کای‌دو + Cramér's V — معادل Crosstabs در SPSS."""
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    df = _load_dataframe(path)
+    for c in (row, col):
+        if c not in df.columns:
+            return {"error": f"ستون «{c}» در داده نیست"}
+    tab = pd.crosstab(df[row], df[col])
+    if tab.size == 0 or tab.shape[0] < 2 or tab.shape[1] < 2:
+        return {"error": "برای جدول توافقی، هر دو متغیر باید دست‌کم دو سطح داشته باشند"}
+    chi2, p, dof, expected = stats.chi2_contingency(tab)
+    n = int(tab.values.sum())
+    min_dim = min(tab.shape) - 1
+    cramer = float(np.sqrt(chi2 / (n * min_dim))) if n and min_dim else None
+    # فرض کای‌دو: کمتر از ۲۰٪ خانه‌ها فراوانی مورد انتظار زیر ۵
+    low = int((expected < 5).sum())
+    return {
+        "software": "معادل خروجی SPSS (Crosstabs — Chi-Square)",
+        "table": {str(i): {str(c2): int(v) for c2, v in r.items()} for i, r in tab.iterrows()},
+        "chi2": round(float(chi2), 3), "df": int(dof), "sig": round(float(p), 4),
+        "cramers_v": round(cramer, 3) if cramer is not None else None,
+        "n": n,
+        "خانه‌های_کم‌فراوانی": low,
+        "هشدار": ("بیش از ۲۰٪ خانه‌ها فراوانی مورد انتظار کمتر از ۵ دارند؛ نتیجه‌ی کای‌دو "
+                  "محتاطانه تفسیر شود." if low > 0.2 * expected.size else None),
+        "معنادار": "بله" if p < 0.05 else "خیر",
+    }
+
+
+def nonparametric(path: str, kind: str, col: str = None, group: str = None,
+                  cols=None, value2: str = None) -> dict:
+    """آزمون‌های ناپارامتری SPSS: من‌ویتنی، ویلکاکسون، کروسکال‌والیس، فریدمن.
+
+    وقتی داده نرمال نیست، این‌ها جایگزین t و ANOVA می‌شوند.
+    """
     import pandas as pd
     from scipy import stats
     df = _load_dataframe(path)
-    groups = [g[dependent].dropna().values for _, g in df.groupby(factor)]
-    f, p = stats.f_oneway(*groups)
-    return {"software": "معادل خروجی SPSS (One-Way ANOVA)",
-            "f": round(float(f), 3), "sig": round(float(p), 4),
-            "groups": int(len(groups)), "معنادار": "بله" if p < 0.05 else "خیر"}
+
+    if kind in ("mannwhitney", "mann_whitney", "u"):
+        if not col or not group:
+            return {"error": "برای من‌ویتنی، ستون کمّی و ستون گروه لازم است"}
+        levels = df[group].dropna().unique()[:2]
+        if len(levels) < 2:
+            return {"error": f"ستون «{group}» باید دو گروه داشته باشد"}
+        a = pd.to_numeric(df[df[group] == levels[0]][col], errors="coerce").dropna()
+        b = pd.to_numeric(df[df[group] == levels[1]][col], errors="coerce").dropna()
+        u, p = stats.mannwhitneyu(a, b, alternative="two-sided")
+        return {"software": "معادل خروجی SPSS (Mann-Whitney U)", "kind": "من‌ویتنی",
+                "U": round(float(u), 3), "sig": round(float(p), 4),
+                "گروه‌ها": [str(levels[0]), str(levels[1])],
+                "میانه۱": round(float(a.median()), 3), "میانه۲": round(float(b.median()), 3),
+                "n1": len(a), "n2": len(b), "معنادار": "بله" if p < 0.05 else "خیر"}
+
+    if kind in ("wilcoxon", "signed_rank"):
+        if not col or not value2:
+            return {"error": "برای ویلکاکسون، دو ستون زوجی لازم است"}
+        a = pd.to_numeric(df[col], errors="coerce")
+        b = pd.to_numeric(df[value2], errors="coerce")
+        pair = pd.concat([a, b], axis=1).dropna()
+        if len(pair) < 3:
+            return {"error": "تعداد جفت‌های معتبر کافی نیست"}
+        w, p = stats.wilcoxon(pair.iloc[:, 0], pair.iloc[:, 1])
+        return {"software": "معادل خروجی SPSS (Wilcoxon Signed-Rank)", "kind": "ویلکاکسون",
+                "W": round(float(w), 3), "sig": round(float(p), 4), "n": len(pair),
+                "معنادار": "بله" if p < 0.05 else "خیر"}
+
+    if kind in ("kruskal", "kruskal_wallis"):
+        if not col or not group:
+            return {"error": "برای کروسکال-والیس، ستون کمّی و ستون گروه لازم است"}
+        groups = [pd.to_numeric(g[col], errors="coerce").dropna()
+                  for _, g in df.groupby(group)]
+        groups = [g for g in groups if len(g) > 0]
+        if len(groups) < 2:
+            return {"error": "دست‌کم دو گروه لازم است"}
+        h, p = stats.kruskal(*groups)
+        return {"software": "معادل خروجی SPSS (Kruskal-Wallis H)", "kind": "کروسکال-والیس",
+                "H": round(float(h), 3), "df": len(groups) - 1, "sig": round(float(p), 4),
+                "تعداد_گروه": len(groups), "معنادار": "بله" if p < 0.05 else "خیر"}
+
+    if kind == "friedman":
+        use = [c for c in (cols or []) if c in df.columns]
+        if len(use) < 3:
+            return {"error": "آزمون فریدمن به دست‌کم سه سنجش تکراری (سه ستون) نیاز دارد"}
+        sub = df[use].apply(pd.to_numeric, errors="coerce").dropna()
+        if len(sub) < 3:
+            return {"error": "تعداد سطرهای کامل کافی نیست"}
+        chi2, p = stats.friedmanchisquare(*[sub[c] for c in use])
+        return {"software": "معادل خروجی SPSS (Friedman Test)", "kind": "فریدمن",
+                "chi2": round(float(chi2), 3), "df": len(use) - 1, "sig": round(float(p), 4),
+                "میانگین_رتبه": {c: round(float(sub[c].rank(axis=0).mean()), 2) for c in use},
+                "n": len(sub), "معنادار": "بله" if p < 0.05 else "خیر"}
+
+    return {"error": "نوع آزمون ناپارامتری نامعتبر است "
+                     "(mannwhitney / wilcoxon / kruskal / friedman)"}
 
 
 def factor_analysis(path: str, cols=None, n_factors=None) -> dict:
@@ -502,13 +759,33 @@ FUNCTIONS = {
     "anova": anova,
     "factor_analysis": factor_analysis,
     "mediation": mediation,
+    "frequencies": frequencies,
+    "crosstab": crosstab,
+    "nonparametric": nonparametric,
 }
+
+
+def _all_functions():
+    """توابع این ماژول به‌علاوه‌ی موتور سری‌زمانی/تابلویی و موتور PLS."""
+    reg = dict(FUNCTIONS)
+    for mod in ("ts_engine", "pls_engine"):
+        try:
+            m = __import__(mod)
+            reg.update(getattr(m, "FUNCTIONS", {}))
+        except Exception:
+            pass
+    return reg
+
+
+def available_analyses():
+    """نام همه‌ی تحلیل‌های قابل اجرا — برای اعتبارسنجی نقشه‌ی تحلیل خودکار."""
+    return sorted(_all_functions().keys())
 
 
 def run(func_name: str, path: str, **kwargs) -> dict:
     """اجرای امن یک تحلیل و بازگرداندن نتیجه یا خطا"""
     try:
-        fn = FUNCTIONS.get(func_name)
+        fn = _all_functions().get(func_name)
         if not fn:
             return {"error": f"تحلیل «{func_name}» پشتیبانی نمی‌شود"}
         return fn(path, **kwargs)

@@ -18,6 +18,8 @@ factor-analyzer>=0.5
 pyreadstat>=1.2
 python-pptx>=0.6
 semopy>=2.3
+arch>=6.3
+linearmodels>=6.0
 # اختیاری — برای ساخت PDF با ظاهر دقیقاً مثل Word:
 #   یا LibreOffice روی سرور نصب باشد (soffice) — بهترین گزینه؛
 #   یا روی ویندوز/مک با Word نصب‌شده، بسته‌ی زیر را نصب کنید:
