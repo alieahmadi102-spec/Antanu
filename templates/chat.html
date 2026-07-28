@@ -58,10 +58,8 @@
       <form method="post" action="/logout">
         <button type="submit" class="side-link danger">{{ t("side.logout") }}</button>
       </form>
-      {# شناسه‌ی ساخت کنار شماره‌ی نسخه: با یک نگاه معلوم می‌شود سرور کدام
-         نسخه از فایل‌ها را سرو می‌کند. جزئیات بیشتر در /version #}
-      <div class="ver-line">{{ t("app.name") }} — {{ t("common.version", version=version) }}
-        <a href="/version" target="_blank" class="build-tag">build {{ asset_ver[:7] }}</a></div>
+      {# شناسه‌ی ساخت اینجا نمی‌آید؛ فقط مدیر آن را در پنل مدیریت می‌بیند #}
+      <div class="ver-line">{{ t("app.name") }} — {{ t("common.version", version=version) }}</div>
     </div>
   </aside>
 

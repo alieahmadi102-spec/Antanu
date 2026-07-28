@@ -795,19 +795,6 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 
 /* ---------- نسخه ---------- */
 .ver-line { text-align: center; font-size: 11px; color: var(--muted); padding-top: 8px; opacity: .8; }
-.build-tag {
-  display: inline-block;
-  margin-inline-start: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  color: var(--muted);
-  text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 1px 5px;
-  direction: ltr;
-}
-.build-tag:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- بنر اطلاع‌رسانی ---------- */
 #announce {

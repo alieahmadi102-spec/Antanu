@@ -122,6 +122,23 @@
     </div>
   </div>
 
+  <!-- نسخه و وضعیت ساخت -->
+  <div class="card">
+    <h2>🔧 نسخه و وضعیت ساخت</h2>
+    <p class="sub" style="margin-bottom:12px">
+      نشان می‌دهد سرور همین حالا کدام ساخت را اجرا می‌کند. بعد از هر به‌روزرسانی اینجا را ببین:
+      اگر کنار موردی ❌ بود، یعنی فایل‌های تازه هنوز روی سرور ننشسته‌اند و باید دوباره build بگیری.
+      این اطلاعات فقط برای شماست و به کاربران نشان داده نمی‌شود.
+    </p>
+    <div class="row" style="align-items:center;gap:14px">
+      <span style="font-size:13px">نسخه‌ی برنامه: <b id="biVersion">—</b></span>
+      <span style="font-size:13px">شناسه‌ی ساخت:
+        <b id="biAsset" style="font-family:ui-monospace,Menlo,monospace;direction:ltr;display:inline-block">—</b></span>
+    </div>
+    <ul id="biChecks" style="margin:12px 0 0;padding-inline-start:18px;font-size:13px;line-height:2"></ul>
+    <p id="biSummary" style="margin:10px 0 0;font-size:13px;font-weight:700"></p>
+  </div>
+
   <!-- پایگاه دانش خودآموز -->
   <div class="card">
     <h2>🧠 پایگاه دانش خودآموز آنتانو</h2>
@@ -604,6 +621,26 @@ $("#saveAppBtn").addEventListener("click", async () => {
   $("#appSaveResult").textContent = "✅ ذخیره شد";
 });
 
+/* نسخه و وضعیت ساخت */
+async function loadBuildInfo() {
+  const r = await fetch("/admin/build_info");
+  if (!r.ok) return;
+  const b = await r.json();
+  $("#biVersion").textContent = b.app_version || "—";
+  $("#biAsset").textContent = b.asset_ver || "—";
+  const ul = $("#biChecks");
+  ul.innerHTML = "";
+  (b.checks || []).forEach(c => {
+    const li = document.createElement("li");
+    li.textContent = (c.ok ? "✅ " : "❌ ") + c.label;
+    if (!c.ok) li.style.color = "#f87171";
+    ul.appendChild(li);
+  });
+  const sum = $("#biSummary");
+  sum.textContent = (b.all_ok ? "✅ " : "❌ ") + (b.summary || "");
+  sum.style.color = b.all_ok ? "#2dd4bf" : "#f87171";
+}
+
 async function loadKb() {
   const r = await fetch("/admin/knowledge_stats");
   if (r.ok) { const s = await r.json(); $("#kbCount").textContent = `${s.count} پرسش‌وپاسخ در حافظه ذخیره شده`; }
@@ -857,6 +894,7 @@ window.addEventListener("resize", () => {
 });
 
 loadKb();
+loadBuildInfo();
 loadAppSettings();
 loadAiSettings();
 loadData();

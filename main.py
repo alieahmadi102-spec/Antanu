@@ -411,13 +411,12 @@ def service_worker():
                         headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/version", response_class=PlainTextResponse)
-def version_info():
-    """نشان می‌دهد سرور دقیقاً کدام نسخه از فایل‌ها را سرو می‌کند.
+def _build_report() -> dict:
+    """گزارشِ «سرور کدام ساخت را اجرا می‌کند».
 
     وقتی تغییری می‌دهیم ولی روی گوشی دیده نمی‌شود، معمولاً یعنی سرور هنوز
-    نسخه‌ی قدیمی را بالا آورده. این صفحه را در مرورگر باز کن تا مطمئن شوی
-    ساخت (build) تازه واقعاً روی سرور نشسته است.
+    نسخه‌ی قدیمی را بالا آورده. این گزارش هم در پنل مدیریت نشان داده می‌شود
+    و هم از مسیر /version (فقط برای مدیر) قابل دیدن است.
     """
     checks = [
         ("نوار تبلیغاتی: حرکت فریم‌به‌فریم", "static/app.js", "requestAnimationFrame(frame)"),
@@ -427,13 +426,7 @@ def version_info():
         ("کتابخانه‌ی DOMPurify روی سرور خودمان", "static/vendor/purify.min.js", None),
         ("فونت وزیرمتن روی سرور خودمان", "static/vendor/vazirmatn/vazirmatn.css", None),
     ]
-    lines = [
-        f"ANTANU — نسخه‌ی برنامه: {get_setting('app_version', '1.0')}",
-        f"نسخه‌ی فایل‌های استاتیک (asset_ver): {_jinja.globals.get('asset_ver')}",
-        "",
-        "وضعیت آخرین تغییرها روی این سرور:",
-    ]
-    all_ok = True
+    items, all_ok = [], True
     for label, path, needle in checks:
         try:
             with open(path, encoding="utf-8", errors="ignore") as fh:
@@ -441,9 +434,32 @@ def version_info():
         except OSError:
             ok = False
         all_ok = all_ok and ok
-        lines.append(f"  {'✅' if ok else '❌'}  {label}")
-    lines += ["", "✅ همه‌چیز به‌روز است." if all_ok else
-              "❌ سرور هنوز نسخه‌ی قدیمی را اجرا می‌کند — فایل‌ها را جایگزین کن و دوباره build بگیر."]
+        items.append({"label": label, "ok": ok})
+    return {
+        "app_version": get_setting("app_version", "1.0"),
+        "asset_ver": _jinja.globals.get("asset_ver"),
+        "checks": items,
+        "all_ok": all_ok,
+        "summary": "همه‌چیز به‌روز است." if all_ok else
+                   "سرور هنوز نسخه‌ی قدیمی را اجرا می‌کند — فایل‌ها را جایگزین کن و دوباره build بگیر.",
+    }
+
+
+@app.get("/version", response_class=PlainTextResponse)
+def version_info(request: Request):
+    """همان گزارش، به‌صورت متن ساده. فقط برای مدیر — کاربر عادی نباید
+    اطلاعات ساخت و مسیر فایل‌های سرور را ببیند."""
+    require_admin(request)
+    rep = _build_report()
+    lines = [
+        f"ANTANU — نسخه‌ی برنامه: {rep['app_version']}",
+        f"نسخه‌ی فایل‌های استاتیک (asset_ver): {rep['asset_ver']}",
+        "",
+        "وضعیت آخرین تغییرها روی این سرور:",
+    ]
+    for it in rep["checks"]:
+        lines.append(f"  {'✅' if it['ok'] else '❌'}  {it['label']}")
+    lines += ["", ("✅ " if rep["all_ok"] else "❌ ") + rep["summary"]]
     return "\n".join(lines)
 
 
@@ -4097,6 +4113,14 @@ async def admin_save_app_settings(request: Request):
         spd = 25
     set_setting("ticker_speed", str(spd))
     return {"ok": True}
+
+
+@app.get("/admin/build_info")
+def admin_get_build_info(request: Request):
+    """نسخه و وضعیت ساختی که همین حالا روی سرور اجرا می‌شود.
+    برای اینکه بعد از هر دیپلوی بشود مطمئن شد فایل‌های تازه واقعاً نشسته‌اند."""
+    require_admin(request)
+    return _build_report()
 
 
 @app.get("/admin/ai_settings")
