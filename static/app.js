@@ -2357,6 +2357,44 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+/* ---------- نوار تبلیغاتی: اندازه‌گیری دقیق مسیر حرکت ----------
+   متن باید از یک لبه وارد شود و تا آخرین کلمه از لبه‌ی مقابل بیرون برود.
+   درصد در translateX نسبت به عرضِ خودِ متن حساب می‌شود، نه عرض نوار؛ برای همین
+   مسیر را اینجا با پیکسل دقیق می‌سنجیم تا در هر دو جهت (راست‌به‌چپ و چپ‌به‌راست)
+   و با هر طول متنی، جمله کامل رد شود و بعد تکرار شود. */
+function measureTicker() {
+  const bar = document.getElementById("ticker");
+  if (!bar) return;
+  const track = bar.querySelector(".ticker-track");
+  const item = bar.querySelector(".ticker-item");
+  if (!track || !item) return;
+
+  const barW = bar.clientWidth;
+  const textW = Math.ceil(item.getBoundingClientRect().width);
+  if (!barW || !textW) return;
+
+  // شروع: کاملاً بیرونِ لبه‌ی راست | پایان: کاملاً بیرونِ لبه‌ی چپ
+  track.style.setProperty("--ticker-from", barW + "px");
+  track.style.setProperty("--ticker-to", -textW + "px");
+
+  // انیمیشن را از نو اجرا کن تا مقدارهای تازه را بگیرد.
+  track.style.animationName = "none";
+  void track.offsetWidth;
+  track.style.animationName = "";
+}
+
+if (document.getElementById("ticker")) {
+  measureTicker();
+  // بعد از بارگذاری فونت‌ها عرض متن عوض می‌شود، پس دوباره می‌سنجیم.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureTicker).catch(() => {});
+  window.addEventListener("load", measureTicker);
+  let tickerTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(tickerTimer);
+    tickerTimer = setTimeout(measureTicker, 150);
+  });
+}
+
 /* ---------- شروع ---------- */
 loadConvs();
 loadModels();

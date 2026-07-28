@@ -73,9 +73,9 @@
     {% if ticker %}
     {# نوار تبلیغاتی متحرک — کل جمله از یک لبه وارد می‌شود، تا آخرین کلمه از لبه‌ی
        مقابل بیرون می‌رود و بعد از اول تکرار می‌شود (مثل تیتر تبلیغاتی تلویزیون) #}
-    <div id="ticker" class="dir-{{ ticker.dir }}" dir="{{ ticker.dir }}"
+    <div id="ticker" class="dir-{{ ticker.dir }}"
          style="--ticker-speed: {{ ticker.speed }}s">
-      <div class="ticker-track"><span class="ticker-item">{{ ticker.html|safe }}</span></div>
+      <div class="ticker-track"><span class="ticker-item" dir="{{ ticker.dir }}">{{ ticker.html|safe }}</span></div>
     </div>
     {% endif %}
 

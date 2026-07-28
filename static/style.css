@@ -1137,6 +1137,10 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   position: relative;
   overflow: hidden;
   white-space: nowrap;
+  /* چیدمان نوار همیشه چپ‌به‌راست است تا هندسه‌ی حرکت در هر دو حالت یکسان بماند؛
+     جهتِ خودِ نوشته را صفت dir روی span تعیین می‌کند، نه این. */
+  direction: ltr;
+  text-align: left;
   background: linear-gradient(90deg,
               var(--accent-soft), color-mix(in srgb, var(--panel-2) 85%, transparent), var(--accent-soft));
   background-color: var(--panel-2);
@@ -1146,20 +1150,28 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   font-weight: 600;
   color: var(--text);
   /* محو شدن نرم در دو لبه تا متن ناگهانی قطع نشود */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
-          mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
 }
-/* padding-left برابر عرض کاملِ نوار است؛ پس متن از بیرونِ لبه شروع می‌شود و
-   جابه‌جایی ۱۰۰٪ یعنی «عرض نوار + طول خودِ متن» — یعنی جمله کامل رد می‌شود. */
+/* مسیر حرکت با پیکسل دقیق تعیین می‌شود (app.js اندازه می‌گیرد):
+     --ticker-from = عرض نوار      → متن کامل بیرونِ لبه‌ی راست
+     --ticker-to   = منهای طول متن → متن کامل بیرونِ لبه‌ی چپ
+   پس جمله از یک لبه وارد می‌شود و تا آخرین کلمه از لبه‌ی مقابل بیرون می‌رود.
+   مقدارهای پیش‌فرض زیر فقط تا وقتی‌اند که جاوااسکریپت اندازه‌گیری کند. */
 #ticker .ticker-track {
+  --ticker-from: 100vw;
+  --ticker-to: -100%;
   display: inline-block;
-  padding-left: 100%;
   white-space: nowrap;
   will-change: transform;
+  transform: translateX(var(--ticker-from));
 }
 #ticker .ticker-item {
   display: inline-block;
   white-space: nowrap;
+  /* نوشته‌ی فارسی/عربی داخل این span درست راست‌به‌چپ چیده می‌شود،
+     بدون اینکه چیدمانِ نوار به هم بخورد. */
+  unicode-bidi: isolate;
 }
 #ticker a {
   color: var(--accent);
@@ -1174,8 +1186,14 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 /* متن فارسی: از لبه‌ی چپ وارد می‌شود و از لبه‌ی راست کامل بیرون می‌رود */
 #ticker.dir-rtl .ticker-track { animation: ticker-right var(--ticker-speed, 25s) linear infinite; }
 
-@keyframes ticker-left  { from { transform: translateX(0);     } to { transform: translateX(-100%); } }
-@keyframes ticker-right { from { transform: translateX(-100%); } to { transform: translateX(0);     } }
+@keyframes ticker-left {
+  from { transform: translateX(var(--ticker-from)); }
+  to   { transform: translateX(var(--ticker-to));   }
+}
+@keyframes ticker-right {
+  from { transform: translateX(var(--ticker-to));   }
+  to   { transform: translateX(var(--ticker-from)); }
+}
 
 /* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند */
 #ticker:hover .ticker-track { animation-play-state: paused; }
