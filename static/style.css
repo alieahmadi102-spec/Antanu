@@ -795,6 +795,19 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 
 /* ---------- نسخه ---------- */
 .ver-line { text-align: center; font-size: 11px; color: var(--muted); padding-top: 8px; opacity: .8; }
+.build-tag {
+  display: inline-block;
+  margin-inline-start: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  direction: ltr;
+}
+.build-tag:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- بنر اطلاع‌رسانی ---------- */
 #announce {
@@ -1192,9 +1205,10 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
 #ticker a:hover { color: var(--accent-dark); }
 
-/* متن انگلیسی: از لبه‌ی راست وارد می‌شود و از لبه‌ی چپ کامل بیرون می‌رود */
+/* انیمیشن CSS فقط «جایگزین» است: وقتی جاوااسکریپت اجرا نشود.
+   در حالت عادی app.js حرکت را فریم‌به‌فریم انجام می‌دهد و همین‌جا خاموشش می‌کند.
+   متن انگلیسی از لبه‌ی راست وارد و از لبه‌ی چپ خارج می‌شود، و فارسی برعکس. */
 #ticker.dir-ltr .ticker-track { animation: ticker-left var(--ticker-speed, 25s) linear infinite; }
-/* متن فارسی: از لبه‌ی چپ وارد می‌شود و از لبه‌ی راست کامل بیرون می‌رود */
 #ticker.dir-rtl .ticker-track { animation: ticker-right var(--ticker-speed, 25s) linear infinite; }
 
 @keyframes ticker-left {
@@ -1206,15 +1220,19 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   to   { transform: translateX(var(--ticker-from)); }
 }
 
-/* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند.
-   فقط روی دستگاه‌های دارای ماوس؛ در لمسی، :hover بعد از یک ضربه می‌چسبد و
-   نوار برای همیشه متوقف می‌ماند. */
-@media (hover: hover) and (pointer: fine) {
-  #ticker:hover .ticker-track { animation-play-state: paused; }
-}
+/* توقف با نگه‌داشتن ماوس در app.js انجام می‌شود (mouseenter/mouseleave)، نه با
+   :hover — چون در صفحه‌های لمسی :hover بعد از یک ضربه می‌چسبد و نوار برای همیشه
+   متوقف می‌ماند. */
 
-/* اگر کاربر «کاهش حرکت» را در سیستمش روشن کرده باشد، متن ثابت می‌ماند */
+/* اگر کاربر «کاهش حرکت» را در سیستمش روشن کرده باشد، متن ثابت و خوانا می‌ماند.
+   transform هم باید صفر شود، وگرنه متن یک عرضِ نوار کنار رانده و نامرئی می‌شود. */
 @media (prefers-reduced-motion: reduce) {
-  #ticker .ticker-track { animation: none !important; }
-  #ticker { white-space: normal; text-align: center; }
+  #ticker .ticker-track {
+    animation: none !important;
+    transform: none !important;
+    display: block;
+    white-space: normal;
+  }
+  #ticker .ticker-item { display: inline; white-space: normal; }
+  #ticker { white-space: normal; text-align: center; padding: 9px 14px; }
 }

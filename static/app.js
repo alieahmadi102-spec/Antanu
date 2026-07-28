@@ -1,72 +1,109 @@
 /* app.js — منطق صفحه چت آنتانو (چندمدلی + فایل + میکروفون + جستجوی وب + صدا) */
 
-/* ---------- نوار تبلیغاتی: اندازه‌گیری دقیق مسیر حرکت ----------
-   متن باید از یک لبه وارد شود و تا آخرین کلمه از لبه‌ی مقابل بیرون برود.
-   درصد در translateX نسبت به عرضِ خودِ متن حساب می‌شود نه عرض نوار، پس مسیر را
-   اینجا با پیکسل دقیق می‌سنجیم تا در هر دو جهت و با هر طول متنی جمله کامل رد شود.
+/* ---------- نوار تبلیغاتی ----------
+   حرکت را خودمان فریم‌به‌فریم حساب می‌کنیم، نه با انیمیشن CSS.
 
-   نکته‌ی مهم: این تابع تا وقتی «عرض» واقعاً عوض نشده باشد هیچ کاری نمی‌کند.
-   در موبایل رویداد resize مدام شلیک می‌شود (جمع‌شدن نوار آدرس هنگام اسکرول و
-   باز شدن کیبورد)؛ اگر هر بار انیمیشن را از نو اجرا کنیم، متن وسط راه به ابتدا
-   می‌پرد و کاربر می‌بیند که تبلیغ تا آخر نمی‌رود.
+   چرا؟ چون با @keyframes باید به چند چیزِ خارج از کنترلمان اعتماد کنیم: اینکه
+   مرورگر مقدار تازه‌ی var() را داخل کی‌فریم دوباره حساب کند، اینکه کامپوزیتور
+   لایه‌ی بزرگ را درست بکشد، اینکه :hover در صفحه‌ی لمسی نچسبد، و اینکه ری‌استارت
+   نشدنِ انیمیشن تضمین باشد. با این حلقه هیچ‌کدام دیگر موضوعیت ندارد: در هر فریم
+   دقیقاً می‌دانیم متن کجاست.
+
+   مسیر:  کل مسیر = عرض نوار + طول متن
+     فارسی  (dir-rtl): از  -طولِ‌متن  تا  +عرضِ‌نوار   (از چپ وارد، از راست خارج)
+     انگلیسی(dir-ltr): از  +عرضِ‌نوار تا  -طولِ‌متن    (از راست وارد، از چپ خارج)
+   یعنی جمله همیشه کامل از یک لبه وارد و کامل از لبه‌ی مقابل خارج می‌شود.
 
    این بلوک عمداً در ابتدای فایل و داخل try است تا هیچ خطای دیگری در ادامه‌ی
-   فایل نتواند جلوی راه‌افتادن نوار تبلیغاتی را بگیرد. */
+   فایل نتواند جلوی راه‌افتادنش را بگیرد. */
 (function initTicker() {
   try {
     const bar = document.getElementById("ticker");
-    if (!bar) return;
+    if (!bar || !window.requestAnimationFrame) return;   // بدون rAF، انیمیشن CSS می‌ماند
     const track = bar.querySelector(".ticker-track");
     const item = bar.querySelector(".ticker-item");
     if (!track || !item) return;
 
-    let lastBarW = 0, lastTextW = 0;
+    const mq = window.matchMedia || null;
+    const reduced = mq && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;   // کاربر «کاهش حرکت» را روشن کرده؛ متن ثابت می‌ماند
 
-    function measureTicker() {
-      const barW = bar.clientWidth;
-      const textW = Math.ceil(item.getBoundingClientRect().width);
-      if (!barW || !textW) return;
-      // عرض‌ها همان‌اند؟ پس دست به انیمیشنِ در حال اجرا نزن.
-      if (barW === lastBarW && textW === lastTextW) return;
-      lastBarW = barW; lastTextW = textW;
+    // از این لحظه ما حرکت می‌دهیم، پس انیمیشن CSS نباید دخالت کند.
+    // transform را دستی صفر نمی‌کنیم؛ همان مقدارِ پیش‌فرضِ CSS (بیرونِ کادر) می‌ماند
+    // تا اولین فریم خودش جای درست را بگذارد و متن یک لحظه وسط نوار ظاهر نشود.
+    track.style.animation = "none";
 
-      // شروع: کاملاً بیرونِ یک لبه | پایان: کاملاً بیرونِ لبه‌ی مقابل
-      track.style.setProperty("--ticker-from", barW + "px");
-      track.style.setProperty("--ticker-to", -textW + "px");
+    const rtl = bar.classList.contains("dir-rtl");
+    const speed = parseFloat(getComputedStyle(bar).getPropertyValue("--ticker-speed")) || 25;
 
-      // مرورگرهای امروزی مقدار تازه‌ی متغیر را خودشان در کی‌فریم‌ها اعمال می‌کنند.
-      // اگر اعمال نشد، انیمیشن را از نو می‌سازیم ولی «جای فعلی» را نگه می‌داریم
-      // تا متن به ابتدا نپرد.
-      const anims = track.getAnimations ? track.getAnimations() : [];
-      const anim = anims[0];
-      if (!anim) return;
-      const frames = anim.effect.getKeyframes().map(k => k.transform);
-      const wantFrom = "translateX(" + barW + "px)";
-      const wantTo = "translateX(" + (-textW) + "px)";
-      // هر دو سرِ مسیر باید تازه باشند؛ وگرنه انیمیشن را از نو می‌سازیم
-      if (frames.indexOf(wantFrom) !== -1 && frames.indexOf(wantTo) !== -1) return;
+    let barW = 0, textW = 0, dist = 0, pxPerSec = 0;
+    let pos = 0;            // چقدر از مسیر طی شده (پیکسل)
+    let last = 0, hasLast = false;   // «صفر» هم زمانِ معتبری است، پس با پرچم می‌سنجیم
+    let paused = false;
+    let needMeasure = true; // اندازه‌گیری فقط وقتی لازم است، نه در هر فریم
 
-      const at = anim.currentTime;
-      track.style.animationName = "none";
-      void track.offsetWidth;
-      track.style.animationName = "";
-      const fresh = (track.getAnimations ? track.getAnimations() : [])[0];
-      if (fresh && at != null) fresh.currentTime = at;
+    /* اگر عرض نوار یا طول متن عوض شد (چرخاندن گوشی، آمدن فونت)، اندازه‌ها تازه
+       می‌شوند ولی «درصدِ پیشرفت» حفظ می‌شود تا متن به ابتدا نپرد. */
+    function remeasure() {
+      const b = bar.clientWidth;
+      const t = item.getBoundingClientRect().width;
+      if (!b || !t) return dist > 0;
+      if (b !== barW || Math.abs(t - textW) >= 0.5) {
+        const frac = dist > 0 ? pos / dist : 0;
+        barW = b; textW = t; dist = b + t;
+        pxPerSec = dist / Math.max(speed, 1);
+        pos = frac * dist;
+      }
+      return true;
     }
 
-    // اولین اندازه‌گیری بعد از تثبیت چیدمان
-    if (window.requestAnimationFrame) requestAnimationFrame(measureTicker);
-    else measureTicker();
-    // عرضِ متن بعد از آمدن فونت عوض می‌شود
+    function frame(now) {
+      requestAnimationFrame(frame);
+      let dt = 0;
+      if (hasLast) {
+        dt = (now - last) / 1000;
+        // بعد از خوابِ گوشی یا برگشت از تبِ دیگر، یک‌باره جهش نکند
+        if (dt > 0.25 || dt < 0) dt = 0;
+      }
+      last = now; hasLast = true;
+
+      // getBoundingClientRect در هر فریم، چیدمان را بی‌دلیل دوباره حساب می‌کند؛
+      // فقط وقتی چیزی عوض شده باشد اندازه می‌گیریم.
+      if (needMeasure) {
+        if (!remeasure()) return;
+        needMeasure = false;
+      }
+      if (!dist) return;
+
+      // اولین فریم با dt=0 اجرا می‌شود، یعنی متن دقیقاً سرِ جای شروع گذاشته
+      // می‌شود و هیچ پرشِ اولیه‌ای دیده نمی‌شود.
+      if (!paused) {
+        pos += pxPerSec * dt;
+        while (pos >= dist) pos -= dist;        // تکرار، بدون پرش
+      }
+      const x = rtl ? (-textW + pos) : (barW - pos);
+      track.style.transform = "translateX(" + x.toFixed(2) + "px)";
+    }
+    requestAnimationFrame(frame);
+
+    const scheduleMeasure = () => { needMeasure = true; };
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("orientationchange", scheduleMeasure);
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(measureTicker).catch(() => {});
+      document.fonts.ready.then(scheduleMeasure).catch(() => {});
     }
-    // فقط چرخاندن گوشی یا تغییر واقعیِ عرض اثر دارد (تغییر ارتفاع نادیده گرفته می‌شود)
-    let tickerTimer = null;
-    window.addEventListener("resize", () => {
-      clearTimeout(tickerTimer);
-      tickerTimer = setTimeout(measureTicker, 150);
-    });
+    // تا وقتی اندازه‌ها صفرند (فونت/چیدمان هنوز آماده نیست) مرتب دوباره تلاش کن
+    let tries = 0;
+    const settle = setInterval(() => {
+      scheduleMeasure();
+      if (++tries > 20 || dist > 0) clearInterval(settle);
+    }, 250);
+
+    // توقف با نگه‌داشتن ماوس — فقط روی دستگاه دارای ماوس، تا در لمسی نچسبد
+    if (mq && matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      bar.addEventListener("mouseenter", () => { paused = true; });
+      bar.addEventListener("mouseleave", () => { paused = false; });
+    }
   } catch (e) {
     /* نوار تبلیغاتی هرگز نباید بقیه‌ی صفحه را زمین بزند */
   }

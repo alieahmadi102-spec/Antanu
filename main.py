@@ -420,6 +420,7 @@ def version_info():
     ساخت (build) تازه واقعاً روی سرور نشسته است.
     """
     checks = [
+        ("نوار تبلیغاتی: حرکت فریم‌به‌فریم", "static/app.js", "requestAnimationFrame(frame)"),
         ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
         ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
         ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
