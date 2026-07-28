@@ -233,6 +233,57 @@ def get_ai_catalog():
     return cat
 
 
+# ---------------- نوار تبلیغاتی متحرک (تیکر) ----------------
+
+# نشانی‌های داخل متن تیکر خودکار به لینک تبدیل می‌شوند
+_TICKER_URL_RE = re.compile(
+    r"((?:https?://|www\.)[^\s<>\"']+)", re.IGNORECASE
+)
+# نویسه‌های خط عربی/فارسی برای تشخیص جهت حرکت متن
+_RTL_CHARS_RE = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")
+_LTR_CHARS_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
+
+
+def _ticker_linkify(text: str) -> str:
+    """متن تیکر را امن می‌کند و نشانی‌ها را به لینک قابل‌کلیک تبدیل می‌کند.
+    اول کل متن escape می‌شود، بعد فقط نشانی‌ها به <a> تبدیل می‌شوند — پس
+    هیچ HTMLی از متن مدیر اجرا نمی‌شود."""
+    safe = _html.escape(text or "")
+
+    def to_link(m):
+        url = m.group(1)
+        href = url if url.lower().startswith("http") else "https://" + url
+        return (f'<a href="{href}" target="_blank" rel="noopener noreferrer">{url}</a>')
+
+    return _TICKER_URL_RE.sub(to_link, safe)
+
+
+def ticker_direction(text: str) -> str:
+    """جهت حرکت متن: فارسی/عربی → به راست، بقیه → به چپ.
+    نشانی‌ها از شمارش کنار گذاشته می‌شوند؛ وگرنه حروف لاتینِ یک لینک،
+    یک تبلیغِ فارسی را اشتباهاً «انگلیسی» نشان می‌داد."""
+    body = _TICKER_URL_RE.sub(" ", text or "")
+    rtl = len(_RTL_CHARS_RE.findall(body))
+    ltr = len(_LTR_CHARS_RE.findall(body))
+    return "rtl" if rtl > ltr else "ltr"
+
+
+def build_ticker():
+    """اطلاعات نوار تبلیغاتی برای قالب. اگر متنی تنظیم نشده باشد، None برمی‌گرداند."""
+    text = (get_setting("ticker_text", "") or "").strip()
+    if not text:
+        return None
+    try:
+        speed = max(5, min(int(get_setting("ticker_speed", "25") or 25), 180))
+    except (TypeError, ValueError):
+        speed = 25
+    return {
+        "html": _ticker_linkify(text),
+        "dir": ticker_direction(text),
+        "speed": speed,
+    }
+
+
 def pick_model_for(task: str, catalog=None):
     """مدلِ مناسبِ یک کار مشخص را برمی‌گرداند (اولین گزینه‌ی دارای کلید).
 
@@ -2019,9 +2070,11 @@ def chat_page(request: Request):
         elif days_left is not None and days_left <= 5:
             sub_warn = (f"⏳ تنها {days_left} روز از اشتراک شما باقی مانده است (پایان: {end_date}). "
                         f"برای تمدید به مدیر پیام دهید — {ADMIN_CONTACT}")
+    ticker = build_ticker()
     return render("chat.html", request=request, user=user, daily_limit=limit_txt,
                   version=get_setting("app_version", "1.0"),
                   announcement=get_setting("announcement", ""),
+                  ticker=ticker,
                   sub_warn=sub_warn)
 
 
@@ -3987,7 +4040,9 @@ async def api_longdoc(request: Request):
 def admin_get_app_settings(request: Request):
     require_admin(request)
     return {"version": get_setting("app_version", "1.0"),
-            "announcement": get_setting("announcement", "")}
+            "announcement": get_setting("announcement", ""),
+            "ticker_text": get_setting("ticker_text", ""),
+            "ticker_speed": get_setting("ticker_speed", "25")}
 
 
 @app.post("/admin/app_settings")
@@ -3996,6 +4051,12 @@ async def admin_save_app_settings(request: Request):
     body = await request.json()
     set_setting("app_version", (body.get("version") or "1.0").strip()[:20])
     set_setting("announcement", (body.get("announcement") or "").strip()[:300])
+    set_setting("ticker_text", (body.get("ticker_text") or "").strip()[:600])
+    try:
+        spd = max(5, min(int(body.get("ticker_speed") or 25), 180))
+    except (TypeError, ValueError):
+        spd = 25
+    set_setting("ticker_speed", str(spd))
     return {"ok": True}
 
 

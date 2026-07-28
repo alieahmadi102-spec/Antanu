@@ -32,6 +32,8 @@ LANGUAGES = {
     "ja": {"native": "日本語",     "english": "Japanese", "dir": "ltr", "flag": "🇯🇵"},
     "ko": {"native": "한국어",     "english": "Korean",   "dir": "ltr", "flag": "🇰🇷"},
     "es": {"native": "Español",   "english": "Spanish",  "dir": "ltr", "flag": "🇪🇸"},
+    "hi": {"native": "हिन्दी",      "english": "Hindi",    "dir": "ltr", "flag": "🇮🇳"},
+    "tr": {"native": "Türkçe",    "english": "Turkish",  "dir": "ltr", "flag": "🇹🇷"},
 }
 
 _cache = {}

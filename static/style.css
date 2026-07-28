@@ -1130,3 +1130,56 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 .lang-picker label { white-space: nowrap; }
 #langSideWrap { padding: 10px 14px 4px; }
 #langSideWrap select { width: 100%; }
+
+/* ================= نوار تبلیغاتی متحرک (تیکر) ================= */
+/* رنگ‌ها از متغیرهای تم می‌آیند، پس در تم روشن و تیره هر دو درست دیده می‌شود. */
+#ticker {
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  background: linear-gradient(90deg,
+              var(--accent-soft), color-mix(in srgb, var(--panel-2) 85%, transparent), var(--accent-soft));
+  background-color: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  padding: 9px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  /* محو شدن نرم در دو لبه تا متن ناگهانی قطع نشود */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+#ticker .ticker-track {
+  display: inline-flex;
+  align-items: center;
+  will-change: transform;
+}
+#ticker .ticker-item {
+  display: inline-block;
+  padding: 0 2.5rem;          /* فاصله بین دو تکرار */
+  white-space: nowrap;
+}
+#ticker a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 700;
+}
+#ticker a:hover { color: var(--accent-dark); }
+
+/* متن انگلیسی: از راست وارد می‌شود و به چپ می‌رود */
+#ticker.dir-ltr .ticker-track { animation: ticker-left var(--ticker-speed, 25s) linear infinite; }
+/* متن فارسی: از چپ وارد می‌شود و به راست می‌رود */
+#ticker.dir-rtl .ticker-track { animation: ticker-right var(--ticker-speed, 25s) linear infinite; }
+
+@keyframes ticker-left  { from { transform: translateX(0);     } to { transform: translateX(-50%); } }
+@keyframes ticker-right { from { transform: translateX(-50%);  } to { transform: translateX(0);    } }
+
+/* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند */
+#ticker:hover .ticker-track { animation-play-state: paused; }
+
+/* اگر کاربر «کاهش حرکت» را در سیستمش روشن کرده باشد، متن ثابت می‌ماند */
+@media (prefers-reduced-motion: reduce) {
+  #ticker .ticker-track { animation: none !important; }
+  #ticker { white-space: normal; text-align: center; }
+}

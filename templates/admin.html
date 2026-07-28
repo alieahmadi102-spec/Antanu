@@ -107,6 +107,19 @@
       <span id="appSaveResult" style="font-size:12px"></span>
     </div>
     <p class="sub" style="margin:10px 0 0">نسخه در پایین نوار کناری و صفحه ورود نمایش داده می‌شود؛ پیام سراسری به‌صورت بنر بالای چت همه کاربران می‌آید (مناسب اعلام به‌روزرسانی).</p>
+
+    <h3 style="font-size:13.5px;margin:16px 0 8px;color:#2dd4bf">📢 نوار تبلیغاتی متحرک (تیکر)</h3>
+    <p class="sub" style="margin-bottom:8px">
+      متن این نوار مثل تیتر تبلیغاتی تلویزیون بالای صفحه‌ی چت حرکت می‌کند و بی‌وقفه تکرار می‌شود.
+      اگر متن <b>فارسی</b> باشد به‌سمت <b>راست</b> و اگر <b>انگلیسی</b> باشد به‌سمت <b>چپ</b> می‌رود (خودکار تشخیص داده می‌شود).
+      هر نشانی اینترنتی داخل متن خودکار به لینک قابل‌کلیک تبدیل می‌شود. برای خاموش‌کردن، خالی بگذار.
+    </p>
+    <textarea id="tickerText" rows="2" placeholder="مثلاً: 🎉 اشتراک ویژه با ۳۰٪ تخفیف — https://antanu.duckdns.org/buy"
+              style="width:100%"></textarea>
+    <div class="row" style="margin-top:8px;align-items:center">
+      <label style="font-size:12.5px;color:var(--muted)">سرعت (ثانیه برای یک دور — عدد بزرگ‌تر = آرام‌تر):</label>
+      <input type="number" id="tickerSpeed" value="25" min="5" max="180" style="width:90px">
+    </div>
   </div>
 
   <!-- پایگاه دانش خودآموز -->
@@ -578,11 +591,15 @@ async function loadAppSettings() {
   const s = await r.json();
   $("#appVersion").value = s.version || "";
   $("#announceText").value = s.announcement || "";
+  $("#tickerText").value = s.ticker_text || "";
+  $("#tickerSpeed").value = s.ticker_speed || 25;
 }
 $("#saveAppBtn").addEventListener("click", async () => {
   await post("/admin/app_settings", {
     version: $("#appVersion").value.trim(),
     announcement: $("#announceText").value.trim(),
+    ticker_text: $("#tickerText").value.trim(),
+    ticker_speed: parseInt($("#tickerSpeed").value, 10) || 25,
   });
   $("#appSaveResult").textContent = "✅ ذخیره شد";
 });

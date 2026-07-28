@@ -70,6 +70,17 @@
       <button id="convPanelBtn" title="{{ t('chat.my_chats') }}">💬</button>
     </header>
 
+    {% if ticker %}
+    {# نوار تبلیغاتی متحرک — متن دو بار تکرار می‌شود تا حلقه بی‌وقفه و بدون پرش باشد #}
+    <div id="ticker" class="dir-{{ ticker.dir }}" dir="{{ ticker.dir }}"
+         style="--ticker-speed: {{ ticker.speed }}s">
+      <div class="ticker-track">
+        <span class="ticker-item">{{ ticker.html|safe }}</span>
+        <span class="ticker-item" aria-hidden="true">{{ ticker.html|safe }}</span>
+      </div>
+    </div>
+    {% endif %}
+
     {% if sub_warn %}
     <div id="subWarn">{{ sub_warn }}</div>
     {% endif %}
