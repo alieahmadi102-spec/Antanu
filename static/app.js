@@ -1,5 +1,77 @@
 /* app.js — منطق صفحه چت آنتانو (چندمدلی + فایل + میکروفون + جستجوی وب + صدا) */
 
+/* ---------- نوار تبلیغاتی: اندازه‌گیری دقیق مسیر حرکت ----------
+   متن باید از یک لبه وارد شود و تا آخرین کلمه از لبه‌ی مقابل بیرون برود.
+   درصد در translateX نسبت به عرضِ خودِ متن حساب می‌شود نه عرض نوار، پس مسیر را
+   اینجا با پیکسل دقیق می‌سنجیم تا در هر دو جهت و با هر طول متنی جمله کامل رد شود.
+
+   نکته‌ی مهم: این تابع تا وقتی «عرض» واقعاً عوض نشده باشد هیچ کاری نمی‌کند.
+   در موبایل رویداد resize مدام شلیک می‌شود (جمع‌شدن نوار آدرس هنگام اسکرول و
+   باز شدن کیبورد)؛ اگر هر بار انیمیشن را از نو اجرا کنیم، متن وسط راه به ابتدا
+   می‌پرد و کاربر می‌بیند که تبلیغ تا آخر نمی‌رود.
+
+   این بلوک عمداً در ابتدای فایل و داخل try است تا هیچ خطای دیگری در ادامه‌ی
+   فایل نتواند جلوی راه‌افتادن نوار تبلیغاتی را بگیرد. */
+(function initTicker() {
+  try {
+    const bar = document.getElementById("ticker");
+    if (!bar) return;
+    const track = bar.querySelector(".ticker-track");
+    const item = bar.querySelector(".ticker-item");
+    if (!track || !item) return;
+
+    let lastBarW = 0, lastTextW = 0;
+
+    function measureTicker() {
+      const barW = bar.clientWidth;
+      const textW = Math.ceil(item.getBoundingClientRect().width);
+      if (!barW || !textW) return;
+      // عرض‌ها همان‌اند؟ پس دست به انیمیشنِ در حال اجرا نزن.
+      if (barW === lastBarW && textW === lastTextW) return;
+      lastBarW = barW; lastTextW = textW;
+
+      // شروع: کاملاً بیرونِ یک لبه | پایان: کاملاً بیرونِ لبه‌ی مقابل
+      track.style.setProperty("--ticker-from", barW + "px");
+      track.style.setProperty("--ticker-to", -textW + "px");
+
+      // مرورگرهای امروزی مقدار تازه‌ی متغیر را خودشان در کی‌فریم‌ها اعمال می‌کنند.
+      // اگر اعمال نشد، انیمیشن را از نو می‌سازیم ولی «جای فعلی» را نگه می‌داریم
+      // تا متن به ابتدا نپرد.
+      const anims = track.getAnimations ? track.getAnimations() : [];
+      const anim = anims[0];
+      if (!anim) return;
+      const frames = anim.effect.getKeyframes().map(k => k.transform);
+      const wantFrom = "translateX(" + barW + "px)";
+      const wantTo = "translateX(" + (-textW) + "px)";
+      // هر دو سرِ مسیر باید تازه باشند؛ وگرنه انیمیشن را از نو می‌سازیم
+      if (frames.indexOf(wantFrom) !== -1 && frames.indexOf(wantTo) !== -1) return;
+
+      const at = anim.currentTime;
+      track.style.animationName = "none";
+      void track.offsetWidth;
+      track.style.animationName = "";
+      const fresh = (track.getAnimations ? track.getAnimations() : [])[0];
+      if (fresh && at != null) fresh.currentTime = at;
+    }
+
+    // اولین اندازه‌گیری بعد از تثبیت چیدمان
+    if (window.requestAnimationFrame) requestAnimationFrame(measureTicker);
+    else measureTicker();
+    // عرضِ متن بعد از آمدن فونت عوض می‌شود
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(measureTicker).catch(() => {});
+    }
+    // فقط چرخاندن گوشی یا تغییر واقعیِ عرض اثر دارد (تغییر ارتفاع نادیده گرفته می‌شود)
+    let tickerTimer = null;
+    window.addEventListener("resize", () => {
+      clearTimeout(tickerTimer);
+      tickerTimer = setTimeout(measureTicker, 150);
+    });
+  } catch (e) {
+    /* نوار تبلیغاتی هرگز نباید بقیه‌ی صفحه را زمین بزند */
+  }
+})();
+
 const $ = s => document.querySelector(s);
 const msgsEl = $("#messages");
 const inputEl = $("#input");
@@ -15,7 +87,21 @@ let abortCtrl = null;              // کنترل توقف استریم
 let models = [];                   // فهرست مدل‌ها از سرور
 let selected = JSON.parse(localStorage.getItem("antanu_models") || '["auto"]');
 
-marked.setOptions({ breaks: true, gfm: true });
+/* marked و DOMPurify از فایل‌های خودِ سرور می‌آیند (static/vendor)، ولی اگر به هر دلیلی
+   بارگذاری نشدند، اجرای این فایل نباید همین‌جا متوقف شود؛ وگرنه هیچ‌کدام از بخش‌های
+   بعدی صفحه (نوار تبلیغاتی، فهرست گفتگوها، فهرست مدل‌ها و…) راه نمی‌افتند. */
+const hasMarked = typeof marked !== "undefined" && marked && typeof marked.parse === "function";
+const hasPurify = typeof DOMPurify !== "undefined" && DOMPurify && typeof DOMPurify.sanitize === "function";
+if (hasMarked) marked.setOptions({ breaks: true, gfm: true });
+
+/* تبدیل مارک‌داون به HTML امن. اگر کتابخانه‌ها نبودند، متن ساده‌ی امن نشان می‌دهد
+   تا گفتگو همچنان خوانده شود (فقط بدون قالب‌بندی). */
+function mdToSafeHTML(src) {
+  const s = String(src == null ? "" : src);
+  if (hasMarked && hasPurify) return DOMPurify.sanitize(marked.parse(s));
+  if (hasMarked) return marked.parse(s);
+  return escapeHtml(s).replace(/\n/g, "<br>");
+}
 
 const WELCOME_HTML = `
   <div id="welcome">
@@ -63,7 +149,7 @@ function renderMD(text) {
   // اگر همراه عکس/ویدیو/کارت فقط خرده‌ریز (بک‌تیک، پرانتز، علائم) آمده، متن را نمایش نده
   const meaningful = cleaned3.replace(/[`'"()\[\]{}\s.,،:؛!؟\-_*#>~|=+]/g, "");
   if ((!imgs.length && !vids.length && !trCards.length) || meaningful.length > 2) {
-    html = DOMPurify.sanitize(marked.parse(cleaned3));
+    html = mdToSafeHTML(cleaned3);
   }
   // دکمه‌ی «کپی» فقط برای بلوک‌های کد (‌pre‌) تا کاربر کل کد را یک‌جا کپی کند
   if (html.includes("<pre")) {
@@ -2354,44 +2440,6 @@ $("#pPassBtn")?.addEventListener("click", async () => {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
-}
-
-/* ---------- نوار تبلیغاتی: اندازه‌گیری دقیق مسیر حرکت ----------
-   متن باید از یک لبه وارد شود و تا آخرین کلمه از لبه‌ی مقابل بیرون برود.
-   درصد در translateX نسبت به عرضِ خودِ متن حساب می‌شود، نه عرض نوار؛ برای همین
-   مسیر را اینجا با پیکسل دقیق می‌سنجیم تا در هر دو جهت (راست‌به‌چپ و چپ‌به‌راست)
-   و با هر طول متنی، جمله کامل رد شود و بعد تکرار شود. */
-function measureTicker() {
-  const bar = document.getElementById("ticker");
-  if (!bar) return;
-  const track = bar.querySelector(".ticker-track");
-  const item = bar.querySelector(".ticker-item");
-  if (!track || !item) return;
-
-  const barW = bar.clientWidth;
-  const textW = Math.ceil(item.getBoundingClientRect().width);
-  if (!barW || !textW) return;
-
-  // شروع: کاملاً بیرونِ لبه‌ی راست | پایان: کاملاً بیرونِ لبه‌ی چپ
-  track.style.setProperty("--ticker-from", barW + "px");
-  track.style.setProperty("--ticker-to", -textW + "px");
-
-  // انیمیشن را از نو اجرا کن تا مقدارهای تازه را بگیرد.
-  track.style.animationName = "none";
-  void track.offsetWidth;
-  track.style.animationName = "";
-}
-
-if (document.getElementById("ticker")) {
-  measureTicker();
-  // بعد از بارگذاری فونت‌ها عرض متن عوض می‌شود، پس دوباره می‌سنجیم.
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureTicker).catch(() => {});
-  window.addEventListener("load", measureTicker);
-  let tickerTimer = null;
-  window.addEventListener("resize", () => {
-    clearTimeout(tickerTimer);
-    tickerTimer = setTimeout(measureTicker, 150);
   });
 }
 

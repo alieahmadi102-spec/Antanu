@@ -1,0 +1,12 @@
+/* فونت وزیرمتن — نسخه‌ی متغیر (نسخه ۳۳.۰.۳)
+   یک فایل برای همه‌ی ضخامت‌ها (۱۰۰ تا ۹۰۰)، ۱۰۹ کیلوبایت.
+   روی خود سرور آنتانو میزبانی می‌شود تا اگر CDN در دسترس نبود هم سایت درست دیده شود.
+   پروانه: SIL Open Font License 1.1 — متن پروانه کنار همین فایل در OFL.txt است. */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('Vazirmatn%5Bwght%5D.woff2') format('woff2 supports variations'),
+       url('Vazirmatn%5Bwght%5D.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

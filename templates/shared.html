@@ -6,11 +6,11 @@
   <title>{{ title }} | {{ t("app.name") }}</title>
   <link rel="icon" href="/static/logo.png">
   <meta name="theme-color" content="#0d1017">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+  <link rel="stylesheet" href="/static/vendor/vazirmatn/vazirmatn.css?v={{ asset_ver }}">
   <script>try{var t=localStorage.getItem("antanu_theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_ver }}">
-  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <script src="/static/vendor/marked.min.js?v={{ asset_ver }}"></script>
+  <script src="/static/vendor/purify.min.js?v={{ asset_ver }}"></script>
 </head>
 <body class="chat-page shared-page">
   <main style="margin:0 auto;max-width:820px">

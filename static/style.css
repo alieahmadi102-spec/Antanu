@@ -1149,10 +1149,22 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  /* محو شدن نرم در دو لبه تا متن ناگهانی قطع نشود */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
-          mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
 }
+/* محو شدن نرم در دو لبه، با دو روکشِ گرادیانی روی نوار.
+   عمداً از mask-image استفاده نمی‌کنیم: ماسک روی عنصری که ترنسفرمش انیمیت می‌شود،
+   در موبایل باعث آرتیفکت رندر و «محو شدنِ» متن وسط راه می‌شود. */
+#ticker::before,
+#ticker::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 1;
+}
+#ticker::before { left: 0;  background: linear-gradient(90deg,  var(--panel-2), transparent); }
+#ticker::after  { right: 0; background: linear-gradient(270deg, var(--panel-2), transparent); }
 /* مسیر حرکت با پیکسل دقیق تعیین می‌شود (app.js اندازه می‌گیرد):
      --ticker-from = عرض نوار      → متن کامل بیرونِ لبه‌ی راست
      --ticker-to   = منهای طول متن → متن کامل بیرونِ لبه‌ی چپ
@@ -1163,7 +1175,6 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   --ticker-to: -100%;
   display: inline-block;
   white-space: nowrap;
-  will-change: transform;
   transform: translateX(var(--ticker-from));
 }
 #ticker .ticker-item {
@@ -1195,8 +1206,12 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   to   { transform: translateX(var(--ticker-from)); }
 }
 
-/* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند */
-#ticker:hover .ticker-track { animation-play-state: paused; }
+/* با نگه‌داشتن ماوس متوقف می‌شود تا کاربر بتواند لینک را بخواند و کلیک کند.
+   فقط روی دستگاه‌های دارای ماوس؛ در لمسی، :hover بعد از یک ضربه می‌چسبد و
+   نوار برای همیشه متوقف می‌ماند. */
+@media (hover: hover) and (pointer: fine) {
+  #ticker:hover .ticker-track { animation-play-state: paused; }
+}
 
 /* اگر کاربر «کاهش حرکت» را در سیستمش روشن کرده باشد، متن ثابت می‌ماند */
 @media (prefers-reduced-motion: reduce) {

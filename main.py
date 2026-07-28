@@ -424,7 +424,10 @@ def _compute_asset_ver() -> str:
     بدون نیاز به پاک‌کردن کش، خودکار نسخه‌ی جدید را می‌گیرد."""
     import hashlib
     h = hashlib.md5()
-    for f in ("static/app.js", "static/style.css"):
+    files = ["static/app.js", "static/style.css",
+             "static/vendor/marked.min.js", "static/vendor/purify.min.js",
+             "static/vendor/vazirmatn/vazirmatn.css"]
+    for f in files:
         try:
             with open(f, "rb") as fh:
                 h.update(fh.read())

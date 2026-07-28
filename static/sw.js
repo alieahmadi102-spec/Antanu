@@ -1,13 +1,18 @@
 /* آنتانو — سرویس‌ورکر (PWA)
    استراتژی: «شبکه اول» برای فایل‌های ثابت تا هر آپدیت بلافاصله دیده شود؛
    کش فقط برای حالت آفلاین استفاده می‌شود. با هر تغییر نسخه، کش قدیمی پاک می‌شود. */
-const CACHE = "antanu-v3";
+const CACHE = "antanu-v4";
 const ASSETS = [
   "/static/style.css",
   "/static/app.js",
   "/static/fingerprint.js",
   "/static/logo.png",
   "/static/manifest.json",
+  // کتابخانه‌ها و فونت روی سرور خودمان‌اند تا سایت به CDN بیرونی وابسته نباشد
+  "/static/vendor/marked.min.js",
+  "/static/vendor/purify.min.js",
+  "/static/vendor/vazirmatn/vazirmatn.css",
+  "/static/vendor/vazirmatn/Vazirmatn%5Bwght%5D.woff2",
 ];
 
 self.addEventListener("install", e => {
