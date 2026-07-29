@@ -14,8 +14,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt requirements-library.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# «کتابخانه‌ی هوشمند» (تلگرام + جستجوی معنایی) — پیش‌فرض خاموش.
+# سنگین است (PyTorch، حدود ۲.۵ گیگابایت) و روی سرور کم‌رم سایت را می‌خواباند،
+# پس فقط وقتی نصب می‌شود که خودت بخواهی:
+#     docker compose build --build-arg WITH_LIBRARY=1
+ARG WITH_LIBRARY=0
+RUN if [ "$WITH_LIBRARY" = "1" ]; then \
+        pip install --no-cache-dir -r requirements-library.txt ; \
+    fi
 
 COPY . .
 

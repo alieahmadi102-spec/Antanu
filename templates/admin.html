@@ -142,6 +142,34 @@
     </div>
   </div>
 
+  <!-- کتابخانه‌ی هوشمند (کتاب‌های کانال تلگرام) -->
+  <div class="card">
+    <h2>📚 کتابخانه‌ی هوشمند (کتاب‌های تلگرام)</h2>
+    <p class="sub" style="margin-bottom:12px">
+      کتاب‌های کانال تلگرامِ خودت را دانلود می‌کند، متنشان را بیرون می‌کشد و در یک پایگاه
+      «جستجوی معنایی» می‌گذارد. فرق آن با کتابخانه‌ی بالا این است که کاربر لازم نیست
+      عین واژه‌های کتاب را بنویسد؛ پرسشِ هم‌معنا هم بخش درست را پیدا می‌کند.
+      فایل خام بعد از استخراج متن حذف می‌شود تا دیسک پر نشود.
+    </p>
+    <div id="tgLibWarn" class="sub"
+         style="display:none;margin-bottom:10px;padding:10px;border-radius:10px;
+                background:rgba(248,113,113,.12);color:#fca5a5"></div>
+    <div class="row" style="align-items:center;gap:16px;flex-wrap:wrap">
+      <span style="font-size:13px">کتاب: <b id="tgLibBooks">—</b></span>
+      <span style="font-size:13px">قطعه‌ی قابل‌جستجو: <b id="tgLibChunks">—</b></span>
+      <span style="font-size:13px">تلگرام: <b id="tgLibLogin">—</b></span>
+    </div>
+    <p class="sub" id="tgLibProgress" style="margin-top:10px;min-height:18px"></p>
+    <div class="row" style="margin-top:10px;gap:10px">
+      <button class="btn" id="tgLibSync">🔄 همگام‌سازی کتاب‌ها</button>
+      <button class="mini danger" id="tgLibClear">🗑 پاک‌کردن کتابخانه‌ی هوشمند</button>
+    </div>
+    <p class="sub" style="margin-top:10px">
+      اگر هنوز وارد تلگرام نشده‌ای، یک بار در ترمینال سرور اجرا کن:
+      <code>python tools/telegram_login.py</code>
+    </p>
+  </div>
+
   <!-- نسخه و وضعیت ساخت -->
   <div class="card">
     <h2>🔧 نسخه و وضعیت ساخت</h2>
@@ -661,6 +689,72 @@ async function loadLibrary() {
   });
 }
 
+/* کتابخانه‌ی هوشمند (تلگرام + جستجوی معنایی) */
+let tgLibTimer = null;
+
+async function loadSmartLibrary() {
+  let s;
+  try {
+    const r = await fetch("/admin/library/stats");
+    if (!r.ok) return;
+    s = await r.json();
+  } catch (e) { return; }
+
+  $("#tgLibBooks").textContent = (s.books ?? 0).toLocaleString("fa-IR");
+  $("#tgLibChunks").textContent = (s.chunks ?? 0).toLocaleString("fa-IR");
+  $("#tgLibLogin").textContent = s.logged_in ? "وارد شده ✅"
+                              : (s.configured ? "وارد نشده" : "تنظیم نشده");
+
+  // اگر کتابخانه‌های سنگین یا کلیدها نیستند، صریح بگو چه کم است
+  const warn = $("#tgLibWarn");
+  const msgs = [];
+  if (!s.available && s.reason) msgs.push(s.reason);
+  if (!s.configured && s.config_hint) msgs.push(s.config_hint);
+  if (msgs.length) { warn.textContent = msgs.join("  •  "); warn.style.display = "block"; }
+  else warn.style.display = "none";
+
+  const sync = s.sync || {};
+  const running = !!sync.running;
+  $("#tgLibSync").disabled = running || !s.available || !s.configured || !s.logged_in;
+  $("#tgLibClear").disabled = running || !s.available;
+  $("#tgLibSync").textContent = running ? "⏳ در حال همگام‌سازی…" : "🔄 همگام‌سازی کتاب‌ها";
+
+  let p = sync.message || "";
+  if (running && sync.total) p = `(${sync.done} از ${sync.total}) ${p}`;
+  else if (!running && sync.finished_at)
+    p = `آخرین همگام‌سازی ${sync.finished_at} — ${sync.added} تازه، ${sync.skipped} رد، ${sync.failed} خطا`;
+  $("#tgLibProgress").textContent = p;
+
+  // فقط تا وقتی کاری در جریان است نظرسنجی کن
+  if (running && !tgLibTimer) tgLibTimer = setInterval(loadSmartLibrary, 3000);
+  if (!running && tgLibTimer) { clearInterval(tgLibTimer); tgLibTimer = null; }
+}
+
+$("#tgLibSync").addEventListener("click", async () => {
+  $("#tgLibSync").disabled = true;
+  $("#tgLibProgress").textContent = "در حال شروع…";
+  try {
+    const r = await fetch("/admin/library/sync", { method: "POST" });
+    const d = await r.json();
+    if (!d.ok) $("#tgLibProgress").textContent = "⚠️ " + (d.error || "شروع نشد");
+  } catch (e) {
+    $("#tgLibProgress").textContent = "⚠️ ارتباط با سرور برقرار نشد";
+  }
+  loadSmartLibrary();
+});
+
+$("#tgLibClear").addEventListener("click", async () => {
+  if (!confirm("همه‌ی کتاب‌های کتابخانه‌ی هوشمند پاک شوند؟ (کتابخانه‌ی دائمی دست‌نخورده می‌ماند)")) return;
+  try {
+    const r = await fetch("/admin/library/clear", { method: "POST" });
+    const d = await r.json();
+    $("#tgLibProgress").textContent = d.ok ? "پاک شد." : ("⚠️ " + (d.error || "پاک نشد"));
+  } catch (e) {
+    $("#tgLibProgress").textContent = "⚠️ ارتباط با سرور برقرار نشد";
+  }
+  loadSmartLibrary();
+});
+
 /* نسخه و وضعیت ساخت */
 async function loadBuildInfo() {
   const r = await fetch("/admin/build_info");
@@ -935,6 +1029,7 @@ window.addEventListener("resize", () => {
 
 loadKb();
 loadLibrary();
+loadSmartLibrary();
 loadBuildInfo();
 loadAppSettings();
 loadAiSettings();

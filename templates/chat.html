@@ -106,6 +106,9 @@
       <!-- انتخابگر مدل‌ها -->
       <div class="toolbar">
         <button id="researchBtn" class="tool-chip">{{ t("chat.tool_research") }}</button>
+        <button id="libraryBtn" class="tool-chip"
+                data-on="{{ t('chat.library_on') }}"
+                data-off="{{ t('chat.library_off') }}">{{ t("chat.tool_library") }}</button>
         <div class="model-wrap">
           <button id="modelBtn" class="tool-chip">🧠 <span id="modelLabel">{{ t("chat.tool_model")[2:] }}</span> ▾</button>
           <div id="modelPanel">

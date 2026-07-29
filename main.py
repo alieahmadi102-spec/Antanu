@@ -10,7 +10,7 @@ import asyncio
 import secrets
 
 import httpx
-from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, BackgroundTasks
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse, FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -334,25 +334,70 @@ def pick_model_for(task: str, catalog=None):
     return next((c for c in ordered if c.get("key")), cat[0])
 
 
-def _library_context(query: str, limit: int = 4, budget: int = 4000) -> str:
-    """بخش‌های مرتبط از «کتابخانه‌ی دائمی» را برای افزودن به پرامپت آماده می‌کند.
+def _rag_context(query: str, top_k: int = 3, budget: int = 2500) -> str:
+    """بخش‌های مرتبط از «کتابخانه‌ی هوشمند» (کتاب‌های تلگرام، جستجوی معنایی).
 
-    اگر کتابخانه خالی باشد یا چیزی پیدا نشود، رشته‌ی خالی برمی‌گردد تا پرامپت
-    بی‌دلیل بزرگ نشود.
+    تمامش اختیاری است: اگر chromadb/sentence-transformers نصب نباشند یا هنوز
+    کتابی همگام نشده باشد، رشته‌ی خالی می‌دهد و چت دست‌نخورده کار می‌کند.
     """
     try:
-        import knowledge_base as _kb
-        ctx = _kb.context_for(query, limit=limit, budget=budget)
+        from library import rag_engine
+        if not rag_engine.available():
+            return ""
+        return rag_engine.context_for(query, top_k=top_k, budget=budget)
     except Exception:
         return ""
-    if not ctx:
+
+
+def _library_context(query: str, limit: int = 4, budget: int = 4000,
+                     books_only: bool = False) -> str:
+    """بخش‌های مرتبط از کتابخانه‌های آنتانو را برای افزودن به پرامپت آماده می‌کند.
+
+    دو منبع کنار هم:
+      • کتابخانه‌ی دائمی (FTS5) — جستجوی کلیدواژه‌ای روی اسناد افزوده‌ی مالک سایت
+      • کتابخانه‌ی هوشمند (RAG) — جستجوی معنایی روی کتاب‌های کانال تلگرام
+
+    اگر هیچ‌کدام نتیجه ندهند، رشته‌ی خالی برمی‌گردد تا پرامپت بی‌دلیل بزرگ نشود.
+    `books_only` وقتی روشن است که کاربر حالت «جستجو در کتابخانه» را زده باشد؛
+    آن‌وقت سهم بیشتری از بودجه به کتاب‌ها می‌رسد و آنتانو ملزم می‌شود فقط بر پایه‌ی
+    همین‌ها پاسخ بدهد.
+    """
+    fts = ""
+    try:
+        import knowledge_base as _kb
+        fts = _kb.context_for(query, limit=limit, budget=budget) or ""
+    except Exception:
+        fts = ""
+
+    rag = _rag_context(query,
+                       top_k=8 if books_only else 3,
+                       budget=6000 if books_only else 2500)
+
+    if not fts and not rag:
+        # در حالت «فقط کتابخانه» سکوت نکن؛ به آنتانو بگو چیزی پیدا نشد تا به‌جای
+        # پاسخ از دانش عمومی، صادقانه همین را بگوید.
+        if books_only:
+            return ("\n\n📚 کاربر حالت «جستجو در کتابخانه» را روشن کرده، اما در "
+                    "کتابخانه‌ی آنتانو چیزی مرتبط با این پرسش پیدا نشد. صریح بگو که "
+                    "در کتاب‌های موجود پاسخی نیافتی، بعد در صورت تمایل از دانش عمومی "
+                    "خودت کمک کن و روشن مشخص کن که این بخش از کتاب‌ها نیست.")
         return ""
-    return (
+
+    head = (
         "\n\n📚 از کتابخانه‌ی آنتانو (کتاب‌ها و جزوه‌های معتبری که مالک سایت افزوده است).\n"
-        "اگر به پرسش مربوط است، از همین‌ها استفاده کن و نامِ منبع را ذکر کن؛ "
-        "اگر ربطی ندارد، نادیده بگیر و از دانش خودت پاسخ بده. چیزی از خودت به این منابع نبند.\n"
-        + ctx
     )
+    if books_only:
+        head += (
+            "کاربر حالت «جستجو در کتابخانه» را روشن کرده است: پاسخ را **فقط** بر پایه‌ی "
+            "همین منابع بساز و نام کتاب هر بخش را ذکر کن. اگر منابع زیر پاسخ پرسش را "
+            "ندارند، همین را صریح بگو و از خودت چیزی نساز.\n"
+        )
+    else:
+        head += (
+            "اگر به پرسش مربوط است، از همین‌ها استفاده کن و نامِ منبع را ذکر کن؛ "
+            "اگر ربطی ندارد، نادیده بگیر و از دانش خودت پاسخ بده. چیزی از خودت به این منابع نبند.\n"
+        )
+    return head + "\n\n".join(p for p in (fts, rag) if p)
 
 
 def add_knowledge(question: str, answer: str):
@@ -480,6 +525,9 @@ def _build_report() -> dict:
         ("ترجمه‌ی خودکار نوار تبلیغاتی", "main.py", "_ticker_cache_key"),
         ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
         ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
+        ("کتابخانه‌ی هوشمند: موتور جستجوی معنایی", "library/rag_engine.py", "def search"),
+        ("کتابخانه‌ی هوشمند: همگام‌سازی تلگرام", "library/telegram_sync.py", "sync_channel"),
+        ("کتابخانه‌ی هوشمند: دکمه در چت", "static/app.js", "libraryBtn"),
         ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
         ("کتابخانه‌ی DOMPurify روی سرور خودمان", "static/vendor/purify.min.js", None),
         ("فونت وزیرمتن روی سرور خودمان", "static/vendor/vazirmatn/vazirmatn.css", None),
@@ -3237,6 +3285,8 @@ async def api_chat(request: Request):
     selected_ids = body.get("models") or ["auto"]
     web_on = bool(body.get("web"))
     research = bool(body.get("research"))
+    # حالت «جستجو در کتابخانه» — یک حالت است، نه نوع محتوا؛ سندی تولید نمی‌کند
+    library_on = bool(body.get("library"))
     tone = (body.get("tone") or "").strip()
     attachment_ids = body.get("attachments") or []
     if not message:
@@ -3405,8 +3455,8 @@ async def api_chat(request: Request):
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
 
-    # کتابخانه‌ی دائمی: بخش‌های مرتبط از کتاب‌ها و جزوه‌های ذخیره‌شده
-    sys_content += _library_context(message)
+    # کتابخانه: بخش‌های مرتبط از کتاب‌ها و جزوه‌های ذخیره‌شده (کلیدواژه‌ای + معنایی)
+    sys_content += _library_context(message, books_only=library_on)
 
     # اگر پیام «درخواست ترجمه» است، آنتانو نباید به سلام/احوالپرسیِ داخل متن پاسخ دهد
     _tr_target = None
@@ -4473,6 +4523,81 @@ def admin_library_stats(request: Request):
         return _kb.stats()
     except Exception:
         return {"sources": 0, "chunks": 0, "items": []}
+
+
+# ---------------- کتابخانه‌ی هوشمند (کتاب‌های کانال تلگرام) ----------------
+
+@app.get("/admin/library/stats")
+def admin_smart_library_stats(request: Request):
+    """وضعیت کتابخانه‌ی هوشمند: چند کتاب، چند قطعه، و آماده‌بودن تلگرام."""
+    require_admin(request)
+    out = {"available": False, "reason": "", "books": 0, "chunks": 0,
+           "configured": False, "config_hint": "", "logged_in": False,
+           "sync": {}}
+    try:
+        from library import rag_engine, telegram_sync
+        out.update(rag_engine.stats())
+        ok, why = telegram_sync.is_configured()
+        out["configured"] = ok
+        out["config_hint"] = why
+        out["logged_in"] = telegram_sync.has_session()
+        out["sync"] = telegram_sync.status()
+    except Exception as e:
+        out["reason"] = f"کتابخانه‌ی هوشمند بارگذاری نشد: {e}"
+    return out
+
+
+@app.post("/admin/library/sync")
+async def admin_smart_library_sync(request: Request, background: BackgroundTasks):
+    """همگام‌سازی کتاب‌های کانال را در پس‌زمینه آغاز می‌کند.
+
+    پاسخ فوری برمی‌گردد و پیشرفت از راه /admin/library/stats دنبال می‌شود؛
+    چون دانلود و بردارسازی ده‌ها کتاب ممکن است دقایقی طول بکشد.
+    """
+    require_admin(request)
+    try:
+        from library import telegram_sync
+    except Exception as e:
+        return {"ok": False, "error": f"ماژول تلگرام در دسترس نیست: {e}"}
+
+    ok, why = telegram_sync.is_configured()
+    if not ok:
+        return {"ok": False, "error": why}
+    if not telegram_sync.has_session():
+        return {"ok": False, "error":
+                "هنوز به تلگرام وارد نشده‌ای. یک بار در ترمینال سرور اجرا کن: "
+                "python tools/telegram_login.py"}
+    try:
+        from library import rag_engine
+        if not rag_engine.available():
+            return {"ok": False, "error": rag_engine.unavailable_reason()}
+        # مدل بردارساز را همین حالا امتحان کن. اگر بالا نیاید (نبود اینترنت یا کمبود
+        # رم)، بهتر است همین‌جا دلیلش را بگوییم تا اینکه هر ۸۰ کتاب یکی‌یکی خطا بدهند.
+        if not await run_in_threadpool(rag_engine.model_ready):
+            return {"ok": False, "error": rag_engine.model_error() or
+                    "مدل بردارساز بالا نیامد."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    if telegram_sync.status().get("running"):
+        return {"ok": False, "error": "یک همگام‌سازی از قبل در حال اجراست."}
+
+    background.add_task(telegram_sync.sync_channel_blocking)
+    return {"ok": True, "message": "همگام‌سازی آغاز شد. پیشرفت را همین‌جا ببین."}
+
+
+@app.post("/admin/library/clear")
+def admin_smart_library_clear(request: Request):
+    """کل کتابخانه‌ی برداری را پاک می‌کند (کتابخانه‌ی دائمی دست‌نخورده می‌ماند)."""
+    require_admin(request)
+    try:
+        from library import rag_engine, telegram_sync
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    if telegram_sync.status().get("running"):
+        return {"ok": False, "error": "تا پایان همگام‌سازی نمی‌شود پاک کرد."}
+    if not rag_engine.available():
+        return {"ok": False, "error": rag_engine.unavailable_reason()}
+    return {"ok": bool(rag_engine.clear())}
 
 
 @app.get("/admin/build_info")

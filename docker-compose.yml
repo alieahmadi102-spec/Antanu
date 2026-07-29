@@ -2,7 +2,12 @@
 # راه‌اندازی:  cp .env.example .env   →  ویرایش .env   →  docker compose up -d --build
 services:
   antanu:
-    build: .
+    build:
+      context: .
+      args:
+        # «کتابخانه‌ی هوشمند» پیش‌فرض خاموش است (سنگین است — رم سرور را اول ببین).
+        # روشن‌کردن:  docker compose build --build-arg WITH_LIBRARY=1
+        WITH_LIBRARY: "${WITH_LIBRARY:-0}"
     container_name: antanu
     restart: unless-stopped
     ports:
@@ -15,6 +20,12 @@ services:
       ANTANU_EXPORT_DIR: /data/exports
       ANTANU_BACKUP_DIR: /data/backups
       PORT: "8080"
+      # کتابخانه‌ی هوشمند — همه روی دیسک ماندگار، وگرنه با هر build از بین می‌روند
+      # و باید ده‌ها کتاب دوباره دانلود و بردارسازی شوند.
+      ANTANU_CHROMA_DIR: /data/chroma_db      # پایگاه برداری کتاب‌ها
+      ANTANU_TG_SESSION: /data/antanu.session # نشست تلگرام (وگرنه هر بار ورود دوباره)
+      ANTANU_BOOKS_DIR: /data/books_raw       # فقط موقتی؛ فایل خام پس از استخراج پاک می‌شود
+      HF_HOME: /data/hf_cache                 # مدل بردارساز (~۵۰۰ مگ) یک بار دانلود شود
     volumes:
       - antanu_data:/data     # دیسک ماندگار: دیتابیس + خروجی‌ها + بکاپ‌ها اینجا می‌مانند
 

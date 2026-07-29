@@ -144,6 +144,7 @@ let sending = false;
 let attachments = [];              // فایل‌های پیوست: {id, filename}
 let webOn = false;                 // جستجوی وب
 let researchOn = false;            // تحقیق گروهی
+let libraryOn = false;             // جستجو در کتابخانه (حالت است، نه نوع محتوا)
 let abortCtrl = null;              // کنترل توقف استریم
 let models = [];                   // فهرست مدل‌ها از سرور
 let selected = JSON.parse(localStorage.getItem("antanu_models") || '["auto"]');
@@ -786,6 +787,7 @@ async function send(textOverride) {
 
   let displayText = text;
   if (webOn) displayText += "\n🌐 با جستجوی وب";
+  if (libraryOn) displayText += "\n📖 از کتابخانه";
   const userDiv = addMsg("user", displayText);
   // نمایش عکس‌ها و فایل‌ها داخل حباب پیام
   if (attachments.length) {
@@ -811,6 +813,7 @@ async function send(textOverride) {
     models: selected,
     web: webOn,
     research: researchOn,
+    library: libraryOn,
     tone: ($("#toneSelect") && $("#toneSelect").value) || "",
     attachments: attachments.map(a => a.id),
   };
@@ -2194,6 +2197,21 @@ $("#researchBtn").addEventListener("click", () => {
     ? "🔬 تحقیق گروهی روشن شد — همه هوش مصنوعی‌ها + جستجوی وب باهم پژوهش می‌کنند"
     : "تحقیق گروهی خاموش شد");
 });
+
+/* ---------- جستجو در کتابخانه ----------
+   یک «حالت» است مثل جستجوی وب، نه یک نوع محتوا: پرچم library را در بدنه‌ی
+   درخواست می‌فرستد و آنتانو پاسخ را از روی کتاب‌های کتابخانه می‌سازد.
+   متن اعلان‌ها از قالب می‌آید تا با زبان انتخابی کاربر بخواند. */
+(function initLibraryBtn() {
+  const btn = $("#libraryBtn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    libraryOn = !libraryOn;
+    btn.classList.toggle("on", libraryOn);
+    toast(libraryOn ? (btn.dataset.on || "📖 جستجو در کتابخانه روشن شد")
+                    : (btn.dataset.off || "جستجو در کتابخانه خاموش شد"));
+  });
+})();
 
 /* ---------- پنجره سند: مقاله بلند / خروجی پاسخ ---------- */
 
