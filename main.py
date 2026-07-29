@@ -268,8 +268,37 @@ def ticker_direction(text: str) -> str:
     return "rtl" if rtl > ltr else "ltr"
 
 
-def build_ticker():
-    """اطلاعات نوار تبلیغاتی برای قالب. اگر متنی تنظیم نشده باشد، None برمی‌گرداند."""
+def _ticker_cache_key(text: str, lang: str) -> str:
+    """کلید انبار ترجمه. چون به محتوای متن گره خورده، وقتی مدیر متن تبلیغ را عوض
+    کند ترجمه‌های قدیمی خودبه‌خود بی‌اثر می‌شوند."""
+    import hashlib
+    h = hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:12]
+    return f"ticker_tr:{h}:{lang}"
+
+
+def ticker_source_lang(text: str) -> str:
+    """زبانی که مدیر متن تبلیغ را با آن نوشته است."""
+    code, sure = i18n.detect_message_lang(text, fallback="fa")
+    return code if sure else "fa"
+
+
+def _ticker_payload(text: str, speed: int, needs_tr: bool = False) -> dict:
+    return {
+        "html": _ticker_linkify(text),
+        "dir": ticker_direction(text),
+        "speed": speed,
+        "needs_tr": needs_tr,
+    }
+
+
+def build_ticker(lang: str | None = None):
+    """اطلاعات نوار تبلیغاتی برای قالب، به زبان کاربر.
+
+    مدیر متن را (معمولاً به فارسی) در پنل می‌نویسد؛ اینجا اگر زبان کاربر فرق داشته
+    باشد، ترجمه‌ی ذخیره‌شده نشان داده می‌شود. اگر هنوز ترجمه‌ای نداریم، متن اصلی
+    برمی‌گردد و با نشانه‌ی needs_tr، مرورگر ترجمه را از /api/ticker می‌گیرد — پس
+    بالا آمدن صفحه هیچ‌وقت منتظر مدل نمی‌ماند.
+    """
     text = (get_setting("ticker_text", "") or "").strip()
     if not text:
         return None
@@ -277,11 +306,15 @@ def build_ticker():
         speed = max(5, min(int(get_setting("ticker_speed", "25") or 25), 180))
     except (TypeError, ValueError):
         speed = 25
-    return {
-        "html": _ticker_linkify(text),
-        "dir": ticker_direction(text),
-        "speed": speed,
-    }
+
+    target = i18n.normalize(lang) if lang else None
+    if not target or target == ticker_source_lang(text):
+        return _ticker_payload(text, speed)
+
+    cached = get_setting(_ticker_cache_key(text, target), "")
+    if cached:
+        return _ticker_payload(cached, speed)
+    return _ticker_payload(text, speed, needs_tr=True)
 
 
 def pick_model_for(task: str, catalog=None):
@@ -443,6 +476,8 @@ def _build_report() -> dict:
         ("نوار تبلیغاتی: حرکت فریم‌به‌فریم", "static/app.js", "requestAnimationFrame(frame)"),
         ("کتابخانه‌ی دائمی آنتانو", "knowledge_base.py", "seed_knowledge_if_needed"),
         ("تحلیل خودکار آماری (SPSS/EViews/SmartPLS)", "analysis_planner.py", "validate_plan"),
+        ("پاسخ به زبان کاربر", "i18n.py", "detect_message_lang"),
+        ("ترجمه‌ی خودکار نوار تبلیغاتی", "main.py", "_ticker_cache_key"),
         ("نوار تبلیغاتی: اندازه‌گیری پیکسلی", "static/app.js", "initTicker"),
         ("نوار تبلیغاتی: مسیر دقیق در CSS", "static/style.css", "--ticker-from"),
         ("کتابخانه‌ی marked روی سرور خودمان", "static/vendor/marked.min.js", None),
@@ -2157,7 +2192,7 @@ def chat_page(request: Request):
         elif days_left is not None and days_left <= 5:
             sub_warn = (f"⏳ تنها {days_left} روز از اشتراک شما باقی مانده است (پایان: {end_date}). "
                         f"برای تمدید به مدیر پیام دهید — {ADMIN_CONTACT}")
-    ticker = build_ticker()
+    ticker = build_ticker(resolve_lang(request, user))
     return render("chat.html", request=request, user=user, daily_limit=limit_txt,
                   version=get_setting("app_version", "1.0"),
                   announcement=get_setting("announcement", ""),
@@ -3021,20 +3056,51 @@ TONE_INSTRUCTIONS = {
 }
 
 
-def build_system_prompt(user, memories, tone: str | None = None, lang: str | None = None) -> str:
+# زبان‌هایی که تشخیص‌دهنده می‌شناسد ولی در فهرست رابط سایت نیستند؛
+# اگر کاربر با یکی از این‌ها بنویسد، باز هم باید به همان زبان پاسخ بگیرد.
+_EXTRA_LANG_NAMES = {
+    "ru": "Russian", "uk": "Ukrainian", "it": "Italian", "pt": "Portuguese",
+    "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "he": "Hebrew",
+    "ur": "Urdu", "th": "Thai", "vi": "Vietnamese", "id": "Indonesian",
+}
+
+
+def _lang_display_name(code: str) -> str:
+    """نام انگلیسیِ زبان برای نوشتن در پرامپت."""
+    c = (code or "").strip().lower()
+    if i18n.is_supported(c):
+        return i18n.english_name(c)
+    return _EXTRA_LANG_NAMES.get(c, c.upper() or "English")
+
+
+def build_system_prompt(user, memories, tone: str | None = None, lang: str | None = None,
+                        reply_lang: str | None = None) -> str:
+    """پرامپت سیستمی.
+
+    lang       = زبان انتخاب‌شده‌ی سایت (پیش‌فرض، وقتی زبان پیام مبهم است)
+    reply_lang = زبانی که کاربر واقعاً با آن نوشته؛ پاسخ باید به همین زبان باشد.
+    """
     prompt = BASE_SYSTEM_PROMPT
-    # زبان پاسخ: کاربر هر زبانی را که در سایت انتخاب کرده، آنتانو به همان زبان جواب می‌دهد.
-    code = i18n.normalize(lang)
+    # زبان پاسخ: آنتانو به همان زبانی جواب می‌دهد که کاربر پیام داده،
+    # حتی اگر زبان رابط سایت چیز دیگری باشد.
+    code = i18n.normalize(reply_lang or lang)
     if code != "fa":
-        lname = i18n.english_name(code)
+        lname = _lang_display_name(reply_lang or lang)
         prompt += (
-            f"\n\n[RESPONSE LANGUAGE — HIGHEST PRIORITY] The user's interface language is {lname}. "
+            f"\n\n[RESPONSE LANGUAGE — HIGHEST PRIORITY] The user wrote to you in {lname}. "
             f"Write every answer in {lname}, using that language's own script and natural style. "
+            f"If the user later writes in a different language, switch to that language too — "
+            f"always mirror the language of the user's latest message. "
             f"This overrides any earlier instruction that told you to answer in Persian: "
             f"ignore those Persian-only writing rules and apply the same care "
             f"(clean grammar, correct punctuation, no mixed-in foreign words, no broken sentences) to {lname} instead. "
             f"Only switch away from {lname} when the user explicitly asks for another language "
             f"or asks you to translate something. Keep the [[TR: ...]] format rule for translations."
+        )
+    else:
+        prompt += (
+            "\n\n[زبان پاسخ] کاربر به فارسی نوشته است، پس پاسخ را کامل به فارسی بنویس. "
+            "اگر در پیام بعدی به زبان دیگری نوشت، به همان زبان جواب بده."
         )
     prompt += (f"\n\nتاریخ و ساعت کنونی: {now_string()}. "
                "هر جا درباره تاریخ، روز، سال یا ساعت پرسیده شد، دقیقاً از همین استفاده کن و نگو که نمی‌دانی.")
@@ -3326,10 +3392,15 @@ async def api_chat(request: Request):
 
     # دانش خودآموز: پاسخ‌های مشابه قبلی از پایگاه دانش آنتانو
     kb = search_knowledge(message, limit=2)
-    # زبان کاربر: آنتانو به همان زبانی جواب می‌دهد که کاربر در سایت انتخاب کرده
+    # زبان پاسخ = زبانی که کاربر با آن نوشته است. زبان انتخاب‌شده‌ی سایت فقط وقتی
+    # ملاک است که پیام کوتاه یا مبهم باشد (مثل «ok» یا یک ایموجی).
     user_lang = resolve_lang(request, user)
-    _lang_ctx.set(user_lang)      # تا فیلتر حروف هم بداند خروجی به چه زبانی است
-    sys_content = build_system_prompt(user, memories, tone, lang=user_lang)
+    reply_lang, _sure = i18n.detect_message_lang(message, fallback=user_lang)
+    # این خط حیاتی است: فیلترِ «حذف حروف غیرفارسی» از همین متغیر می‌خواند. اگر
+    # زبان سایت فارسی باشد و کاربر چینی/روسی بنویسد، بدون این خط کل پاسخ پاک می‌شود.
+    _lang_ctx.set(reply_lang)
+    sys_content = build_system_prompt(user, memories, tone, lang=user_lang,
+                                      reply_lang=reply_lang)
     if kb:
         sys_content += "\n\nدانش پیشین آنتانو (از گفتگوهای قبلی، در صورت مرتبط بودن استفاده کن):\n"
         sys_content += "\n".join(f"پرسش: {k['question']}\nپاسخ: {k['answer'][:800]}" for k in kb)
@@ -3498,14 +3569,23 @@ async def api_chat(request: Request):
                     combo = "\n\n═══ پیش‌نویس بعدی ═══\n\n".join(d[:3500] for d in drafts)
                     goal = ("یک پژوهش کامل، عمیق و ساختارمند با عنوان‌بندی" if research
                             else "یک پاسخ واحد، کامل و منسجم")
+                    # زبان خروجیِ ترکیب هم باید همان زبان پیام کاربر باشد
+                    _lname = _lang_display_name(reply_lang)
+                    _lang_rule = (
+                        "تکرارها را حذف کن، اشتباه‌ها را اصلاح کن و فقط به فارسیِ معیارِ روان و درست بنویس؛ "
+                        "هیچ حرف یا واژه غیرفارسی به کار نبر مگر معادل انگلیسی داخل پرانتز. "
+                        if reply_lang == "fa" else
+                        f"Remove repetition, fix mistakes, and write the whole answer in {_lname} "
+                        f"using clean grammar and that language's own script. "
+                    )
                     synth_msgs = [
-                        {"role": "system", "content": build_system_prompt(user, memories)},
+                        {"role": "system", "content": build_system_prompt(
+                            user, memories, tone, lang=user_lang, reply_lang=reply_lang)},
                         {"role": "user", "content":
                             f"پرسش کاربر: {message}\n\n"
                             f"چند پیش‌نویس داخلی برای پاسخ آماده شده است:\n{combo}\n\n"
                             f"بر پایه بهترین نکات همه پیش‌نویس‌ها، {goal} بنویس. "
-                            "تکرارها را حذف کن، اشتباه‌ها را اصلاح کن و فقط به فارسیِ معیارِ روان و درست بنویس؛ "
-                            "هیچ حرف یا واژه غیرفارسی به کار نبر مگر معادل انگلیسی داخل پرانتز. "
+                            + _lang_rule +
                             "هرگز به وجود پیش‌نویس‌ها یا چند دستیار اشاره نکن — پاسخ فقط از زبان خودت (آنتانو) باشد."},
                     ]
                     async for chunk in try_stream(synth_msgs):
@@ -3664,6 +3744,72 @@ async def stats_run(request: Request):
         print("[ANTANU] stats chart failed:", _e)
 
     return {"result": result, "interpretation": interpretation}
+
+
+@app.get("/api/ticker")
+async def api_ticker(request: Request, lang: str = ""):
+    """متن نوار تبلیغاتی به زبان کاربر — در صورت نیاز ترجمه و ذخیره می‌شود.
+
+    مدیر متن را یک بار به فارسی می‌نویسد و هر کاربر آن را به زبان خودش می‌بیند.
+    ترجمه فقط یک بار برای هر زبان گرفته می‌شود و بعد از انبار می‌آید.
+    """
+    text = (get_setting("ticker_text", "") or "").strip()
+    if not text:
+        return {"html": "", "dir": "rtl", "speed": 25}
+    try:
+        speed = max(5, min(int(get_setting("ticker_speed", "25") or 25), 180))
+    except (TypeError, ValueError):
+        speed = 25
+
+    target = i18n.normalize(lang or resolve_lang(request, current_user(request)))
+    src = ticker_source_lang(text)
+    if target == src:
+        return _ticker_payload(text, speed)
+
+    key = _ticker_cache_key(text, target)
+    cached = get_setting(key, "")
+    if cached:
+        return _ticker_payload(cached, speed)
+
+    # نشانی‌ها نباید ترجمه شوند: جایشان نشانه می‌گذاریم و بعد برمی‌گردانیم
+    urls = []
+
+    def _hold(m):
+        urls.append(m.group(1))
+        return f"⟦{len(urls) - 1}⟧"
+
+    masked = _TICKER_URL_RE.sub(_hold, text)
+
+    translated = ""
+    c = pick_model_for("translate")
+    if c.get("key"):
+        try:
+            tname = _lang_display_name(target)
+            out = await _call_model_once(
+                c,
+                f"Translate the following advertising banner into {tname}. "
+                f"Keep it short and natural, like an ad line. "
+                f"Keep every placeholder such as ⟦0⟧ exactly as it is and in place. "
+                f"Keep emojis. Reply with the translation only — no quotes, no explanation.\n\n"
+                f"{masked}",
+                system="You are a professional advertising translator. Output only the translation.",
+                max_tokens=400, keep_foreign=True)
+            translated = (out or "").strip().strip('"').strip()
+        except Exception:
+            translated = ""
+
+    if not translated:
+        return _ticker_payload(text, speed)      # ترجمه نشد → همان متن اصلی
+
+    for i, u in enumerate(urls):
+        translated = translated.replace(f"⟦{i}⟧", u).replace(f"[{i}]", u)
+    # اگر مدل نشانه‌ها را خورد، نشانی‌ها را ته متن برگردان تا لینک از دست نرود
+    for u in urls:
+        if u not in translated:
+            translated += " " + u
+
+    set_setting(key, translated[:1000])
+    return _ticker_payload(translated, speed)
 
 
 @app.post("/api/stats/auto")

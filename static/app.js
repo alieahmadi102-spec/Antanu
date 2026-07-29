@@ -33,7 +33,8 @@
     // تا اولین فریم خودش جای درست را بگذارد و متن یک لحظه وسط نوار ظاهر نشود.
     track.style.animation = "none";
 
-    const rtl = bar.classList.contains("dir-rtl");
+    // با آمدن ترجمه‌ی تبلیغ ممکن است جهت عوض شود، پس ثابت نیست
+    let rtl = bar.classList.contains("dir-rtl");
     const speed = parseFloat(getComputedStyle(bar).getPropertyValue("--ticker-speed")) || 25;
 
     let barW = 0, textW = 0, dist = 0, pxPerSec = 0;
@@ -87,6 +88,29 @@
     requestAnimationFrame(frame);
 
     const scheduleMeasure = () => { needMeasure = true; };
+
+    /* متن تبلیغ به زبان کاربر: مدیر آن را (معمولاً فارسی) می‌نویسد و سرور ترجمه‌اش
+       می‌کند. اگر ترجمه هنوز آماده نبود، صفحه با متن اصلی بالا می‌آید و ترجمه
+       همین‌جا گرفته و جایگزین می‌شود — تا بارگذاری صفحه معطل مدل نماند. */
+    const wantTr = bar.getAttribute("data-needs-tr");
+    if (wantTr) {
+      fetch("/api/ticker?lang=" + encodeURIComponent(wantTr))
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (!d || !d.html) return;
+          item.innerHTML = d.html;
+          item.setAttribute("dir", d.dir || "rtl");
+          bar.classList.remove("dir-rtl", "dir-ltr");
+          bar.classList.add("dir-" + (d.dir || "rtl"));
+          bar.removeAttribute("data-needs-tr");
+          // جهت و طول متن عوض شد → مسیر حرکت باید دوباره حساب شود
+          rtl = (d.dir || "rtl") === "rtl";
+          pos = 0;
+          scheduleMeasure();
+        })
+        .catch(() => {});
+    }
+
     window.addEventListener("resize", scheduleMeasure);
     window.addEventListener("orientationchange", scheduleMeasure);
     if (document.fonts && document.fonts.ready) {

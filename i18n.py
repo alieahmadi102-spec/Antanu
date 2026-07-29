@@ -13,6 +13,7 @@ i18n.py — چندزبانه‌سازی آنتانو.
 """
 import json
 import os
+import re
 import threading
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
@@ -137,6 +138,93 @@ def pick_from_header(accept_language: str) -> str:
         if norm and q > best_q:
             best, best_q = norm, q
     return best
+
+
+# ---------- تشخیص زبانِ پیام کاربر ----------
+# آنتانو باید به همان زبانی پاسخ دهد که کاربر نوشته، نه لزوماً زبان انتخاب‌شده‌ی سایت.
+
+_SCRIPTS = (
+    ("hy", 0x0530, 0x058F),          # ارمنی
+    ("ru", 0x0400, 0x04FF),          # سیریلیک (خارج از فهرست سایت، ولی باید تشخیص داده شود)
+    ("hi", 0x0900, 0x097F),          # دِواناگری
+    ("ja", 0x3040, 0x30FF),          # کانا (فقط ژاپنی)
+    ("ko", 0xAC00, 0xD7AF),          # هانگول
+    ("zh", 0x4E00, 0x9FFF),          # هان — ژاپنی هم دارد، پس بعد از کانا بررسی می‌شود
+    ("ar", 0x0600, 0x06FF),          # عربی/فارسی — پایین‌تر از هم جدا می‌شوند
+)
+
+# حرف‌هایی که فقط در فارسی هستند و در عربی نه
+_FA_ONLY = set("پچژگ")
+_FA_WORDS = ("است", "این", "که", "برای", "می", "های", "چه", "چطور", "کن", "کجا", "شما")
+_AR_WORDS = ("هذا", "الذي", "على", "في", "من", "ما", "كيف", "أين", "هل", "إلى")
+
+# نشانه‌های زبان‌های لاتین‌نویس
+_LATIN_HINTS = {
+    "de": (set("äöüßÄÖÜ"), ("der", "die", "das", "und", "ist", "nicht", "ich", "wie", "was")),
+    "fr": (set("àâçéèêëîïôûùüÿœ"), ("le", "la", "les", "est", "une", "vous", "pour", "comment")),
+    "es": (set("ñáíóúü¿¡"), ("el", "los", "una", "que", "para", "cómo", "qué", "gracias")),
+    "tr": (set("ıİğĞşŞçÇöÖüÜ"), ("bir", "ve", "için", "nasıl", "ne", "bu", "merhaba")),
+}
+
+def _letters_only(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalpha())
+
+
+def detect_message_lang(text: str, fallback: str = DEFAULT_LANG):
+    """زبانِ پیام کاربر را حدس می‌زند.
+
+    خروجی: (کد زبان، مطمئن هستیم؟)
+    اگر پیام کوتاه یا فقط عدد/ایموجی/نشانه باشد، «مطمئن نیستیم» برمی‌گردد و همان
+    زبان پیش‌فرض (زبان سایت) داده می‌شود — تا «ok» یا «👍» زبان گفتگو را عوض نکند.
+
+    نکته: کد برگشتی ممکن است زبانی خارج از فهرست سایت باشد (مثل «ru»). این عمدی
+    است: مصرف‌کننده فقط باید بداند پاسخ قرار است فارسی باشد یا نه.
+    """
+    t = (text or "").strip()
+    letters = _letters_only(t)
+    if len(letters) < 3:
+        return fallback, False
+
+    counts = {}
+    for ch in letters:
+        o = ord(ch)
+        if "a" <= ch.lower() <= "z" or 0x00C0 <= o <= 0x024F:
+            counts["latin"] = counts.get("latin", 0) + 1
+            continue
+        for code, lo, hi in _SCRIPTS:
+            if lo <= o <= hi:
+                counts[code] = counts.get(code, 0) + 1
+                break
+
+    if not counts:
+        return fallback, False
+    top, n = max(counts.items(), key=lambda kv: kv[1])
+    if n < max(3, 0.3 * len(letters)):
+        return fallback, False
+
+    low = t.lower()
+    if top == "ar":
+        # فارسی یا عربی؟
+        if _FA_ONLY & set(t):
+            return "fa", True
+        fa_hits = sum(1 for w in _FA_WORDS if w in low)
+        ar_hits = sum(1 for w in _AR_WORDS if w in low)
+        if ar_hits > fa_hits:
+            return "ar", True
+        return "fa", True          # پیش‌فرضِ خط عربی در آنتانو، فارسی است
+    if top == "zh":
+        # اگر کانا هم باشد، ژاپنی است
+        return ("ja" if counts.get("ja") else "zh"), True
+    if top == "latin":
+        words = set(re.findall(r"[a-zà-öø-ÿ]+", low))
+        best, best_score = "en", 0
+        for code, (chars, common) in _LATIN_HINTS.items():
+            score = (3 if chars & set(t) else 0) + sum(1 for w in common if w in words)
+            if score > best_score:
+                best, best_score = code, score
+        # بدون هیچ نشانه‌ای، لاتین یعنی انگلیسی
+        return (best if best_score >= 2 else "en"), True
+    return top, True
 
 
 def missing_keys(lang: str):
