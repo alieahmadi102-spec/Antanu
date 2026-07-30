@@ -4350,6 +4350,34 @@ async def _call_model_once(c, prompt: str | None = None, system: str | None = No
     return ""
 
 
+async def _call_model_with_fallback(task: str, prompt: str | None = None, system: str | None = None,
+                                    max_tokens: int = 1800, messages=None,
+                                    keep_foreign: bool = False):
+    """مثل _call_model_once، ولی اگر مدلِ اول خطای غیرِ«شلوغی» بدهد (مثلاً ۴۰۲ چون
+    اعتبار همان یک سرویس تمام شده)، خودکار روی بقیه‌ی مدل‌های دارای کلید امتحان
+    می‌کند — دقیقاً همان تابِ‌پذیریِ چندسرویسه‌ای که چتِ معمولی از قبل دارد.
+    اگر هیچ‌کدام جواب ندادند، همان ModelError آخرین تلاش بالا می‌رود (تا پیامِ
+    فارسیِ موجود در main.py دست‌نخورده بماند)."""
+    catalog = get_ai_catalog()
+    try:
+        import router as _router
+        ordered = _router.order_catalog(catalog, task)
+    except Exception:
+        ordered = list(catalog)
+    candidates = [c for c in ordered if c.get("key")]
+    if not candidates:
+        raise ModelError(503, "no model configured")
+    last_err = None
+    for c in candidates:
+        try:
+            return await _call_model_once(c, prompt=prompt, system=system, max_tokens=max_tokens,
+                                          messages=messages, keep_foreign=keep_foreign)
+        except ModelError as e:
+            last_err = e
+            continue
+    raise last_err
+
+
 @app.post("/api/longdoc")
 async def api_longdoc(request: Request):
     """سازنده مقاله بلند: فهرست بخش‌ها → نوشتن بخش‌به‌بخش → خروجی Word/PDF"""
@@ -4453,7 +4481,8 @@ async def api_longdoc(request: Request):
                     for b64 in source_images[:4]:
                         parts.append({"type": "image_url",
                                       "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-                    desc = await _call_model_once(c, messages=[{"role": "user", "content": parts}], max_tokens=1000)
+                    desc = await _call_model_with_fallback(
+                        "article", messages=[{"role": "user", "content": parts}], max_tokens=1000)
                     digest += "\n\n[توصیف عکس‌های کاربر]:\n" + desc
                 except ModelError:
                     yield log("⚠️ این مدل عکس را پشتیبانی نمی‌کند؛ عکس‌ها نادیده گرفته شدند.\n")
@@ -4470,8 +4499,8 @@ async def api_longdoc(request: Request):
             if len(digest) > 6000:
                 yield log("⏳ خلاصه‌سازی منابع…\n")
                 try:
-                    digest = await _call_model_once(
-                        c,
+                    digest = await _call_model_with_fallback(
+                        "article",
                         f"این منابع را برای نگارش مقاله‌ای درباره «{topic}» در حداکثر ۱۰۰۰ کلمه فارسی خلاصه کن "
                         f"و همه داده‌ها و نکات مهم را نگه دار:\n{digest[:18000]}",
                         system=sys_prompt, max_tokens=1600,
@@ -4536,8 +4565,8 @@ async def api_longdoc(request: Request):
                 yield log("⚠️ جست‌وجوی خودکار منبع علمی نتیجه‌ای نداد.\n")
 
             yield log("⏳ گام ۱: طراحی فهرست بخش‌ها…\n")
-            outline = await _call_model_once(
-                c,
+            outline = await _call_model_with_fallback(
+                "article",
                 f"برای یک مقاله علمی-پژوهشی {pages} صفحه‌ای فارسی درباره «{topic}» دقیقاً {n_sections} عنوان بخش بنویس. "
                 "ساختار باید استاندارد مقاله دانشگاهی باشد: با چکیده و مقدمه شروع شود، سپس مبانی نظری و پیشینه پژوهش "
                 "(داخلی و خارجی)، روش‌شناسی پژوهش، یافته‌ها و تحلیل داده‌ها، بحث و نتیجه‌گیری، و در پایان منابع. "
@@ -4618,8 +4647,8 @@ async def api_longdoc(request: Request):
                         )
 
                 try:
-                    part = await _call_model_once(
-                        c,
+                    part = await _call_model_with_fallback(
+                        "article",
                         f"مقاله‌ای فارسی درباره «{topic}» در حال نگارش است.\n"
                         f"بخش‌های نوشته‌شده تاکنون: {'، '.join(done_titles) if done_titles else 'هیچ'}.\n"
                         f"اکنون فقط بخش «{t}» را بنویس: حدود ۶۰۰ تا ۸۰۰ کلمه، علمی و ساختارمند. "

@@ -197,6 +197,67 @@ def test_lookup_exception_is_graceful():
     check("مقاله همچنان ساخته شد", "مقاله آماده شد" in text)
 
 
+def test_provider_fallback_on_payment_error():
+    section("۶) وقتی سرویسِ اول ۴۰۲ (بی‌اعتباری) می‌دهد، خودکار روی مدل دیگر ادامه می‌دهد")
+    from fastapi.testclient import TestClient
+    import main
+
+    u = _test_user()
+    if not u:
+        print("  ⏭  کاربر آزمایشی پیدا نشد — این بخش رد شد.")
+        return
+
+    # دقیقاً همان سناریویی که کاربر واقعی گزارش داد: کد ۴۰۲ روی «گام ۱: طراحی
+    # فهرست بخش‌ها…» کل مقاله را متوقف می‌کرد. حالا باید خودکار به مدل دوم برود.
+    main.get_ai_catalog = lambda: [
+        {"id": "primary", "key": "k1", "model": "m1", "base": "https://example.invalid/v1",
+         "name": "اصلی (بی‌اعتبار)"},
+        {"id": "backup", "key": "k2", "model": "m2", "base": "https://example.invalid/v2",
+         "name": "پشتیبان"},
+    ]
+
+    async def fake_lookup(q):
+        return []
+    main.lookup_reference_online = fake_lookup
+
+    calls = []
+
+    async def fake_call(cc, prompt=None, system=None, max_tokens=1800, messages=None,
+                        keep_foreign=False):
+        calls.append(cc["id"])
+        if cc["id"] == "primary":
+            raise main.ModelError(402, "insufficient balance, please recharge")
+        if "دقیقاً" in (prompt or "") and "عنوان بخش بنویس" in (prompt or ""):
+            return "چکیده\nمقدمه\nنتیجه‌گیری"
+        return "متن نمونه‌ی این بخش، نوشته‌شده توسط مدل پشتیبان."
+    main._call_model_once = fake_call
+
+    c = TestClient(main.app)
+    c.cookies.set("antanu_session", main.make_session(u["id"]))
+    with c.stream("POST", "/api/longdoc",
+                  json={"topic": "بازاریابی", "pages": 4, "formats": ["docx"]}) as r:
+        text = "".join(r.iter_text())
+
+    check("درخواست موفق بود (نه ۴۰۲ خام)", r.status_code == 200)
+    check("مدلِ بی‌اعتبار امتحان شد", "primary" in calls)
+    check("بعد از شکستِ اول، مدلِ پشتیبان امتحان شد", "backup" in calls)
+    check("پیامِ خامِ «کد 402» در پاسخ نهایی دیده نمی‌شود", "کد 402" not in text, text[:300])
+    check("مقاله با موفقیت کامل ساخته شد", "مقاله آماده شد" in text, text[-300:])
+
+    # اگر همه‌ی مدل‌ها ۴۰۲ بدهند، باید همان پیامِ فارسیِ موجود (نه کرش) نشان داده شود
+    _test_user()  # سهمیه‌ی «مقاله بلند» را دوباره صفر می‌کند تا این درخواست هم رد نشود
+
+    async def fake_call_all_fail(cc, prompt=None, system=None, max_tokens=1800, messages=None,
+                                 keep_foreign=False):
+        raise main.ModelError(402, "insufficient balance")
+    main._call_model_once = fake_call_all_fail
+    with c.stream("POST", "/api/longdoc",
+                  json={"topic": "موضوع دیگر", "pages": 2, "formats": ["docx"]}) as r2:
+        text2 = "".join(r2.iter_text())
+    check("وقتی همه‌ی مدل‌ها شکست بخورند، پیامِ فارسیِ روشن نشان داده می‌شود",
+          "خطا داد" in text2 and "کد 402" in text2)
+
+
 def main_run():
     print("═" * 68)
     print("  آزمون اتصال منابع علمی واقعی به مقاله")
@@ -206,6 +267,7 @@ def main_run():
     test_references_wired_into_article()
     test_no_results_is_honest_not_broken()
     test_lookup_exception_is_graceful()
+    test_provider_fallback_on_payment_error()
 
     print("\n" + "═" * 68)
     print(f"  نتیجه: {len(PASS)} پاس، {len(FAIL)} ناموفق")
