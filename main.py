@@ -645,6 +645,10 @@ def render(name: str, status_code: int = 200, request: Request | None = None,
         "languages": i18n.language_list(),
         "current_lang": code,
         "lang_native": i18n.native_name(code),
+        # مسیر همین صفحه — برای اینکه انتخابگر زبان بعد از تغییر دقیقاً به همین‌جا
+        # برگردد، بدون وابستگی به هدر Referer (که مرورگرهای دسکتاپ/افزونه‌ها
+        # اغلب حذفش می‌کنند).
+        "current_path": (request.url.path + (("?" + request.url.query) if request.url.query else "")) if request else "/",
         **context,
     }
     html = _jinja.get_template(name).render(**ctx)
@@ -2951,28 +2955,44 @@ async def api_set_lang(request: Request):
 
 
 @app.get("/lang/redirect")
-def set_lang_from_query(request: Request, code: str = ""):
+def set_lang_from_query(request: Request, code: str = "", next: str = ""):
     """مسیر بدون جاوااسکریپت (noscript) — زبان از پارامتر code خوانده می‌شود."""
-    return set_lang_redirect(code, request)
+    return set_lang_redirect(code, request, next)
+
+
+def _safe_same_site_path(raw: str) -> str:
+    """فقط مسیرِ همین سایت را از یک آدرس (کامل یا نسبی) بیرون می‌کشد.
+
+    ورودی می‌تواند مسیر نسبی («/chat») یا آدرس کامل («https://.../chat»،
+    از هدر Referer) باشد. urlparse در هر دو حالت، و حتی برای آدرس
+    protocol-relative («//evil.com/x») که میزبان بیرونی دارد، فقط بخش
+    مسیر را بیرون می‌کشد و میزبان را کنار می‌گذارد — پس ریدایرکت به بیرون
+    ممکن نیست.
+    """
+    if not raw:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(raw)
+        if not (p.path or "").startswith("/"):
+            return ""
+        return p.path + ("?" + p.query if p.query else "")
+    except Exception:
+        return ""
 
 
 @app.get("/lang/{code}")
-def set_lang_redirect(code: str, request: Request):
-    """تغییر زبان بدون جاوااسکریپت (برای صفحه‌ی ورود) — بعدش به همان صفحه برمی‌گردد."""
+def set_lang_redirect(code: str, request: Request, next: str = ""):
+    """تغییر زبان بدون جاوااسکریپت (برای صفحه‌ی ورود) — بعدش به همان صفحه برمی‌گردد.
+
+    مقصدِ بازگشت از «next» (که خودِ مرورگر با location.pathname می‌فرستد) خوانده
+    می‌شود، نه از هدر Referer — چون آن هدر روی دسکتاپ و با افزونه‌های حریم‌خصوصی
+    اغلب حذف می‌شود و کاربر به‌جای برگشتن به همین صفحه به «/» پرت می‌شد.
+    """
     norm = i18n.normalize(code, fallback="")
     if not norm:
         norm = i18n.DEFAULT_LANG
-    back = request.headers.get("referer") or "/"
-    if not back.startswith("/") and "://" in back:
-        # فقط به مسیرهای همین سایت برگرد (جلوگیری از ریدایرکت به بیرون)
-        try:
-            from urllib.parse import urlparse
-            p = urlparse(back)
-            back = p.path or "/"
-            if p.query:
-                back += "?" + p.query
-        except Exception:
-            back = "/"
+    back = _safe_same_site_path(next) or _safe_same_site_path(request.headers.get("referer") or "") or "/"
     user = current_user(request)
     if user:
         db = get_db()

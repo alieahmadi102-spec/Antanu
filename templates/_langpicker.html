@@ -1,10 +1,15 @@
-{# انتخاب زبان — بدون جاوااسکریپت کار می‌کند تا در صفحه‌ی ورود هم مطمئن باشد #}
+{# انتخاب زبان — بدون جاوااسکریپت کار می‌کند تا در صفحه‌ی ورود هم مطمئن باشد.
+   مسیر بازگشت با «next» صریح فرستاده می‌شود، نه با هدر Referer — چون مرورگرهای
+   دسکتاپ و افزونه‌های حریم‌خصوصی اغلب Referer را حذف می‌کنند و کاربر به‌جای
+   برگشتن به همین صفحه، به «/» پرت می‌شد (همان چیزی که «صفحه می‌پرد» دیده می‌شد). #}
 <form method="get" action="/lang/redirect" class="lang-picker" id="langPickerForm">
   <label for="langSelect">🌐 {{ t("lang.picker_label") }}</label>
-  <select id="langSelect" name="code" onchange="location.href='/lang/'+this.value">
+  <select id="langSelect" name="code"
+          onchange="location.href='/lang/'+this.value+'?next='+encodeURIComponent(location.pathname+location.search)">
     {% for l in languages %}
     <option value="{{ l.code }}" {% if l.code == current_lang %}selected{% endif %}>{{ l.flag }} {{ l.native }}</option>
     {% endfor %}
   </select>
+  <input type="hidden" name="next" value="{{ current_path }}">
   <noscript><button type="submit" class="mini">{{ t("common.save") }}</button></noscript>
 </form>
