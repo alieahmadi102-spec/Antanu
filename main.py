@@ -349,6 +349,24 @@ def _rag_context(query: str, top_k: int = 3, budget: int = 2500) -> str:
         return ""
 
 
+def _citation_footnote_rule(section_index: int) -> str:
+    """دستور «پاورقی اسلامی»: نام نویسنده‌ی خارجی در متن به فارسی، نام لاتین در پاورقی.
+
+    شناسه‌ی پاورقی با شماره‌ی بخش پیشوند می‌خورد (مثلاً s3-1) چون هر بخش با یک
+    فراخوانی جداگانه و بدون حافظه از شماره‌ی پاورقیِ بخش‌های قبلی نوشته می‌شود؛
+    بدون این پیشوند، دو بخش مختلف هر دو از «[^1]» استفاده می‌کردند و در سند
+    نهایی یکی از دو تعریف پاورقی، دیگری را بی‌سروصدا جای‌زده می‌کرد."""
+    p = f"s{section_index}"
+    return (
+        "۶) قاعده‌ی ارجاع به نویسندگان خارجی (پاورقی اسلامی): هر جا برای اولین‌بار در همین بخش "
+        "نام یک پژوهشگر یا نویسنده‌ی غیرایرانی را می‌آوری، نامش را فقط به فارسی معیار بنویس "
+        f"(مثلاً «پورتر») و بلافاصله نشانه‌ی پاورقی مثل «[^{p}-1]» را بعد از نامش بگذار؛ برای "
+        f"نویسنده‌ی بعدی از «[^{p}-2]» و به همین ترتیب استفاده کن. در پایانِ همین بخش، هر پاورقی را "
+        f"در خطی جدا با نام لاتینِ اصلیِ نویسنده تعریف کن: «[^{p}-1]: Porter, M. E.». "
+        "این پاورقی فقط برای نام نویسندگان است، نه اصطلاحات تخصصی یا مفاهیم.\n"
+    )
+
+
 def _library_context(query: str, limit: int = 4, budget: int = 4000,
                      books_only: bool = False) -> str:
     """بخش‌های مرتبط از کتابخانه‌های آنتانو را برای افزودن به پرامپت آماده می‌کند.
@@ -4439,7 +4457,8 @@ async def api_longdoc(request: Request):
                         f"اکنون فقط بخش «{t}» را بنویس: حدود ۶۰۰ تا ۸۰۰ کلمه، علمی و ساختارمند. "
                         "از تکرار مطالب و واژه‌های بخش‌های قبلی جداً پرهیز کن و مطالب و واژگان کاملاً تازه بیاور. "
                         "فقط به فارسی معیار بنویس و هیچ واژه خارجی وسط متن نیاور. "
-                        "خودِ عنوان بخش را ننویس؛ فقط متن."
+                        "خودِ عنوان بخش را ننویس؛ فقط متن.\n"
+                        + _citation_footnote_rule(i)
                         + src_note + sec_lib,
                         system=sys_prompt,
                     )
@@ -4460,12 +4479,16 @@ async def api_longdoc(request: Request):
 
             async def _make_article_docx():
                 # مقاله‌ی بلند: فهرست خودکار + شماره‌گذاری سرفصل‌ها (سبک پایان‌نامه)
+                # real_footnotes=True → اگر مدل برای نویسنده‌ی خارجی [^n] گذاشته باشد
+                # (طبق دستور پاورقی اسلامی در پرامپت)، پاورقی واقعی پایین صفحه ساخته می‌شود؛
+                # اگر نگذاشته باشد بی‌اثر است (fn_order خالی می‌ماند).
                 if ld_smart:
                     import design_engine
                     spec = await make_design_spec(topic, ld_style, True)
                     return await run_in_threadpool(design_engine.build_designed_docx, blocks, spec,
-                                                   topic, "", size, align, True, True)
-                return await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic, align, True, True)
+                                                   topic, "", size, align, True, True, True)
+                return await run_in_threadpool(export_utils.build_docx, blocks, font, size, topic,
+                                               align, True, True, True)
 
             article_docx = None
             if "docx" in formats or "pdf" in formats:

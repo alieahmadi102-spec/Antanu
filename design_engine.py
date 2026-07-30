@@ -163,9 +163,15 @@ def _fa_digits(s):
 
 
 def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
-                        align="justify", toc=True, numbering=True):
+                        align="justify", toc=True, numbering=True,
+                        real_footnotes=False, footnote_font="Times New Roman",
+                        footnote_size=9, footnote_single_spacing=True):
     """سند Word با طراحی اختصاصی: جلد، سربرگ/پابرگ، تیترهای رنگی، باکس نکته،
-    جدول‌های تم‌دار، فهرست مطالب و شماره صفحه."""
+    جدول‌های تم‌دار، فهرست مطالب و شماره صفحه.
+
+    real_footnotes=True یعنی [^n] به پاورقیِ واقعیِ پایین صفحه تبدیل شود (نه
+    فقط شماره‌ی بالانویس در متن) — دقیقاً همان مکانیزمِ export_utils.build_docx،
+    برای اینکه سندهای طراحی‌شده هم بتوانند پاورقی نویسنده‌های خارجی داشته باشند."""
     from docx import Document
     from docx.shared import Pt, RGBColor, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -321,9 +327,18 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
                 style_run(p.add_run(before), size, font=font, bold=bold, color=color)
             if fid not in fn_num:
                 fn_order.append(fid); fn_num[fid] = len(fn_order)
-            sup = p.add_run(_fa_digits(fn_num[fid]))
-            style_run(sup, max(8, size - 3), bold=True, color=PRIMARY)
-            sup.font.superscript = True
+            if real_footnotes:
+                run = p.add_run()
+                rPr = run._element.get_or_add_rPr()
+                va = OxmlElement("w:vertAlign"); va.set(qn("w:val"), "superscript")
+                rPr.append(va)
+                ref = OxmlElement("w:footnoteReference")
+                ref.set(qn("w:id"), str(fn_num[fid]))
+                run._element.append(ref)
+            else:
+                sup = p.add_run(_fa_digits(fn_num[fid]))
+                style_run(sup, max(8, size - 3), bold=True, color=PRIMARY)
+                sup.font.superscript = True
             pos = m.end()
         rest = text[pos:]
         if rest or pos == 0:
@@ -396,8 +411,9 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
             rtl(p)
             add_text_fn(p, txt, font_size, color=TEXT)
 
-    # بخش پانوشت‌ها
-    if fn_order:
+    # بخش پانوشت‌ها — فقط وقتی پاورقی واقعی نخواسته‌ایم؛ وگرنه دوبار نشان داده می‌شود
+    # (هم پایین صفحه هم اینجا)
+    if fn_order and not real_footnotes:
         doc.add_paragraph()
         hp = doc.add_paragraph()
         pPr = rtl(hp, before=8)
@@ -412,7 +428,17 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
 
     from export_utils import EXPORT_DIR, _new_name
     name = _new_name("docx")
-    doc.save(os.path.join(EXPORT_DIR, name))
+    out_path = os.path.join(EXPORT_DIR, name)
+    doc.save(out_path)
+
+    if real_footnotes and fn_order:
+        try:
+            from export_utils import _inject_real_footnotes
+            notes = [(fn_num[fid], fn_defs[fid]) for fid in fn_order]
+            _inject_real_footnotes(out_path, notes, footnote_font, footnote_size,
+                                   footnote_single_spacing)
+        except Exception:
+            pass
     return name
 
 
