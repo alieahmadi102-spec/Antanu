@@ -360,23 +360,38 @@ def _new_name(ext: str) -> str:
     return f"antanu-{secrets.token_hex(6)}.{ext}"
 
 
-def _inject_real_footnotes(docx_path: str, notes, font_name: str = "Vazirmatn"):
+def _inject_real_footnotes(docx_path: str, notes, font_name: str = "Vazirmatn",
+                           font_size: float = 9, single_spacing: bool = True):
     """پاورقی‌های واقعیِ پایین صفحه را به یک فایل docxِ ازپیش‌ساخته اضافه می‌کند.
     notes: فهرست (شماره، متن) با شماره‌ی ۱..N. بدنه‌ی سند باید از قبل w:footnoteReference
-    با همان شماره‌ها را داشته باشد."""
+    با همان شماره‌ها را داشته باشد.
+
+    پیش‌فرض‌ها طبق قرارداد رایج پایان‌نامه‌های فارسی است: پاورقی سایز ۹ و
+    فاصله‌ی خطوط تک (single) — جدا از فونت/سایز بدنه‌ی سند، چون پاورقی‌های
+    واقعی امروز فقط در مسیر آکادمیک استفاده می‌شوند (اضافه‌کردن پاورقی به
+    اصطلاحات تخصصی و ارجاع نویسندگان خارجی)."""
     import zipfile
     import shutil
     import re as _re
     from xml.sax.saxutils import escape
     W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
+    sz = str(max(1, round(font_size * 2)))  # نیم‌نقطه (OOXML)
+    spacing_xml = '<w:spacing w:line="240" w:lineRule="auto"/>' if single_spacing else ""
+
     def _note_xml(num, text):
         t = escape(text or "")
         return (
             f'<w:footnote w:id="{num}">'
-            '<w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:bidi/></w:pPr>'
-            '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>'
-            f'<w:r><w:rPr><w:rFonts w:ascii="{font_name}" w:hAnsi="{font_name}" w:cs="{font_name}"/><w:rtl/></w:rPr>'
+            f'<w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:bidi/>{spacing_xml}'
+            f'<w:rPr><w:sz w:val="{sz}"/><w:szCs w:val="{sz}"/></w:rPr></w:pPr>'
+            # ترتیب عنصرها داخل rPr باید دقیقاً طبق شِمای OOXML باشد (rFonts سپس
+            # sz/szCs و در آخر vertAlign) — وگرنه Word باز می‌کند ولی LibreOffice
+            # با خطای اعتبارسنجی، کل فایل را رد می‌کند.
+            f'<w:r><w:rPr><w:rFonts w:ascii="{font_name}" w:hAnsi="{font_name}" w:cs="{font_name}"/>'
+            f'<w:sz w:val="{sz}"/><w:szCs w:val="{sz}"/><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>'
+            f'<w:r><w:rPr><w:rFonts w:ascii="{font_name}" w:hAnsi="{font_name}" w:cs="{font_name}"/>'
+            f'<w:sz w:val="{sz}"/><w:szCs w:val="{sz}"/><w:rtl/></w:rPr>'
             f'<w:t xml:space="preserve"> {t}</w:t></w:r></w:p></w:footnote>'
         )
 
@@ -433,7 +448,9 @@ def _to_fa_digits(s) -> str:
 def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
                title: str | None = None, align: str = "right",
                toc: bool = False, numbering: bool = False,
-               real_footnotes: bool = False) -> str:
+               real_footnotes: bool = False,
+               footnote_font: str = "Times New Roman", footnote_size: float = 9,
+               footnote_single_spacing: bool = True) -> str:
     from docx import Document
     from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -633,7 +650,8 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     if real_footnotes and fn_order:
         try:
             notes = [(fn_num[fid], fn_defs[fid]) for fid in fn_order]
-            _inject_real_footnotes(out_path, notes, font_name)
+            _inject_real_footnotes(out_path, notes, footnote_font, footnote_size,
+                                   footnote_single_spacing)
         except Exception:
             pass
 
