@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 Describir los datos",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "Medidas Repetidas",
+  "stats.seasonal": "Descomposición Estacional",
   "stats.factor": "🧩 Análisis factorial",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",

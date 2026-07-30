@@ -2090,6 +2090,20 @@ document.querySelectorAll(".stat-t").forEach(btn => {
       const dep = prompt("متغیر وابسته (عددی):"); if (!dep) return;
       const fac = prompt("متغیر گروه‌بندی:"); if (!fac) return;
       params = { dependent: dep.trim(), factor: fac.trim() };
+    } else if (analysis === "manova") {
+      const deps = prompt("متغیرهای وابسته (عددی، با کاما جدا کنید — دست‌کم دو تا):");
+      if (!deps) return;
+      const fac = prompt("متغیر گروه‌بندی:"); if (!fac) return;
+      params = { dependents: deps.split(/[,،]/).map(s => s.trim()).filter(Boolean), factor: fac.trim() };
+    } else if (analysis === "repeated_measures_anova") {
+      const cs = prompt("ستون‌های سنجش‌های تکراری، به‌ترتیبِ زمان (با کاما — مثل پیش‌آزمون، پس‌آزمون، پیگیری):");
+      if (!cs) return;
+      params = { cols: cs.split(/[,،]/).map(s => s.trim()).filter(Boolean) };
+    } else if (analysis === "seasonal_decompose") {
+      const cv = prompt("نام ستونِ سری‌زمانی (خالی = اولین ستون عددی):", "");
+      const per = prompt("دوره‌ی فصلی (مثلاً ۱۲ برای داده‌ی ماهانه، ۴ برای فصلی؛ خالی = تشخیص خودکار):", "");
+      if (cv) params.col = cv.trim();
+      if (per && !isNaN(Number(per))) params.period = Number(per);
     } else if (analysis === "crosstab") {
       const rw = prompt("متغیر سطر (طبقه‌ای):"); if (!rw) return;
       const cl = prompt("متغیر ستون (طبقه‌ای):"); if (!cl) return;

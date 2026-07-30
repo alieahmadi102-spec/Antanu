@@ -303,6 +303,8 @@
   "stats.crosstab": "الجداول التقاطعية",
   "stats.describe": "📋 وصف البيانات",
   "stats.diagnostics": "اختبارات تشخيصية",
+  "stats.repeated": "إعادة قياس (تكراري)",
+  "stats.seasonal": "التفكيك الموسمي",
   "stats.factor": "🧩 التحليل العاملي",
   "stats.frequencies": "جداول التكرار",
   "stats.granger": "غرانجر",

@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 データの記述統計",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "反復測定",
+  "stats.seasonal": "季節分解",
   "stats.factor": "🧩 因子分析",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",

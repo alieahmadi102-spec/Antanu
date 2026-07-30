@@ -341,14 +341,98 @@ def correlation(path: str, method="pearson", cols=None) -> dict:
     return {"software": "معادل خروجی SPSS (Correlations)", "method": method, "pairs": result}
 
 
+def _regression_ordinal(data, dependent, independents) -> dict:
+    """رگرسیون لجستیک ترتیبی — برای متغیر وابسته‌ی رتبه‌ای (مثل طیف لیکرت: خیلی‌کم…خیلی‌زیاد).
+    معادل PLUM در SPSS (Analyze ▸ Regression ▸ Ordinal)."""
+    from statsmodels.miscmodels.ordinal_model import OrderedModel
+    y = data[dependent].astype("category")
+    X = data[list(independents)]
+    model = OrderedModel(y, X, distr="logit").fit(method="bfgs", disp=0)
+    n_th = len(y.cat.categories) - 1
+    coefs = [{"متغیر": str(name), "ضریب": round(float(model.params[name]), 4),
+             "sig": round(float(model.pvalues[name]), 4),
+             "معنادار": "بله" if model.pvalues[name] < 0.05 else "خیر"}
+            for name in independents]
+    cuts = [{"آستانه": i + 1, "مقدار": round(float(model.params[p]), 4)}
+           for i, p in enumerate(model.params.index[-n_th:])]
+    return {"kind": "ordinal", "n": int(len(data)),
+           "software": "معادل خروجی SPSS (رگرسیون ترتیبی — PLUM)",
+           "coefficients": coefs, "آستانه‌ها": cuts,
+           "سطوح متغیر وابسته": [str(c) for c in y.cat.categories],
+           "llr_p": round(float(model.llr_pvalue), 4) if hasattr(model, "llr_pvalue") else None}
+
+
+def _regression_multinomial(data, dependent, independents) -> dict:
+    """رگرسیون لجستیک چندجمله‌ای — برای متغیر وابسته‌ی طبقه‌ای با بیش از دو سطح
+    بدون ترتیب (مثل انتخاب برند). معادل NOMREG در SPSS."""
+    import statsmodels.api as sm
+    y = data[dependent].astype("category")
+    ref = str(y.cat.categories[0])
+    X = sm.add_constant(data[list(independents)])
+    model = sm.MNLogit(y.cat.codes, X).fit(disp=0, method="bfgs")
+    # جدول تخت (نه تودرتو) تا در گزارش مارک‌داون یک جدول تمیز بشود، نه یک
+    # دیکشنری خام داخل سلول.
+    rows = []
+    for j, level in enumerate(y.cat.categories[1:]):
+        for name in X.columns:
+            rows.append({
+                "سطح (در برابر مرجع)": str(level),
+                "متغیر": "ثابت (Constant)" if name == "const" else str(name),
+                "ضریب": round(float(model.params.loc[name, j]), 4),
+                "sig": round(float(model.pvalues.loc[name, j]), 4),
+                "معنادار": "بله" if model.pvalues.loc[name, j] < 0.05 else "خیر",
+            })
+    return {"kind": "multinomial", "n": int(len(data)),
+           "software": "معادل خروجی SPSS (رگرسیون لجستیک چندجمله‌ای — NOMREG)",
+           "سطح مرجع": ref, "ضرایب": rows,
+           "pseudo_r2": round(float(model.prsquared), 3)}
+
+
+def _regression_count(data, dependent, independents, kind) -> dict:
+    """رگرسیون پواسون/دوجمله‌ای‌منفی — برای متغیر وابسته‌ی شمارشی (مثل تعداد مراجعه،
+    تعداد خطا). دوجمله‌ای‌منفی وقتی واریانس خیلی بیشتر از میانگین است (پراپخشیدگی)."""
+    import numpy as np
+    import statsmodels.api as sm
+    y = data[dependent]
+    X = sm.add_constant(data[list(independents)])
+    Model = sm.NegativeBinomial if kind == "negbinom" else sm.Poisson
+    model = Model(y, X).fit(disp=0)
+    coefs = []
+    for name in X.columns:
+        b = float(model.params[name])
+        coefs.append({"متغیر": "ثابت (Constant)" if name == "const" else str(name),
+                     "ضریب B": round(b, 4),
+                     "نسبت بروز (IRR)": round(float(np.exp(b)), 3),
+                     "sig": round(float(model.pvalues[name]), 4),
+                     "معنادار": "بله" if model.pvalues[name] < 0.05 else "خیر"})
+    label = "دوجمله‌ای‌منفی" if kind == "negbinom" else "پواسون"
+    return {"kind": kind, "n": int(len(data)),
+           "software": f"معادل خروجی SPSS/EViews (رگرسیون {label})",
+           "coefficients": coefs,
+           "pseudo_r2": round(float(model.prsquared), 3) if hasattr(model, "prsquared") else None,
+           "llr_p": round(float(model.llr_pvalue), 4)}
+
+
 def regression(path: str, dependent: str, independents, kind="linear") -> dict:
-    """رگرسیون خطی/چندگانه/لجستیک با گزارش کامل"""
+    """رگرسیون خطی/چندگانه/لجستیک/ترتیبی/چندجمله‌ای/شمارشی با گزارش کامل.
+
+    kind: linear (پیش‌فرض) / logistic / ordinal (وابسته‌ی رتبه‌ای مثل لیکرت) /
+    multinomial (وابسته‌ی طبقه‌ایِ بدون ترتیب) / poisson یا negbinom (وابسته‌ی شمارشی).
+    """
     import pandas as pd
     import numpy as np
     import statsmodels.api as sm
     df = _load_dataframe(path)
     cols = [dependent] + list(independents)
     data = df[cols].dropna()
+
+    if kind == "ordinal":
+        return _regression_ordinal(data, dependent, independents)
+    if kind == "multinomial":
+        return _regression_multinomial(data, dependent, independents)
+    if kind in ("poisson", "negbinom"):
+        return _regression_count(data, dependent, independents, kind)
+
     y = data[dependent]
     X = sm.add_constant(data[list(independents)])
 
@@ -428,11 +512,84 @@ def ttest(path: str, kind, col, group=None, value2=None, popmean=0) -> dict:
     return {"error": "نوع آزمون نامعتبر"}
 
 
+def _posthoc_bonferroni(sub, dependent, factor, groups, names) -> list:
+    """تعقیبیِ بونفرونی: مثل توکی، واریانسِ برابر فرض می‌شود؛ p با تعداد جفت‌مقایسه‌ها ضرب می‌شود."""
+    from scipy import stats
+    import itertools
+    k = len(groups)
+    ss_within = sum(((g - g.mean()) ** 2).sum() for g in groups)
+    df_within = sum(len(g) for g in groups) - k
+    mse = ss_within / df_within if df_within > 0 else None
+    m = k * (k - 1) // 2
+    rows = []
+    for (i, gi), (j, gj) in itertools.combinations(enumerate(groups), 2):
+        diff = float(gi.mean() - gj.mean())
+        se = (mse * (1 / len(gi) + 1 / len(gj))) ** 0.5 if mse else None
+        t = diff / se if se else None
+        p = float(2 * stats.t.sf(abs(t), df_within)) if t is not None else None
+        p_adj = min(1.0, p * m) if p is not None else None
+        rows.append({"گروه ۱": names[i], "گروه ۲": names[j],
+                     "اختلاف میانگین": round(diff, 3),
+                     "sig": round(p_adj, 4) if p_adj is not None else None,
+                     "معنادار": "بله" if (p_adj is not None and p_adj < 0.05) else "خیر"})
+    return rows
+
+
+def _posthoc_games_howell(groups, names) -> list:
+    """تعقیبیِ گیمز-هاول: برای وقتی فرضِ برابریِ واریانس‌ها (لِوین) نقض شده.
+
+    مثل توکی از توزیعِ دامنه‌ی دانشجویی‌شده استفاده می‌کند، ولی df با فرمول
+    ولچ-ساترثویت محاسبه می‌شود (به‌جای df ساده‌ی درون‌گروهی)."""
+    import numpy as np
+    from statsmodels.stats.libqsturng import psturng
+    import itertools
+    k = len(groups)
+    rows = []
+    for (i, gi), (j, gj) in itertools.combinations(enumerate(groups), 2):
+        ni, nj = len(gi), len(gj)
+        vi, vj = float(gi.var(ddof=1)), float(gj.var(ddof=1))
+        diff = float(gi.mean() - gj.mean())
+        se = ((vi / ni + vj / nj) / 2) ** 0.5
+        df = ((vi / ni + vj / nj) ** 2 /
+             ((vi / ni) ** 2 / (ni - 1) + (vj / nj) ** 2 / (nj - 1))) if ni > 1 and nj > 1 else None
+        if se == 0 or df is None:
+            rows.append({"گروه ۱": names[i], "گروه ۲": names[j],
+                        "اختلاف میانگین": round(diff, 3), "sig": None, "معنادار": "نامشخص"})
+            continue
+        q = abs(diff) / se * (2 ** 0.5)
+        p = float(np.asarray(psturng(q, k, df)).reshape(-1)[0])
+        rows.append({"گروه ۱": names[i], "گروه ۲": names[j],
+                    "اختلاف میانگین": round(diff, 3),
+                    "sig": round(p, 4), "معنادار": "بله" if p < 0.05 else "خیر"})
+    return rows
+
+
+def _posthoc_dunnett(groups, names, control_idx: int = 0) -> list:
+    """تعقیبیِ دانت: هر گروه فقط با یک گروهِ کنترل مقایسه می‌شود (نه همه با همه) —
+    مناسبِ طرح‌هایی که یک گروهِ شاهد/کنترل مشخص دارند."""
+    from scipy import stats as sstats
+    control = groups[control_idx]
+    others = [g for i, g in enumerate(groups) if i != control_idx]
+    other_names = [n for i, n in enumerate(names) if i != control_idx]
+    if len(others) < 1:
+        return []
+    res = sstats.dunnett(*others, control=control)
+    rows = []
+    for name, stat, p in zip(other_names, res.statistic, res.pvalue):
+        rows.append({"گروه": name, "کنترل": names[control_idx],
+                    "آماره": round(float(stat), 3), "sig": round(float(p), 4),
+                    "معنادار": "بله" if p < 0.05 else "خیر"})
+    return rows
+
+
 def anova(path: str, dependent: str, factor: str, factor2: str = None,
-          posthoc: bool = True) -> dict:
-    """تحلیل واریانس یک‌راهه یا دوراهه، با آزمون لِوین، اندازه‌ی اثر و آزمون تعقیبی توکی.
+          posthoc: bool = True, posthoc_method: str = "tukey",
+          control_group: str = None) -> dict:
+    """تحلیل واریانس یک‌راهه یا دوراهه، با آزمون لِوین، اندازه‌ی اثر و آزمون تعقیبی.
 
     اگر factor2 داده شود، ANOVA دوراهه با اثر تعاملی اجرا می‌شود.
+    posthoc_method: tukey (پیش‌فرض) / bonferroni / games_howell (واریانس نابرابر) /
+    dunnett (مقایسه با یک گروهِ کنترل — control_group را هم بده).
     """
     import pandas as pd
     import numpy as np
@@ -517,21 +674,106 @@ def anova(path: str, dependent: str, factor: str, factor2: str = None,
                             "کروسکال-والیس توصیه می‌شود.")
     except Exception:
         pass
-    # تعقیبی توکی: کدام جفت گروه با هم تفاوت دارند
+    # تعقیبی: کدام جفت گروه با هم تفاوت دارند
     if posthoc and len(groups) > 2:
+        method = (posthoc_method or "tukey").lower()
+        label = {"tukey": "تعقیبی توکی", "bonferroni": "تعقیبی بونفرونی",
+                 "games_howell": "تعقیبی گیمز-هاول", "dunnett": "تعقیبی دانت"}.get(method, "تعقیبی توکی")
         try:
-            from statsmodels.stats.multicomp import pairwise_tukeyhsd
-            res = pairwise_tukeyhsd(sub[dependent].values, sub[factor].astype(str).values)
-            out["تعقیبی توکی"] = [
-                {"گروه ۱": str(r[0]), "گروه ۲": str(r[1]),
-                 "اختلاف میانگین": round(float(r[2]), 3),
-                 "sig": round(float(r[3]), 4),
-                 "معنادار": "بله" if float(r[3]) < 0.05 else "خیر"}
-                for r in res._results_table.data[1:]
-            ]
+            if method == "bonferroni":
+                out[label] = _posthoc_bonferroni(sub, dependent, factor, groups, names)
+            elif method == "games_howell":
+                out[label] = _posthoc_games_howell(groups, names)
+            elif method == "dunnett":
+                ctrl_idx = names.index(str(control_group)) if control_group in names else 0
+                out[label] = _posthoc_dunnett(groups, names, ctrl_idx)
+                out["گروه_کنترل"] = names[ctrl_idx]
+            else:
+                from statsmodels.stats.multicomp import pairwise_tukeyhsd
+                res = pairwise_tukeyhsd(sub[dependent].values, sub[factor].astype(str).values)
+                out[label] = [
+                    {"گروه ۱": str(r[0]), "گروه ۲": str(r[1]),
+                     "اختلاف میانگین": round(float(r[2]), 3),
+                     "sig": round(float(r[3]), 4),
+                     "معنادار": "بله" if float(r[3]) < 0.05 else "خیر"}
+                    for r in res._results_table.data[1:]
+                ]
         except Exception:
             pass
     return out
+
+
+def manova(path: str, dependents, factor: str) -> dict:
+    """تحلیل واریانس چندمتغیره — وقتی چند متغیر وابسته با هم بررسی می‌شوند
+    (نه یکی‌یکی با چند ANOVA جدا). معادل Analyze ▸ General Linear Model ▸ Multivariate در SPSS."""
+    import pandas as pd
+    from statsmodels.multivariate.manova import MANOVA
+    df = _load_dataframe(path)
+    deps = [c for c in dependents if c in df.columns]
+    if len(deps) < 2:
+        return {"error": "MANOVA به دست‌کم دو متغیر وابسته نیاز دارد"}
+    if factor not in df.columns:
+        return {"error": f"متغیر گروه‌بندی «{factor}» در داده نیست"}
+    sub = df[deps + [factor]].copy()
+    for c in deps:
+        sub[c] = pd.to_numeric(sub[c], errors="coerce")
+    sub = sub.dropna()
+    if sub[factor].nunique() < 2:
+        return {"error": "برای MANOVA دست‌کم دو گروه لازم است"}
+    if len(sub) <= len(deps) + sub[factor].nunique():
+        return {"error": "تعداد مشاهده‌ها برای این تعداد متغیر وابسته کافی نیست"}
+
+    formula = " + ".join(f"Q('{c}')" for c in deps) + f" ~ C(Q('{factor}'))"
+    fit = MANOVA.from_formula(formula, data=sub)
+    res = fit.mv_test()
+    key = [k for k in res.results if k != "Intercept"][0]
+    stats = res.results[key]["stat"]
+    rows = []
+    for name in stats.index:
+        rows.append({
+            "آزمون": name,
+            "مقدار": round(float(stats.loc[name, "Value"]), 4),
+            "F": round(float(stats.loc[name, "F Value"]), 3),
+            "df صورت": round(float(stats.loc[name, "Num DF"]), 2),
+            "df مخرج": round(float(stats.loc[name, "Den DF"]), 2),
+            "sig": round(float(stats.loc[name, "Pr > F"]), 4),
+            "معنادار": "بله" if float(stats.loc[name, "Pr > F"]) < 0.05 else "خیر",
+        })
+    return {
+        "software": "معادل خروجی SPSS (MANOVA — Multivariate Tests)",
+        "متغیرهای وابسته": deps, "عامل": factor, "n": int(len(sub)),
+        "آزمون‌های چندمتغیره": rows,
+        "معنادار": "بله" if any(r["معنادار"] == "بله" for r in rows) else "خیر",
+    }
+
+
+def repeated_measures_anova(path: str, cols, subject: str = None) -> dict:
+    """تحلیل واریانس با اندازه‌گیری تکراری — برای طرح‌های پیش‌آزمون/پس‌آزمون/پیگیری
+    که همان افراد چند بار سنجیده شده‌اند. معادل Repeated Measures در SPSS."""
+    import pandas as pd
+    from statsmodels.stats.anova import AnovaRM
+    df = _load_dataframe(path)
+    use = [c for c in (cols or []) if c in df.columns]
+    if len(use) < 2:
+        return {"error": "اندازه‌گیری تکراری به دست‌کم دو سنجش (دو ستون) نیاز دارد"}
+    sub = df[use].apply(pd.to_numeric, errors="coerce").dropna().reset_index(drop=True)
+    if len(sub) < 3:
+        return {"error": "تعداد آزمودنی‌های کامل کافی نیست"}
+    sub["_subject"] = sub.index
+    long = sub.melt(id_vars="_subject", value_vars=use, var_name="_time", value_name="_y")
+    res = AnovaRM(long, depvar="_y", subject="_subject", within=["_time"]).fit()
+    t = res.anova_table
+    row = t.iloc[0]
+    return {
+        "software": "معادل خروجی SPSS (Repeated Measures ANOVA)",
+        "سنجش‌ها": use, "n": int(len(sub)),
+        "F": round(float(row["F Value"]), 3),
+        "df صورت": round(float(row["Num DF"]), 2),
+        "df مخرج": round(float(row["Den DF"]), 2),
+        "sig": round(float(row["Pr > F"]), 4),
+        "میانگین‌ها": {c: round(float(sub[c].mean()), 3) for c in use},
+        "معنادار": "بله" if float(row["Pr > F"]) < 0.05 else "خیر",
+    }
 
 
 def frequencies(path: str, cols=None, max_levels: int = 30) -> dict:
@@ -762,6 +1004,8 @@ FUNCTIONS = {
     "frequencies": frequencies,
     "crosstab": crosstab,
     "nonparametric": nonparametric,
+    "manova": manova,
+    "repeated_measures_anova": repeated_measures_anova,
 }
 
 

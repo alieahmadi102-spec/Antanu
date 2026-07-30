@@ -120,8 +120,12 @@ SPEC = {
                                  "popmean": float},
                        "cols": ["col", "group", "value2"], "collists": []},
     "anova":          {"args": {"dependent": str, "factor": str, "factor2": str,
-                                 "posthoc": bool},
-                       "cols": ["dependent", "factor", "factor2"], "collists": []},
+                                 "posthoc": bool, "posthoc_method": str, "control_group": str},
+                       "cols": ["dependent", "factor", "factor2", "control_group"], "collists": []},
+    "manova":         {"args": {"dependents": list, "factor": str},
+                       "cols": ["factor"], "collists": ["dependents"]},
+    "repeated_measures_anova": {"args": {"cols": list},
+                       "cols": [], "collists": ["cols"]},
     "nonparametric":  {"args": {"kind": str, "col": str, "group": str, "cols": list,
                                  "value2": str},
                        "cols": ["col", "group", "value2"], "collists": ["cols"]},
@@ -155,6 +159,8 @@ SPEC = {
                        "cols": ["dependent", "entity", "time"], "collists": ["independents"]},
     "ts_diagnostics": {"args": {"dependent": str, "independents": list},
                        "cols": ["dependent"], "collists": ["independents"]},
+    "seasonal_decompose": {"args": {"col": str, "period": int, "model": str},
+                       "cols": ["col"], "collists": []},
 }
 
 # نام‌های فارسی برای نمایش در گزارش
@@ -172,6 +178,9 @@ TITLES = {
     "var_model": "خودرگرسیون برداری (VAR)", "vecm": "مدل تصحیح خطا (VECM)",
     "garch": "مدل GARCH", "panel": "داده‌ی تابلویی",
     "ts_diagnostics": "آزمون‌های تشخیصی رگرسیون",
+    "manova": "تحلیل واریانس چندمتغیره (MANOVA)",
+    "repeated_measures_anova": "تحلیل واریانس با اندازه‌گیری تکراری",
+    "seasonal_decompose": "تجزیه‌ی فصلیِ سری زمانی",
 }
 
 
@@ -260,12 +269,16 @@ def _data_supports(name, params, prof):
     """آیا داده اصلاً برای این آزمون مناسب است؟ (پیام فارسی به‌جای خطای خام)"""
     n = prof.get("تعداد سطر", 0)
     if name in ("unit_root", "cointegration", "granger", "arima",
-                "var_model", "vecm", "garch"):
+                "var_model", "vecm", "garch", "seasonal_decompose"):
         if not prof.get("ستون زمان") and not prof.get("سری‌زمانی است"):
             return False, ("این داده ساختار سری‌زمانی ندارد (ستون تاریخ/دوره پیدا نشد)، "
                            "پس آزمون‌های سری‌زمانی روی آن معنا ندارد.")
         if n < 30:
             return False, "برای آزمون‌های سری‌زمانی دست‌کم ۳۰ مشاهده لازم است."
+    if name == "manova" and n < 20:
+        return False, "برای MANOVA، حجم نمونه بسیار کم است."
+    if name == "repeated_measures_anova" and n < 10:
+        return False, "برای اندازه‌گیری تکراری، تعداد آزمودنی بسیار کم است."
     if name == "panel" and not prof.get("ساختار تابلویی"):
         return False, ("ساختار تابلویی (شناسه‌ی واحد + دوره‌ی زمانی) در این داده "
                        "تشخیص داده نشد.")

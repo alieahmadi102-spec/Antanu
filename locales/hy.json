@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 Նկարագրել տվյալները",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "Կրկնվող չափումներ",
+  "stats.seasonal": "Սեզոնային վերլուծություն",
   "stats.factor": "🧩 Գործոնային վերլուծություն",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",

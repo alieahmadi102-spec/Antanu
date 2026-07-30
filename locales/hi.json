@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 डेटा का वर्णन",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "बार-बार माप",
+  "stats.seasonal": "मौसमी विघटन",
   "stats.factor": "🧩 कारक विश्लेषण",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",

@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 Veriyi betimle",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "Tekrarlı Ölçüm",
+  "stats.seasonal": "Mevsimsel Ayrıştırma",
   "stats.factor": "🧩 Faktör analizi",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",

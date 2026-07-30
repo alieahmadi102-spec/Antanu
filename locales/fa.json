@@ -303,6 +303,8 @@
   "stats.crosstab": "جدول توافقی",
   "stats.describe": "📋 توصیف داده",
   "stats.diagnostics": "آزمون تشخیصی",
+  "stats.repeated": "اندازه‌گیری تکراری",
+  "stats.seasonal": "تجزیه فصلی",
   "stats.factor": "🧩 تحلیل عاملی",
   "stats.frequencies": "جدول فراوانی",
   "stats.granger": "گرنجر",

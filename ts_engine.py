@@ -723,7 +723,79 @@ def ts_diagnostics(path: str, dependent: str, independents=None) -> dict:
             for i, c in enumerate(X.columns) if c != "const"]
     except Exception:
         pass
+    try:
+        from statsmodels.stats.diagnostic import het_arch
+        lm, lmp, f, fp = het_arch(res.resid, nlags=min(4, len(data) // 5))
+        out["ARCH-LM (خوشه‌بندی نوسان)"] = {
+            "LM": round(float(lm), 3), "sig": round(float(lmp), 4),
+            "اثر ARCH": "دارد — واریانس شرطی زمان‌متغیر است" if lmp < 0.05 else "ندارد"}
+    except Exception:
+        pass
+    try:
+        from statsmodels.stats.diagnostic import breaks_cusumolsresid
+        stat, cp, crit = breaks_cusumolsresid(res.resid, ddof=len(independents) + 1)
+        out["CUSUM (پایداری ضرایب در طول زمان)"] = {
+            "آماره": round(float(stat), 3), "sig": round(float(cp), 4),
+            "پایداری": "ضرایب پایدارند" if cp >= 0.05 else "شکست ساختاری محتمل است"}
+    except Exception:
+        pass
+    try:
+        out["شکست ساختاری (چاو)"] = _chow_test(data, dependent, independents)
+    except Exception:
+        pass
     return out
+
+
+def _chow_test(data, dependent, independents, break_frac: float = 0.5) -> dict:
+    """آزمون چاو: آیا ضرایب رگرسیون قبل و بعد از یک نقطه‌ی زمانی فرق دارند؟
+    نقطه‌ی شکست پیش‌فرض وسطِ داده است (متداول‌ترین حالت وقتی نقطه‌ی خاصی معلوم نیست)."""
+    import statsmodels.api as sm
+    n = len(data)
+    k = len(independents) + 1
+    split = int(n * break_frac)
+    if split < k + 2 or (n - split) < k + 2:
+        return {"error": "برای آزمون چاو، هر دو نیمه باید مشاهده‌ی کافی داشته باشند"}
+    X_full = sm.add_constant(data[independents])
+    y = data[dependent]
+    rss_pooled = sm.OLS(y, X_full).fit().ssr
+    rss1 = sm.OLS(y.iloc[:split], X_full.iloc[:split]).fit().ssr
+    rss2 = sm.OLS(y.iloc[split:], X_full.iloc[split:]).fit().ssr
+    from scipy import stats as sstats
+    f = ((rss_pooled - (rss1 + rss2)) / k) / ((rss1 + rss2) / (n - 2 * k))
+    p = float(sstats.f.sf(f, k, n - 2 * k))
+    return {"F": round(float(f), 3), "sig": round(p, 4), "نقطه‌ی شکست": f"{int(break_frac*100)}٪ داده",
+           "شکست ساختاری": "دارد" if p < 0.05 else "ندارد"}
+
+
+def seasonal_decompose_analysis(path: str, col: str = None, period: int = None,
+                                model: str = "additive") -> dict:
+    """تجزیه‌ی سری زمانی به روند، فصلی و باقیمانده — برای داده‌ی ماهانه/فصلی/هفتگی
+    که الگوی تکرارشونده دارد. معادل Seasonal Adjustment در EViews."""
+    import pandas as pd
+    df = _load_dataframe(path)
+    num = _numeric(df, [col] if col else None)
+    if num.empty:
+        return {"error": "ستون عددی برای تجزیه‌ی فصلی پیدا نشد"}
+    c = col if col in num.columns else num.columns[0]
+    s = num[c].dropna()
+    if len(s) < 8:
+        return {"error": "برای تجزیه‌ی فصلی دست‌کم ۸ مشاهده لازم است"}
+    if not period:
+        tcol = detect_time_column(df)
+        period = 12 if tcol else max(2, min(12, len(s) // 4))
+    if len(s) < 2 * period:
+        return {"error": f"برای دوره‌ی فصلیِ {period}، دست‌کم {2*period} مشاهده لازم است"}
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    res = seasonal_decompose(s.values, model=model, period=period, extrapolate_trend="freq")
+    return {
+        "software": "معادل خروجی EViews (Seasonal Decomposition)",
+        "دوره‌ی فصلی": period, "مدل": "جمعی" if model == "additive" else "ضربی",
+        "n": int(len(s)),
+        "قدرت روند": round(float(1 - res.resid.var() / (res.trend + res.resid).var()), 3),
+        "قدرت فصلی": round(float(1 - res.resid.var() / (res.seasonal + res.resid).var()), 3),
+        "نمونه_روند": [round(float(x), 3) for x in res.trend[:10]],
+        "نمونه_فصلی": [round(float(x), 3) for x in res.seasonal[:period]],
+    }
 
 
 FUNCTIONS = {
@@ -737,4 +809,5 @@ FUNCTIONS = {
     "garch": garch,
     "panel": panel,
     "ts_diagnostics": ts_diagnostics,
+    "seasonal_decompose": seasonal_decompose_analysis,
 }

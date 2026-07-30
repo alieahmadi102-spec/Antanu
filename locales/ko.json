@@ -303,6 +303,8 @@
   "stats.crosstab": "Crosstabs",
   "stats.describe": "📋 기술 통계",
   "stats.diagnostics": "Diagnostics",
+  "stats.repeated": "반복측정",
+  "stats.seasonal": "계절 분해",
   "stats.factor": "🧩 요인분석",
   "stats.frequencies": "Frequencies",
   "stats.granger": "Granger",
