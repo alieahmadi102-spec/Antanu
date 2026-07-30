@@ -631,12 +631,17 @@
         </div>
         <div class="doc-field" id="docSrcField">
           <label>{{ t("doc.sources") }}</label>
-          <div class="row" style="gap:8px">
+          <div class="row" style="gap:8px;flex-wrap:wrap">
             <button type="button" id="docAttachBtn" class="mini">{{ t("doc.add_source") }}</button>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer">
               <input type="checkbox" id="docWeb" style="accent-color:var(--accent)"> {{ t("ref.web") }}
             </label>
+            <button type="button" id="docDatasetBtn" class="mini">{{ t("doc.add_dataset") }}</button>
+            <span id="docDatasetName" style="font-size:12.5px;color:var(--accent);display:none"></span>
           </div>
+          <p class="sub" style="margin:4px 0 0;font-size:12px">{{ t("doc.dataset_hint") }}</p>
+          <input type="file" id="docDatasetInput"
+                 accept=".csv,.xlsx,.xlsm,.sav,.dta,.json,.pdf,.docx" hidden>
           <div id="docChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
           <input type="file" id="docFileInput" multiple
                  accept=".txt,.pdf,.docx,.xlsx,.csv,.md,.json,.jpg,.jpeg,.png,.webp,image/*" hidden>

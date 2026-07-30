@@ -96,6 +96,8 @@
   "ct.toc": "📑 Thesis outline",
   "ct.topic": "💡 Topic ideas",
   "doc.add_source": "📎 Add a source file or image",
+  "doc.add_dataset": "📊 Attach real data for analysis",
+  "doc.dataset_hint": "Optional: if you attach a data file (CSV/Excel), the \"Methodology\" and \"Findings\" sections are written from a real statistical analysis of your data, not the model's general knowledge.",
   "doc.align": "Text alignment",
   "doc.align_center": "Center",
   "doc.align_justify": "Justify",

@@ -96,6 +96,8 @@
   "ct.toc": "📑 Índice de la tesis",
   "ct.topic": "💡 Ideas de temas",
   "doc.add_source": "📎 Añadir un archivo o imagen de origen",
+  "doc.add_dataset": "📊 Adjuntar datos reales para el análisis",
+  "doc.dataset_hint": "Opcional: si adjuntas un archivo de datos (CSV/Excel), las secciones «Metodología» y «Resultados» se escriben a partir de un análisis estadístico real de tus datos, no del conocimiento general del modelo.",
   "doc.align": "Alineación del texto",
   "doc.align_center": "Centrado",
   "doc.align_justify": "Justificado",

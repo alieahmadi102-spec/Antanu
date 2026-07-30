@@ -349,6 +349,54 @@ def _rag_context(query: str, top_k: int = 3, budget: int = 2500) -> str:
         return ""
 
 
+_METHOD_SECTION_TITLE = "روش‌شناسی پژوهش"
+_FINDINGS_SECTION_TITLE = "یافته‌ها و تحلیل داده‌ها"
+
+
+async def _run_dataset_analysis(path: str, topic: str, log):
+    """داده‌ی واقعیِ کاربر را تحلیل می‌کند تا مقاله از روی عدد واقعی نوشته شود،
+    نه فرضیِ مدل. همان منطقِ /api/stats/auto (پروفایل → نقشه‌ی تحلیل → اجرا)،
+    اینجا جدا نوشته شده تا مسیرِ تست‌شده‌ی آن endpoint دست‌نخورده بماند.
+
+    خروجی: (prof, results, report_md, digest). اگر چیزی نشد، همه خالی/None
+    برمی‌گردد و مقاله بدون این بخش (مثل قبل) ساخته می‌شود — هرگز کل درخواست
+    را نمی‌شکند."""
+    import analysis_planner
+    import stats_report
+
+    prof = await run_in_threadpool(analysis_planner.profile, path)
+    if prof.get("error"):
+        log(f"⚠️ داده خوانده نشد: {prof['error']}\n")
+        return None, [], "", ""
+    log(f"✅ {prof['تعداد سطر']} مشاهده و {prof['تعداد ستون']} متغیر در داده شناسایی شد.\n")
+
+    c = pick_model_for("stats")
+    steps, dropped = [], []
+    if c.get("key"):
+        try:
+            raw = await _call_model_once(
+                c, analysis_planner.build_prompt(prof, topic or "تحلیل متعارف این داده"),
+                system=analysis_planner.PLAN_SYSTEM, max_tokens=1400)
+            steps, dropped = analysis_planner.validate_plan(analysis_planner.parse_plan(raw), prof)
+        except Exception:
+            steps = []
+    if not steps:
+        steps, dropped = analysis_planner.validate_plan(analysis_planner.fallback_plan(prof), prof)
+    if not steps:
+        log("⚠️ برای این داده تحلیل مناسبی پیدا نشد؛ مقاله بدون تحلیل آماری ساخته می‌شود.\n")
+        return prof, [], "", ""
+
+    log(f"✅ {len(steps)} آزمون آماری روی داده اجرا می‌شود: "
+        f"{'، '.join(s['title'] for s in steps)}\n")
+    results = []
+    for st in steps:
+        r = await run_in_threadpool(lambda s=st: analysis_planner.execute(path, [s])[0])
+        results.append(r)
+    report_md = stats_report.build_report(results, prof, topic)
+    digest = stats_report.summarize_for_model(results, max_chars=6000)
+    return prof, results, report_md, digest
+
+
 def _citation_footnote_rule(section_index: int) -> str:
     """دستور «پاورقی اسلامی»: نام نویسنده‌ی خارجی در متن به فارسی، نام لاتین در پاورقی.
 
@@ -4317,6 +4365,12 @@ async def api_longdoc(request: Request):
     use_web = bool(body.get("use_web"))
     ld_smart = bool(body.get("smart_design"))
     ld_style = (body.get("style") or "auto").strip()
+    # فایل داده‌ی واقعی برای بخش «روش‌شناسی» و «یافته‌ها» — با /api/stats/upload
+    # آپلود می‌شود (همان مسیری که تحلیل آماری مستقل استفاده می‌کند)، چون آنجا
+    # بایت خام فایل نگه داشته می‌شود، نه فقط متنِ استخراج‌شده مثل /api/upload.
+    dataset_file = (body.get("dataset_file") or "").strip()
+    if dataset_file and not re.fullmatch(r"[A-Za-z0-9._-]+", dataset_file):
+        raise HTTPException(400, "نام فایل داده نامعتبر است")
 
     c = pick_model_for("article")
     if not c.get("key"):
@@ -4420,6 +4474,34 @@ async def api_longdoc(request: Request):
             if lib_note:
                 yield log("📚 منابع مرتبط از کتابخانه‌ی آنتانو پیدا شد.\n")
 
+            # گامِ داده‌ی واقعی: اگر کاربر فایل داده داده، بخش «روش‌شناسی» و «یافته‌ها»
+            # از روی عدد واقعیِ همین داده نوشته می‌شوند، نه فرضِ مدل.
+            # (import export_utils اینجا هم لازم است چون پایین‌تر همین تابع دوباره
+            # import می‌کند و آن import محلی، export_utils را در کل gen() لوکال
+            # می‌کند — بدون این خط همین‌جا، به آن قبل از مقداردهی دسترسی پیدا می‌شد.)
+            import export_utils
+            stats_prof = None
+            stats_results, stats_report_md, stats_digest = [], "", ""
+            outline_data_note = ""
+            if dataset_file:
+                ds_path = os.path.join(export_utils.EXPORT_DIR, dataset_file)
+                if not os.path.exists(ds_path):
+                    yield log("⚠️ فایل داده پیدا نشد؛ مقاله بدون تحلیل آماری ساخته می‌شود.\n")
+                else:
+                    yield log("⏳ گام ۰ب: تحلیل آماریِ داده‌ی شما…\n")
+                    try:
+                        stats_prof, stats_results, stats_report_md, stats_digest = \
+                            await _run_dataset_analysis(ds_path, topic, log)
+                    except Exception as e:
+                        yield log(f"⚠️ تحلیل داده ناتمام ماند: {str(e)[:150]}\n")
+                    if stats_results:
+                        outline_data_note = (
+                            f"\n\nروی دیتاست کاربر ({stats_prof.get('تعداد سطر', '؟')} مشاهده، "
+                            f"{stats_prof.get('تعداد ستون', '؟')} متغیر) این آزمون‌های آماری واقعی اجرا شده‌اند؛ "
+                            f"دقیقاً این دو عنوان را — بدون تغییر — جزوِ فهرست بیاور: «{_METHOD_SECTION_TITLE}» و "
+                            f"«{_FINDINGS_SECTION_TITLE}»."
+                        )
+
             yield log("⏳ گام ۱: طراحی فهرست بخش‌ها…\n")
             outline = await _call_model_once(
                 c,
@@ -4427,7 +4509,7 @@ async def api_longdoc(request: Request):
                 "ساختار باید استاندارد مقاله دانشگاهی باشد: با چکیده و مقدمه شروع شود، سپس مبانی نظری و پیشینه پژوهش "
                 "(داخلی و خارجی)، روش‌شناسی پژوهش، یافته‌ها و تحلیل داده‌ها، بحث و نتیجه‌گیری، و در پایان منابع. "
                 "هر عنوان در یک خط جداگانه، بدون شماره و بدون توضیح اضافه. عنوان‌ها متنوع و بدون هم‌پوشانی باشند."
-                + src_note + lib_note,
+                + outline_data_note + src_note + lib_note,
                 system=sys_prompt,
                 max_tokens=1200,
             )
@@ -4436,6 +4518,27 @@ async def api_longdoc(request: Request):
             if not titles:
                 yield log("\n⚠️ فهرست بخش‌ها ساخته نشد. دوباره تلاش کنید.")
                 return
+
+            if stats_results:
+                # دستورِ بالا از مدل خواسته بود دقیقاً همین دو عنوان را بیاورد؛ اگر
+                # پیروی نکرد (پارافریز کرد یا جا انداخت)، اینجا مطمئن می‌شویم که
+                # هستند — وگرنه حلقه‌ی نگارش نمی‌فهمد کدام بخش باید از عدد واقعی
+                # استفاده کند و مقاله بدون تحلیل واقعی ساخته می‌شود.
+                missing = [x for x in (_METHOD_SECTION_TITLE, _FINDINGS_SECTION_TITLE)
+                          if x not in titles]
+                if missing:
+                    room = max(0, n_sections - len(titles))
+                    titles.extend(missing[:room])
+                    still_missing = missing[room:]
+                    # برای باقی‌مانده، از انتها جایگزین می‌کنیم — ولی هرگز جای عنوانِ
+                    # موردنیازِ دیگری را که همین حالا درست است نمی‌گیریم.
+                    idx = len(titles) - 1
+                    for needed in still_missing:
+                        while idx >= 0 and titles[idx] in (_METHOD_SECTION_TITLE, _FINDINGS_SECTION_TITLE):
+                            idx -= 1
+                        if idx >= 0:
+                            titles[idx] = needed
+                            idx -= 1
 
             yield log(f"✅ {len(titles)} بخش طراحی شد.\n\n")
             article = f"# {topic}\n"
@@ -4449,6 +4552,24 @@ async def api_longdoc(request: Request):
                 yield log(f"⏳ ({pct}٪) نوشتن بخش {i} از {len(titles)}: «{t}»…\n")
                 # برای هر بخش، مرتبط‌ترین صفحه‌های کتابخانه به همان بخش را می‌آوریم
                 sec_lib = _library_context(f"{topic} {t}", limit=3, budget=2600) or lib_note
+
+                # بخش «روش‌شناسی» و «یافته‌ها»، اگر داده‌ی واقعی تحلیل شده، باید از
+                # همان عددهای واقعی بنویسند نه از دانش عمومیِ مدل.
+                data_note = ""
+                if stats_results and t == _METHOD_SECTION_TITLE:
+                    data_note = (
+                        f"\n\nاین بخش باید روش‌شناسیِ واقعیِ همین پژوهش را توصیف کند: نمونه شامل "
+                        f"{stats_prof.get('تعداد سطر', '؟')} مشاهده و {stats_prof.get('تعداد ستون', '؟')} "
+                        f"متغیر بود. این آزمون‌های آماری روی داده اجرا شدند: "
+                        f"{'، '.join(r.get('title', '') for r in stats_results)}. "
+                        "همین روش را توضیح بده؛ آزمون یا عدد دیگری از خودت نساز."
+                    )
+                elif stats_results and t == _FINDINGS_SECTION_TITLE:
+                    data_note = (
+                        f"\n\nاین خروجی‌های واقعیِ تحلیل آماری روی داده‌ی کاربر است — تفسیر را فقط از "
+                        f"همین اعداد بنویس، عددی از خودت نساز:\n{stats_digest}"
+                    )
+
                 try:
                     part = await _call_model_once(
                         c,
@@ -4459,13 +4580,17 @@ async def api_longdoc(request: Request):
                         "فقط به فارسی معیار بنویس و هیچ واژه خارجی وسط متن نیاور. "
                         "خودِ عنوان بخش را ننویس؛ فقط متن.\n"
                         + _citation_footnote_rule(i)
-                        + src_note + sec_lib,
+                        + data_note + src_note + sec_lib,
                         system=sys_prompt,
                     )
                 except ModelError as e:
                     yield log(f"⚠️ بخش «{t}» به دلیل خطای سرویس (کد {e.status}) رد شد.\n")
                     continue
                 article += f"\n\n## {t}\n\n{part.strip()}"
+                # جدول‌های واقعیِ تحلیل را هم بعد از تفسیرِ مدل می‌آوریم — تا عددها
+                # همیشه از خروجیِ واقعیِ آماری باشند، نه فقط پارافریزِ مدل از آن‌ها.
+                if stats_report_md and t == _FINDINGS_SECTION_TITLE:
+                    article += "\n\n" + stats_report_md
                 done_titles.append(t)
                 await asyncio.sleep(1)
 

@@ -96,6 +96,8 @@
   "ct.toc": "📑 Gliederung der Abschlussarbeit",
   "ct.topic": "💡 Themenideen",
   "doc.add_source": "📎 Quelldatei oder Bild hinzufügen",
+  "doc.add_dataset": "📊 Echte Daten für die Analyse anhängen",
+  "doc.dataset_hint": "Optional: Wenn du eine Datendatei (CSV/Excel) anhängst, werden „Methodik“ und „Ergebnisse“ anhand einer echten statistischen Analyse deiner Daten geschrieben, nicht aus dem Allgemeinwissen des Modells.",
   "doc.align": "Textausrichtung",
   "doc.align_center": "Zentriert",
   "doc.align_justify": "Blocksatz",

@@ -96,6 +96,8 @@
   "ct.toc": "📑 Plan du mémoire",
   "ct.topic": "💡 Idées de sujets",
   "doc.add_source": "📎 Ajouter un fichier ou une image source",
+  "doc.add_dataset": "📊 Joindre des données réelles pour l'analyse",
+  "doc.dataset_hint": "Facultatif : si vous joignez un fichier de données (CSV/Excel), les sections « Méthodologie » et « Résultats » sont rédigées à partir d'une analyse statistique réelle de vos données, pas des connaissances générales du modèle.",
   "doc.align": "Alignement du texte",
   "doc.align_center": "Centré",
   "doc.align_justify": "Justifié",

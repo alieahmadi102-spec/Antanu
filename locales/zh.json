@@ -96,6 +96,8 @@
   "ct.toc": "📑 论文目录",
   "ct.topic": "💡 选题建议",
   "doc.add_source": "📎 添加来源文件或图片",
+  "doc.add_dataset": "📊 附加真实数据用于分析",
+  "doc.dataset_hint": "可选：如果你附加数据文件（CSV/Excel），「研究方法」和「结果与数据分析」部分将根据你数据的真实统计分析撰写，而不是模型的通用知识。",
   "doc.align": "文本对齐",
   "doc.align_center": "居中",
   "doc.align_justify": "两端对齐",

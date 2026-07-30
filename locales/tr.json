@@ -96,6 +96,8 @@
   "ct.toc": "📑 Tez içindekiler",
   "ct.topic": "💡 Konu önerileri",
   "doc.add_source": "📎 Kaynak dosyası veya görseli ekle",
+  "doc.add_dataset": "📊 Analiz için gerçek veri ekle",
+  "doc.dataset_hint": "İsteğe bağlı: bir veri dosyası (CSV/Excel) eklerseniz, «Araştırma Yöntemi» ve «Bulgular» bölümleri modelin genel bilgisinden değil, verinizin gerçek istatistiksel analizinden yazılır.",
   "doc.align": "Metin hizalama",
   "doc.align_center": "Ortaya",
   "doc.align_justify": "İki yana yasla",

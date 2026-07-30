@@ -2274,6 +2274,39 @@ $("#docFileInput").addEventListener("change", async e => {
   e.target.value = "";
 });
 
+/* دیتای واقعی برای تحلیل آماریِ مقاله — با همان مسیر آپلودِ تحلیل آماری
+   (/api/stats/upload) چون آنجا بایت خام فایل نگه داشته می‌شود، نه فقط متن. */
+let docDatasetFile = "";
+$("#docDatasetBtn")?.addEventListener("click", () => $("#docDatasetInput").click());
+$("#docDatasetInput")?.addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const btn = $("#docDatasetBtn");
+  const nameEl = $("#docDatasetName");
+  const oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>';
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/stats/upload", { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast(data.detail || "خطا در آپلود داده");
+      return;
+    }
+    docDatasetFile = data.file;
+    nameEl.textContent = "📊 " + file.name;
+    nameEl.style.display = "inline";
+  } catch {
+    toast("خطا در آپلود داده");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    e.target.value = "";
+  }
+});
+
 /* ---------- پنل نوع محتوا (تیک‌دار) ---------- */
 $("#ctypeBtn")?.addEventListener("click", () => {
   $("#ctypePanel").classList.toggle("show");
@@ -2393,7 +2426,10 @@ $("#docStart").addEventListener("click", async () => {
   if (!topic) { toast("موضوع مقاله را بنویسید"); return; }
   const pages = Number($("#docPages").value) || 10;
   $("#docOverlay").classList.remove("show");
-  const clearDocChips = () => { docAttachments = []; $("#docChips").innerHTML = ""; $("#docWeb").checked = false; };
+  const clearDocChips = () => {
+    docAttachments = []; $("#docChips").innerHTML = ""; $("#docWeb").checked = false;
+    docDatasetFile = ""; $("#docDatasetName").style.display = "none";
+  };
   setTimeout(clearDocChips, 500);
 
   currentConv = null;
@@ -2417,6 +2453,7 @@ $("#docStart").addEventListener("click", async () => {
         attachments: docAttachments.map(a => a.id),
         use_web: $("#docWeb").checked,
         smart_design: $("#docSmart").checked, style: $("#docStyle").value,
+        dataset_file: docDatasetFile,
       }),
       signal: abortCtrl.signal,
     });

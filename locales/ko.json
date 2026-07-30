@@ -96,6 +96,8 @@
   "ct.toc": "📑 논문 목차",
   "ct.topic": "💡 주제 제안",
   "doc.add_source": "📎 출처 파일이나 이미지 추가",
+  "doc.add_dataset": "📊 분석용 실제 데이터 첨부",
+  "doc.dataset_hint": "선택 사항: 데이터 파일(CSV/Excel)을 첨부하면 «연구 방법론»과 «연구 결과» 섹션이 모델의 일반 지식이 아니라 실제 데이터의 통계 분석을 바탕으로 작성됩니다.",
   "doc.align": "문단 정렬",
   "doc.align_center": "가운데",
   "doc.align_justify": "양쪽 맞춤",

@@ -96,6 +96,8 @@
   "ct.toc": "📑 論文の目次",
   "ct.topic": "💡 テーマの提案",
   "doc.add_source": "📎 出典ファイルや画像を追加",
+  "doc.add_dataset": "📊 分析用の実データを添付",
+  "doc.dataset_hint": "任意：データファイル（CSV/Excel）を添付すると、「研究方法」と「結果」のセクションはモデルの一般知識ではなく、実際のデータの統計分析に基づいて書かれます。",
   "doc.align": "文字の配置",
   "doc.align_center": "中央",
   "doc.align_justify": "両端揃え",
