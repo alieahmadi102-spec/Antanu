@@ -6,6 +6,8 @@ import os
 import re
 import secrets
 
+import i18n
+
 # پوشه خروجی‌ها — اگر قابل نوشتن نبود (مثل Hugging Face) به /tmp می‌رود
 _BASE = os.path.dirname(os.path.abspath(__file__))
 EXPORT_DIR = os.environ.get("ANTANU_EXPORT_DIR", os.path.join(_BASE, "exports"))
@@ -202,7 +204,9 @@ _FN_MARKER_RE = re.compile(r"\[\^([^\]]+)\]")
 
 
 def _to_fa_digits_mod(s) -> str:
-    return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    # با وجود نامش، فقط برای خروجیِ فارسی به فارسی تبدیل می‌کند — زبان از
+    # main.py با i18n.set_digit_lang() برای همین درخواست تعیین شده است.
+    return i18n.to_local_digits(s)
 
 
 # ---------------- ابزارهای فهرست دستی Word (عنوان … نقطه‌چین … شماره صفحه) ----------------
@@ -423,7 +427,7 @@ def _inject_real_footnotes(docx_path: str, notes, font_name: str = "Vazirmatn"):
 # ---------------- ساخت فایل Word (راست‌به‌چپ) ----------------
 
 def _to_fa_digits(s) -> str:
-    return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    return i18n.to_local_digits(s)
 
 
 def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,

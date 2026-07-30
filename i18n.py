@@ -11,6 +11,7 @@ i18n.py — چندزبانه‌سازی آنتانو.
   ۲) یک سطر در LANGUAGES پایین اضافه کن با نام بومی زبان و جهت نوشتار.
   همین. زبان تازه فوراً در فهرست انتخاب زبانِ سایت ظاهر می‌شود.
 """
+import contextvars
 import json
 import os
 import re
@@ -225,6 +226,42 @@ def detect_message_lang(text: str, fallback: str = DEFAULT_LANG):
         # بدون هیچ نشانه‌ای، لاتین یعنی انگلیسی
         return (best if best_score >= 2 else "en"), True
     return top, True
+
+
+# ---------------- ارقام: فارسی فقط برای خروجی فارسی ----------------
+# قبلاً export_utils/design_engine/stats_report هر عددی را همیشه به فارسی
+# تبدیل می‌کردند، حتی برای کاربری که زبانش انگلیسی (یا هر زبان دیگری) بود.
+# این‌جا یک قرارداد مشترک است: پیش‌فرض «fa» تا رفتار قبلیِ هر جایی که هنوز
+# زبان صریح نمی‌فرستد، دقیقاً همان بماند؛ صداکننده‌هایی که زبان کاربر را
+# می‌دانند با set_digit_lang همان‌جا عوضش می‌کنند (دقیقاً مثل _lang_ctx در main.py).
+_digit_lang_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "antanu_digit_lang", default="fa")
+
+_FA_DIGIT_TRANS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+_EN_DIGIT_TRANS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+
+
+def set_digit_lang(lang: str | None) -> None:
+    """زبانِ خروجیِ سند/گزارشِ همین درخواست را تعیین می‌کند (فارسی یا غیر آن)."""
+    _digit_lang_ctx.set(lang or "fa")
+
+
+def to_local_digits(value, lang: str | None = None) -> str:
+    """ارقام یک رشته/عدد را طبق زبان درست می‌کند.
+
+    lang="fa" ⇐ ارقام فارسی؛ هر زبان دیگر ⇐ ارقام انگلیسی (و اگر رقم فارسی/عربی
+    قبلاً در متن بود، به انگلیسی برمی‌گردد تا سند یک‌دست بماند). اگر lang داده
+    نشود، از زمینه‌ی درخواست جاری خوانده می‌شود (set_digit_lang).
+
+    ممیز اعشاری فارسی («٫») هم فقط در حالت غیرفارسی به نقطه‌ی معمولی برمی‌گردد —
+    نه برعکس، چون تبدیل هر نقطه‌ی انگلیسی به «٫» برای متن فارسی می‌توانست آدرس‌ها
+    و نام‌فایل‌های داخل همان متن (مثل antanu.duckdns.org) را هم خراب کند.
+    """
+    s = str(value)
+    target = lang if lang is not None else _digit_lang_ctx.get()
+    if target == "fa":
+        return s.translate(_FA_DIGIT_TRANS)
+    return s.translate(_EN_DIGIT_TRANS).replace("٫", ".")
 
 
 def missing_keys(lang: str):

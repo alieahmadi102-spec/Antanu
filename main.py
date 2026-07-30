@@ -2084,6 +2084,7 @@ async def api_footnote(request: Request, file: UploadFile = File(...)):
     """به متن فایلِ کاربر پاورقی علمی اضافه می‌کند و فایل Word با پانوشت واقعی می‌سازد."""
     user = require_user(request)
     check_subscription(user)
+    i18n.set_digit_lang(resolve_lang(request, user))
     try:
         import export_utils
     except ImportError as _e:
@@ -3758,6 +3759,7 @@ async def stats_run(request: Request):
     """اجرای یک تحلیل آماری و تفسیر دانشگاهی با هوش مصنوعی"""
     user = require_user(request)
     check_subscription(user)
+    i18n.set_digit_lang(resolve_lang(request, user))
     body = await request.json()
     fname = body.get("file") or ""
     analysis = body.get("analysis") or "overview"
@@ -3891,6 +3893,7 @@ async def stats_auto(request: Request):
     """
     user = require_user(request)
     check_subscription(user)
+    i18n.set_digit_lang(resolve_lang(request, user))
     body = await request.json()
     fname = body.get("file") or ""
     ask = (body.get("request") or "").strip()[:1200]
@@ -4169,6 +4172,7 @@ def download_file(fname: str, request: Request):
 async def api_export(request: Request):
     """تبدیل یک پاسخ به فایل Word / PDF با فونت و سایز دلخواه"""
     user = require_user(request)
+    i18n.set_digit_lang(resolve_lang(request, user))
     body = await request.json()
     content = (body.get("content") or "").strip()
     if not content:
@@ -4273,6 +4277,7 @@ async def _call_model_once(c, prompt: str | None = None, system: str | None = No
 async def api_longdoc(request: Request):
     """سازنده مقاله بلند: فهرست بخش‌ها → نوشتن بخش‌به‌بخش → خروجی Word/PDF"""
     user = require_user(request)
+    i18n.set_digit_lang(resolve_lang(request, user))
     body = await request.json()
     topic = (body.get("topic") or "").strip()
     if not topic:

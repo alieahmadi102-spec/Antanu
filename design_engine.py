@@ -12,6 +12,8 @@ import re
 import colorsys
 import secrets
 
+import i18n
+
 # رنگ‌ها به‌صورت رشته‌ی HEX بدون # ذخیره می‌شوند
 # هر تم: پالت کامل + فونت‌های امن (که روی همه سیستم‌ها موجودند) + حال‌وهوا
 THEMES = {
@@ -157,7 +159,7 @@ def build_spec(style=None, topic="", overrides=None):
 # ================= ساخت Word طراحی‌شده (اختصاصی هر موضوع) =================
 
 def _fa_digits(s):
-    return str(s).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+    return i18n.to_local_digits(s)
 
 
 def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,

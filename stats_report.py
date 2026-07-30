@@ -8,14 +8,14 @@ stats_report.py — تبدیل نتیجه‌ی خام تحلیل‌ها به گ�
 """
 import re
 
-FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+import i18n
 
 # کلیدهایی که در جدول‌ها به‌عنوان «معناداری» شناخته می‌شوند
 _SIG_KEYS = ("sig", "p", "p-value", "pvalue", "معناداری", "sig (F)")
 
 
 def _fa(x) -> str:
-    return str(x).translate(FA_DIGITS)
+    return i18n.to_local_digits(x)
 
 
 def _num(v, nd=3):
@@ -166,12 +166,12 @@ def build_report(results, prof=None, request: str = "", interpretation: str = ""
                                    r.get("result") or {}, r.get("why", "")))
     if interpretation:
         parts.append("## تفسیر نتایج\n\n" + interpretation.strip())
-    parts.append(
+    parts.append(_fa(
         "---\n\n"
         "<small>راهنمای نشانه‌ها: \\*\\*\\* معنادار در سطح ۰٫۰۱، "
         "\\*\\* معنادار در سطح ۰٫۰۵، \\* معنادار در سطح ۰٫۱٪. "
         "علامت — یعنی مقدار محاسبه نشده است.</small>"
-    )
+    ))
     return "\n\n".join(x for x in parts if x)
 
 

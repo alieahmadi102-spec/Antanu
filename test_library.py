@@ -683,6 +683,15 @@ def test_no_regression():
     if not ran:
         print(f"  ⓘ آزمون‌های مرحله‌های قبل در «{old_dir}» پیدا نشدند — رد شدند.")
 
+    # test_digits.py کنار همین فایل و در گیت است، نه در ANTANU_OLD_TESTS
+    digits_test = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_digits.py")
+    if os.path.exists(digits_test):
+        r = subprocess.run([sys.executable, digits_test], capture_output=True, text=True,
+                           timeout=600, cwd=os.path.dirname(os.path.abspath(__file__)))
+        out = (r.stdout or "") + (r.stderr or "")
+        check("test_digits.py پاس می‌شود", r.returncode == 0,
+              out.strip().splitlines()[-1][:90] if out.strip() else "")
+
     r = subprocess.run([sys.executable, "-c", "import main; print(len(main.app.routes))"],
                        capture_output=True, text=True, timeout=300)
     check("main.py بدون خطا بارگذاری می‌شود", r.returncode == 0,
