@@ -381,6 +381,37 @@ def test_help_multilang():
         check("کاربر غیرمدیر به وضعیت ترجمه دسترسی ندارد", rn.status_code in (401, 403, 302, 307))
 
 
+# ═══════════════ ۷) نوار ورودی هرگز از صفحه بیرون نرود ═══════════════
+
+def test_composer_never_pushed_offscreen():
+    section("۷) با تیک «مقاله بلند»، دکمه‌ی ارسال از پایین صفحه بیرون نیفتد")
+    here = os.path.dirname(os.path.abspath(__file__))
+    css = open(os.path.join(here, "static", "style.css"), encoding="utf-8").read()
+    js = open(os.path.join(here, "static", "app.js"), encoding="utf-8").read()
+
+    # ریشه‌ی باگ: در فلکس‌باکس، ناحیه‌ی پیام‌ها زیر اندازه‌ی محتوایش کوچک نمی‌شد
+    check("ناحیه‌ی پیام‌ها اجازه‌ی کوچک‌شدن دارد (min-height:0)",
+          "#messages { flex: 1; min-height: 0;" in css)
+    check("ظرفِ اصلی هم اجازه‌ی کوچک‌شدن دارد",
+          "main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }" in css)
+
+    # سقفِ ارتفاع پنل — تضمین می‌کند فوتر بلندتر از صفحه نشود
+    panel = css.split("#ctypePanel {", 1)[1].split("}", 1)[0]
+    check("پنل نوع محتوا سقف ارتفاع دارد", "max-height" in panel, panel[:80])
+    check("پنل به‌جای بزرگ‌شدن، خودش اسکرول می‌شود", "overflow-y: auto" in panel)
+    check("سقف پنل با ارتفاع صفحه سنجیده می‌شود (vh/dvh)",
+          "vh" in panel or "dvh" in panel)
+
+    chips = css.split("#chips {", 1)[1].split("}", 1)[0]
+    check("چیپ‌های پیوست هم سقف و اسکرول دارند",
+          "max-height" in chips and "overflow-y: auto" in chips)
+
+    check("سرِ پنل هنگام اسکرول می‌ماند (دکمه‌ی پاک‌کردن در دسترس)",
+          "#ctypePanel .ctype-head" in css and "position: sticky" in css)
+    check("تنظیمات خروجیِ تازه‌ظاهرشده خودکار جلوی چشم می‌آید",
+          "scrollIntoView" in js and "ctypeDocOpts" in js)
+
+
 def main_run():
     test_config_integrity()
     test_grid_roundtrip()
@@ -388,6 +419,7 @@ def main_run():
     test_run_analyses(fname)
     test_admin_accordion()
     test_help_multilang()
+    test_composer_never_pushed_offscreen()
 
     print("\n" + "═" * 68)
     print(f"نتیجه: {len(PASS)} موفق، {len(FAIL)} ناموفق")

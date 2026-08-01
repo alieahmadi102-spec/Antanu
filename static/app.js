@@ -2342,7 +2342,14 @@ document.querySelectorAll(".ctype").forEach(c => {
   c.addEventListener("change", () => {
     // تنظیمات خروجی فقط وقتی «مقاله بلند» تیک خورده
     const wantsDoc = document.querySelector('.ctype[value="مقاله"]').checked;
-    $("#ctypeDocOpts").style.display = wantsDoc ? "block" : "none";
+    const opts = $("#ctypeDocOpts");
+    const wasHidden = opts.style.display === "none";
+    opts.style.display = wantsDoc ? "block" : "none";
+    // پنل سقفِ ارتفاع دارد و خودش اسکرول می‌شود؛ پس تنظیماتِ تازه‌ظاهرشده را
+    // جلوی چشم کاربر بیاور، وگرنه زیر لبه‌ی پنل پنهان می‌ماند.
+    if (wantsDoc && wasHidden) {
+      requestAnimationFrame(() => opts.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    }
     updateCtypeBtn();
   });
 });
