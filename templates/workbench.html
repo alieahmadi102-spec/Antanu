@@ -27,8 +27,11 @@
     <button class="wb-tool" data-act="save" title="ذخیره">💾 <span>ذخیره</span></button>
     <button class="wb-tool" data-act="output" title="پنجره‌ی خروجی">🗔 <span>خروجی‌ها</span></button>
     {% if sw.id == "smartpls" %}
+    <button class="wb-tool panel-toggle" data-act="panel">🧩 <span>ساخت مدل</span></button>
     <button class="wb-tool primary" data-act="pls_algorithm">▶ PLS Algorithm</button>
     <button class="wb-tool primary" data-act="bootstrapping">⚡ Bootstrapping</button>
+    {% elif sw.id == "eviews" %}
+    <button class="wb-tool panel-toggle" data-act="panel">📋 <span>سری‌ها</span></button>
     {% endif %}
     <span class="wb-file-chip" id="wbFileChip">هنوز داده‌ای باز نشده — از «داده‌های من» یا «آپلود فایل» شروع کنید</span>
     <span class="wb-dirty" id="wbDirty" hidden>●</span>
@@ -38,21 +41,40 @@
   <!-- بدنه -->
   <div class="wb-main" id="wbMain">
     {% if sw.id == "eviews" %}
-    <aside class="wb-side">
-      <h4>Workfile: UNTITLED — سری‌ها</h4>
+    <aside class="wb-side" id="plsPanel">
+      <h4>Workfile: UNTITLED — سری‌ها <button class="panel-close" data-act="panel">✕</button></h4>
       <div class="wb-side-scroll" id="wbSeriesList"></div>
     </aside>
     {% elif sw.id == "smartpls" %}
     <aside class="pls-panel" id="plsPanel">
-      <h4>🧩 مدل اندازه‌گیری — سازه‌ها و گویه‌ها</h4>
+      <h4>🧩 مدل اندازه‌گیری — سازه‌ها و گویه‌ها
+        <button class="panel-close" data-act="panel">✕</button></h4>
+
+      <div class="sec pls-guide">
+        <details id="plsHelp">
+          <summary>❓ سازه یعنی چه؟ چطور پُر کنم؟</summary>
+          <p><b>گویه</b> = هر ستون پرسشنامه (مثل <span class="ltr">FA1</span>، <span class="ltr">FA2</span>) — یعنی یک سؤال.</p>
+          <p><b>سازه</b> = مفهومی که آن چند سؤال با هم می‌سنجند (مثل «رضایت» یا «کیفیت»).
+             معمولاً سؤال‌های یک سازه اسم مشترک با شماره دارند.</p>
+          <p><b>مسیر</b> = فرضیه‌ی شما؛ اینکه کدام سازه روی کدام یکی اثر می‌گذارد.</p>
+          <p>ساده‌ترین راه: دکمه‌ی <b>🪄 ساخت خودکار سازه‌ها</b> را بزنید تا آنتانو از روی
+             نام ستون‌ها سازه‌ها را بسازد، بعد فقط مسیرها را تعیین کنید.</p>
+        </details>
+        <button class="wb-btn pls-add" id="plsAuto">🪄 ساخت خودکار سازه‌ها از روی نام ستون‌ها</button>
+      </div>
+
       <div class="sec">
-        <input type="text" id="plsNewName" placeholder="نام سازه (مثلاً: رضایت مشتری)">
+        <label class="pls-lbl">۱) نام سازه‌ی جدید</label>
+        <input type="text" id="plsNewName" placeholder="مثلاً: رضایت مشتری">
+        <label class="pls-lbl">۲) گویه‌های همین سازه را تیک بزنید (دست‌کم دو تا)</label>
         <div class="wb-collist" id="plsIndicators" style="max-height:150px"></div>
         <button class="wb-btn pls-add" id="plsAddConstruct">➕ افزودن سازه</button>
       </div>
       <div class="sec" id="plsConstructs"></div>
+
       <h4>➡ مدل ساختاری — مسیرها</h4>
       <div class="sec">
+        <label class="pls-lbl">کدام سازه روی کدام سازه اثر می‌گذارد؟</label>
         <select id="plsFrom"></select>
         <select id="plsTo"></select>
         <button class="wb-btn pls-add" id="plsAddPath">➕ افزودن مسیر</button>

@@ -131,10 +131,20 @@ For econometrics and time series: a series list beside the workfile and the fami
 Output is shown with the **classic EViews header** (Method, Sample, Included observations).
 
 ### 🧩 SmartPLS
-Structural equation modelling on a real **canvas**:
-1. Create your constructs and tick the indicators for each one.
-2. Define the paths between constructs.
-3. Press **PLS Algorithm** or **Bootstrapping**.
+Structural equation modelling on a real **canvas**.
+
+**Three terms first:**
+- **Indicator** = one questionnaire column (such as `FA1`, `FA2`) — a single question.
+- **Construct** = the concept those questions measure together (such as "satisfaction" or "quality"). Its questions usually share a name with a number.
+- **Path** = your hypothesis: which construct affects which.
+
+**Step by step:**
+1. Open your questionnaire file from **📂 My data** or **⬆️ Upload file**.
+2. Press **🧩 Build model** (on a phone this opens as a full-screen panel).
+3. Press **🪄 Detect constructs automatically**. ANTANU reads the column names and finds the constructs — `FA1…FA5` becomes construct `FA`, `IA1…IA8` becomes `IA`. You see the list and confirm it.
+   (If your column names have no shared pattern, do it by hand: type the construct name, tick its indicators — at least two — and press **➕ Add construct**.)
+4. Under **Paths**, say which construct affects which (for example `FA → IA` and `IA → FT`), pressing **➕ Add path** each time.
+5. Press **▶ PLS Algorithm** (no significance testing) or **⚡ Bootstrapping** (with t and p values to confirm or reject your hypotheses).
 
 Outer loadings, path coefficients (with significance stars) and **R²** are drawn onto the model itself. You also get the full report: Cronbach's alpha, rho_A, CR, AVE, Fornell-Larcker, HTMT, f², Q² and SRMR.
 

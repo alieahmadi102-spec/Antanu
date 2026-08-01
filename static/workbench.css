@@ -258,7 +258,9 @@ table.wb-vars td.vn { direction: ltr; text-align: left; font-family: Tahoma, san
 .wb-canvas-wrap { flex: 1; position: relative; overflow: auto; min-height: 0;
   background: #fbfcfd;
   background-image: radial-gradient(#d5dae2 1px, transparent 1px); background-size: 22px 22px; }
-.wb-canvas-wrap svg { display: block; min-width: 100%; min-height: 100%; }
+.wb-canvas-wrap svg { display: block; }
+/* کشیدنِ سازه‌ها با انگشت نباید با اسکرولِ صفحه قاطی شود */
+.wb-canvas-wrap svg g { touch-action: none; }
 .pls-panel { flex: 0 0 290px; background: #f6f7f9; border-inline-end: 1px solid #c2c7cf;
   display: flex; flex-direction: column; min-height: 0; overflow: auto; }
 .pls-panel h4 { margin: 0; padding: 8px 10px; font-size: 12.5px; background: var(--hdr);
@@ -277,12 +279,46 @@ table.wb-vars td.vn { direction: ltr; text-align: left; font-family: Tahoma, san
   font: inherit; font-size: 12.5px; margin-bottom: 5px; background: #fff;
 }
 
+/* راهنما و برچسب‌های پنل مدل */
+.pls-lbl { display: block; font-size: 11.5px; color: #556; margin: 2px 0 4px; font-weight: 600; }
+.pls-guide details {
+  background: #fff; border: 1px solid #c9cdd6; border-radius: 6px;
+  padding: 6px 9px; margin-bottom: 7px; font-size: 12px; line-height: 1.85;
+}
+.pls-guide summary { cursor: pointer; font-weight: 700; color: var(--acc); }
+.pls-guide details p { margin: 6px 0 0; color: #445; }
+.pls-guide .ltr { direction: ltr; display: inline-block; font-family: Tahoma, sans-serif; }
+#plsAuto { background: var(--acc); color: #fff; border-color: transparent; font-weight: 700; }
+
+/* دکمه‌ی بستنِ پنل — فقط روی گوشی معنا دارد */
+.panel-close {
+  display: none; float: left; background: none; border: 0; cursor: pointer;
+  color: #667; font-size: 15px; line-height: 1;
+}
+.wb-tool.panel-toggle { display: none; }
+
 /* واکنش‌گرا */
-@media (max-width: 760px) {
-  .wb-side { display: none; }
-  .pls-panel { flex-basis: 100%; position: absolute; inset: 0; z-index: 50; display: none; }
-  .pls-panel.show { display: flex; }
+@media (max-width: 860px) {
+  /* روی گوشی، پنل کناری یک برگه‌ی تمام‌صفحه می‌شود که با دکمه‌ی نوار ابزار
+     باز و بسته می‌شود — قبلاً روی گوشی اصلاً قابل باز کردن نبود. */
+  .wb-side, .pls-panel {
+    position: absolute; inset: 0; z-index: 55; display: none;
+    flex-basis: auto; width: 100%; border: 0;
+    box-shadow: 0 0 40px rgba(0,0,0,.35);
+  }
+  .wb-side.show, .pls-panel.show { display: flex; }
+  .panel-close { display: inline-block; }
+  .wb-tool.panel-toggle { display: inline-block; }
+  .wb-main { position: relative; }
   .wb-output { inset: 2vh 2vw; }
+  .wb-toolbar { gap: 4px; }
+  .wb-tool { padding: 5px 8px; font-size: 12px; }
+  .wb-file-chip { max-width: 100%; order: 9; }
+}
+@media (max-width: 520px) {
+  /* عنوان دکمه‌های نوار ابزار حذف می‌شود تا همه در یک ردیف جا شوند */
+  .wb-tool:not(.primary):not(.panel-toggle) span { display: none; }
+  .wb-tool.primary { font-size: 11.5px; padding: 5px 9px; }
 }
 
 /* حالت تیره‌ی سایت روی میزکار اثر نکند — نرم‌افزارها همیشه روشن‌اند، مثل نسخه‌ی ویندوز */

@@ -412,6 +412,59 @@ def test_composer_never_pushed_offscreen():
           "scrollIntoView" in js and "ctypeDocOpts" in js)
 
 
+# ═══════════════ ۸) میزکارها روی گوشی ═══════════════
+
+def test_workbench_mobile_and_autobuild():
+    section("۸) میزکارها روی گوشی + ساخت خودکار سازه‌ها")
+    here = os.path.dirname(os.path.abspath(__file__))
+    css = open(os.path.join(here, "static", "workbench.css"), encoding="utf-8").read()
+    js = open(os.path.join(here, "static", "workbench.js"), encoding="utf-8").read()
+    tpl = open(os.path.join(here, "templates", "workbench.html"), encoding="utf-8").read()
+
+    # باگ: روی گوشی پنل کناری مخفی بود و هیچ راهی برای بازکردنش نبود
+    check("دکمه‌ی باز/بستن پنل در نوار ابزار هست", 'data-act="panel"' in tpl)
+    check("دکمه فقط روی صفحه‌های باریک دیده می‌شود",
+          ".wb-tool.panel-toggle { display: none; }" in css
+          and ".wb-tool.panel-toggle { display: inline-block; }" in css)
+    check("پنل روی گوشی با کلاس show باز می‌شود",
+          ".wb-side.show, .pls-panel.show { display: flex; }" in css)
+    check("دکمه‌ی بستنِ پنل هم هست", 'class="panel-close"' in tpl)
+    check("جاوااسکریپت پنل را باز/بسته می‌کند", "function togglePanel" in js)
+
+    # ساخت خودکار سازه‌ها از روی نام ستون‌ها
+    check("دکمه‌ی ساخت خودکار سازه‌ها هست", 'id="plsAuto"' in tpl)
+    check("منطق تشخیص سازه از نام ستون هست", "function guessConstructs" in js)
+    check("راهنمای «سازه یعنی چه» داخل پنل هست",
+          "سازه یعنی چه" in tpl and "گویه" in tpl)
+
+    # همان قاعده‌ی سرور و مرورگر باید یک نتیجه بدهد
+    import analysis_planner
+    cols = ["ID"] + [f"FA{i}" for i in range(1, 6)] + [f"IA{i}" for i in range(1, 9)] \
+        + [f"FT{i}" for i in range(1, 4)] + ["جنسیت"]
+    g = analysis_planner.guess_constructs(cols)
+    check("سازه‌ها از نام ستون‌های پرسشنامه درست تشخیص داده می‌شوند",
+          set(g) == {"FA", "IA", "FT"}, str(sorted(g)))
+    check("ستون‌های بی‌شماره وارد سازه نمی‌شوند",
+          all("ID" not in v and "جنسیت" not in v for v in g.values()))
+    check("هر سازه همه‌ی گویه‌هایش را دارد",
+          len(g["FA"]) == 5 and len(g["IA"]) == 8 and len(g["FT"]) == 3)
+
+    # بوم مدل باید در عرض صفحه جا شود
+    check("بوم مدل برای جاشدن در صفحه مقیاس می‌خورد",
+          "function fitCanvas" in js and "viewBox" in js)
+    check("کشیدن سازه با انگشت هم کار می‌کند", "pointerdown" in js and "pointermove" in js)
+    check("مقیاسِ بوم در جابه‌جایی سازه لحاظ می‌شود", "vb.width / box.width" in js)
+
+    # راهنما هم قدم‌به‌قدم توضیح داده باشد
+    import help_docs
+    fa, _ = help_docs.source_text("fa")
+    en, _ = help_docs.source_text("en")
+    check("راهنمای فارسی روش کار با SmartPLS را قدم‌به‌قدم دارد",
+          "ساخت خودکار سازه‌ها" in fa and "گویه" in fa and "مسیر" in fa)
+    check("راهنمای انگلیسی هم همین را دارد",
+          "Detect constructs automatically" in en and "Indicator" in en)
+
+
 def main_run():
     test_config_integrity()
     test_grid_roundtrip()
@@ -420,6 +473,7 @@ def main_run():
     test_admin_accordion()
     test_help_multilang()
     test_composer_never_pushed_offscreen()
+    test_workbench_mobile_and_autobuild()
 
     print("\n" + "═" * 68)
     print(f"نتیجه: {len(PASS)} موفق، {len(FAIL)} ناموفق")

@@ -232,12 +232,23 @@
       S.selCol = -1; setDirty(true); renderGrid(); return;
     }
     if (act === "output") return showOutput();
+    if (act === "panel") return togglePanel();
     if (act === "pls_algorithm") return runPLS(0);
     if (act === "bootstrapping") return runPLS(+($("#plsBoot")?.value || 500));
     if (act === "cfa") return runCFA();
   }
   document.querySelectorAll(".wb-toolbar .wb-tool").forEach((b) =>
     b.addEventListener("click", () => doAction(b.dataset.act)));
+  document.querySelectorAll(".panel-close").forEach((b) =>
+    b.addEventListener("click", () => doAction(b.dataset.act)));
+
+  /* روی گوشی، پنل کناری یک برگه‌ی تمام‌صفحه است که باز و بسته می‌شود */
+  function togglePanel(force) {
+    const p = $("#plsPanel");
+    if (!p) return;
+    const on = force === undefined ? !p.classList.contains("show") : !!force;
+    p.classList.toggle("show", on);
+  }
 
   function ensureData() {
     if (!S.columns.length) {
@@ -301,7 +312,11 @@
     S.columns = d.columns; S.rows = d.rows;
     S.totalRows = d.total_rows; S.truncated = d.truncated;
     setDirty(false); chip(); renderGrid();
-    status(`✅ «${S.title}» باز شد — ${d.total_rows} مشاهده، ${d.columns.length} متغیر`);
+    let msg = `✅ «${S.title}» باز شد — ${d.total_rows} مشاهده، ${d.columns.length} متغیر`;
+    if (SW === "smartpls" && !PLS.constructs.length) {
+      msg += " — حالا «🧩 ساخت مدل» را بزنید و از دکمه‌ی «🪄 ساخت خودکار سازه‌ها» شروع کنید.";
+    }
+    status(msg);
   }
 
   async function saveGrid(announce) {
@@ -762,6 +777,52 @@
     $("#plsNewName").value = "";
     renderModelPanel(); renderIndicators(); drawCanvas();
   });
+  /* ---------- ساخت خودکار سازه‌ها از روی نام ستون‌ها ----------
+     پرسشنامه‌ها معمولاً ستون‌هایی مثل FA1, FA2, FA3 و IA1..IA8 دارند؛ یعنی
+     گویه‌های یک سازه، ریشه‌ی نامی مشترک با شماره دارند. همان قاعده‌ای که
+     analysis_planner.guess_constructs در سرور دارد، این‌جا هم اجرا می‌شود تا
+     کاربر مجبور نباشد ده‌ها گویه را دستی تیک بزند. */
+  function guessConstructs() {
+    const groups = {};
+    S.columns.filter((c) => c.type === "numeric").forEach((c) => {
+      const m = String(c.name).trim().match(/^(.*?)[\s_\-]*(\d+)$/);
+      if (!m) return;
+      const stem = m[1].replace(/^[\s_-]+|[\s_-]+$/g, "");
+      if (!stem) return;
+      (groups[stem] = groups[stem] || []).push({ name: c.name, num: +m[2] });
+    });
+    const out = [];
+    Object.entries(groups).forEach(([stem, items]) => {
+      if (items.length < 2) return;                     // سازه دست‌کم دو گویه دارد
+      items.sort((a, b) => a.num - b.num);
+      out.push({ name: stem, items: items.map((i) => i.name) });
+    });
+    return out;
+  }
+
+  $("#plsAuto")?.addEventListener("click", () => {
+    if (!S.columns.length) {
+      status("⚠️ اول داده‌ای باز کنید (دکمه‌ی «داده‌های من» یا «آپلود فایل»)");
+      return;
+    }
+    const found = guessConstructs();
+    if (!found.length) {
+      status("⚠️ از روی نام ستون‌ها سازه‌ای پیدا نشد — گویه‌های هر سازه باید نام مشترک و شماره داشته باشند (مثل A1, A2, A3). دستی بسازید.");
+      return;
+    }
+    const fresh = found.filter((f) => !PLS.constructs.some((c) => c.name === f.name));
+    if (!fresh.length) {
+      status("همه‌ی سازه‌های قابل تشخیص از قبل ساخته شده‌اند.");
+      return;
+    }
+    const list = fresh.map((f) => `• ${f.name} (${f.items.length} گویه: ${f.items.join("، ")})`).join("\n");
+    if (!confirm(`آنتانو این سازه‌ها را از روی نام ستون‌ها پیدا کرد:\n\n${list}\n\nساخته شوند؟`)) return;
+    fresh.forEach((f) => PLS.constructs.push(f));
+    renderModelPanel(); renderIndicators(); drawCanvas();
+    status(`✅ ${fresh.length} سازه ساخته شد. حالا در بخش «مسیرها» تعیین کنید کدام سازه روی کدام اثر می‌گذارد، بعد PLS Algorithm را بزنید.`);
+    $("#plsHelp")?.removeAttribute("open");
+  });
+
   $("#plsAddPath")?.addEventListener("click", () => {
     const a = $("#plsFrom").value, b = $("#plsTo").value;
     if (!a || !b || a === b) return status("⚠️ دو سازه‌ی متفاوت انتخاب کنید");
@@ -908,29 +969,52 @@
         rt.textContent = "R² = " + r2[c.name];
         g.appendChild(rt);
       }
-      // جابه‌جایی سازه با ماوس
-      g.addEventListener("mousedown", (e) => {
+      // جابه‌جایی سازه با ماوس یا انگشت. چون بوم برای جاشدن در صفحه مقیاس
+      // می‌خورد، جابه‌جاییِ صفحه باید به مقیاسِ خودِ بوم تبدیل شود.
+      g.addEventListener("pointerdown", (e) => {
         e.preventDefault();
+        const box = svg.getBoundingClientRect();
+        const vb = svg.viewBox.baseVal;
+        const scale = (vb && vb.width && box.width) ? vb.width / box.width : 1;
         const sx = e.clientX, sy = e.clientY, ox = p.x, oy = p.y;
         const move = (ev) => {
-          PLS.pos[c.name] = { x: ox + ev.clientX - sx, y: oy + ev.clientY - sy };
+          PLS.pos[c.name] = { x: ox + (ev.clientX - sx) * scale,
+                              y: oy + (ev.clientY - sy) * scale };
           drawCanvas();
         };
         const up = () => {
-          window.removeEventListener("mousemove", move);
-          window.removeEventListener("mouseup", up);
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          window.removeEventListener("pointercancel", up);
         };
-        window.addEventListener("mousemove", move);
-        window.addEventListener("mouseup", up);
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", up);
       });
       svg.appendChild(g);
     });
 
-    // بزرگ‌کردن بوم در صورت نیاز
-    const xs = Object.values(pos);
-    const maxX = Math.max(...xs.map((p) => p.x), 900) + 220;
-    const maxY = Math.max(...xs.map((p) => p.y), 600) + 160;
-    svg.setAttribute("width", maxX); svg.setAttribute("height", maxY);
+    // بوم دقیقاً به اندازه‌ی مدل تنظیم می‌شود و روی صفحه‌های باریک کوچک می‌شود
+    // تا کلِ مدل یک‌جا دیده شود (قبلاً روی گوشی بخشی از مدل بیرون از کادر می‌ماند).
+    fitCanvas(svg);
+  }
+
+  function fitCanvas(svg) {
+    let bb;
+    try { bb = svg.getBBox(); } catch (e) { return; }
+    if (!bb || !bb.width) return;
+    const pad = 28;
+    const x = bb.x - pad, y = bb.y - pad;
+    const w = bb.width + pad * 2, h = bb.height + pad * 2;
+    svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    svg.style.width = "100%";
+    svg.style.maxWidth = Math.round(w) + "px";
+    svg.style.height = "auto";
+    svg.style.margin = "0 auto";
+    svg.style.display = "block";
   }
 
   function plsFactors() {
