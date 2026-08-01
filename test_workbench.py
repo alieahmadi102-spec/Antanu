@@ -465,6 +465,73 @@ def test_workbench_mobile_and_autobuild():
           "Detect constructs automatically" in en and "Indicator" in en)
 
 
+# ═══════════════ ۹) خروجی Word از پنجره‌ی نتایج ═══════════════
+
+def test_output_export():
+    section("۹) خروجی Word از پنجره‌ی خروجی میزکار")
+    import export_utils, design_engine, glob
+    here = os.path.dirname(os.path.abspath(__file__))
+    js = open(os.path.join(here, "static", "workbench.js"), encoding="utf-8").read()
+
+    check("دکمه‌ی خروجی Word در پنجره‌ی نتایج هست", "wbOutExport" in js)
+    check("نمودار مسیر به‌جای نشانی، به‌صورت تصویر در سند می‌رود",
+          "![نمودار مسیر مدل]" in js and "delete res.diagram" in js)
+    check("سرفصل‌های عمیق‌تر از سه سطح خام در متن نمی‌افتند",
+          'depth <= 3 ? "#".repeat(depth)' in js)
+
+    # تصویر: فقط فایل‌های خودِ آنتانو، نه مسیرهای بیرونی یا خطرناک
+    png = sorted(glob.glob(os.path.join(export_utils.EXPORT_DIR, "*.png")),
+                 key=os.path.getmtime)
+    if png:
+        good = "/download/" + os.path.basename(png[-1])
+        check("تصویرِ معتبرِ خودِ آنتانو پذیرفته می‌شود",
+              export_utils.resolve_image(good) is not None)
+    for bad in ("../../etc/passwd", "https://evil.example/x.png",
+                "/download/nope-not-here.png", "run.exe", ""):
+        check(f"مسیر ناامن رد می‌شود ({bad or 'خالی'})",
+              export_utils.resolve_image(bad) is None)
+
+    # ساخت واقعی سند با تصویر و جدول
+    if not png:
+        print("  ⏭  تصویری برای آزمون درج نبود.")
+        return
+    md = ("## نتیجه‌ی آزمون\n\n"
+          f"![نمودار مسیر مدل](/download/{os.path.basename(png[-1])})\n\n"
+          "| شاخص | مقدار |\n|---|---|\n| n | ۹۰ |\n")
+    blocks = export_utils.md_to_blocks(md)
+    check("مارک‌داونِ تصویر به بلوکِ تصویر تبدیل می‌شود",
+          any(k == "img" for k, _ in blocks), str([k for k, _ in blocks]))
+
+    import docx
+    name = export_utils.build_docx(blocks, title="آزمون خروجی")
+    d = docx.Document(os.path.join(export_utils.EXPORT_DIR, name))
+    body = "\n".join(p.text for p in d.paragraphs)
+    check("تصویر واقعاً داخل فایل Word درج شد", len(d.inline_shapes) == 1)
+    check("زیرنویس تصویر نوشته شد", "نمودار مسیر مدل" in body)
+    check("نشانی خام فایل در متن نیامد", "/download/" not in body and "![" not in body)
+    check("جدول هم سالم ساخته شد", len(d.tables) == 1)
+
+    spec = design_engine.build_spec("academic")
+    n2 = design_engine.build_designed_docx(blocks, spec, title="آزمون طراحی‌شده")
+    d2 = docx.Document(os.path.join(export_utils.EXPORT_DIR, n2))
+    check("در حالت «طراحی هوشمند» هم تصویر درج می‌شود", len(d2.inline_shapes) == 1)
+
+    # بقیه‌ی قالب‌ها نباید با بلوکِ تازه کرش کنند
+    for fn in ("build_txt", "build_md"):
+        try:
+            getattr(export_utils, fn)(blocks, "آزمون")
+            ok = True
+        except Exception as e:
+            ok = False; print("   ", fn, e)
+        check(f"{fn} با بلوکِ تصویر کرش نمی‌کند", ok)
+    try:
+        export_utils.build_xlsx(blocks)
+        ok = True
+    except Exception as e:
+        ok = False; print("    build_xlsx", e)
+    check("build_xlsx با بلوکِ تصویر کرش نمی‌کند", ok)
+
+
 def main_run():
     test_config_integrity()
     test_grid_roundtrip()
@@ -474,6 +541,7 @@ def main_run():
     test_help_multilang()
     test_composer_never_pushed_offscreen()
     test_workbench_mobile_and_autobuild()
+    test_output_export()
 
     print("\n" + "═" * 68)
     print(f"نتیجه: {len(PASS)} موفق، {len(FAIL)} ناموفق")

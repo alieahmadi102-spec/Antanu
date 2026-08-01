@@ -179,6 +179,14 @@ def md_to_blocks(text: str):
         if not line or line in ("---", "***"):
             i += 1
             continue
+
+        # تصویر تنها در یک خط:  ![توضیح](نشانی)
+        mimg = re.match(r"^!\[([^\]]*)\]\(([^)\s]+)\)$", line)
+        if mimg:
+            blocks.append(("img", {"alt": mimg.group(1).strip(), "src": mimg.group(2).strip()}))
+            i += 1
+            continue
+
         line = _clean_md(line)
         if line.startswith("### "):
             blocks.append(("h3", line[4:].strip()))
@@ -198,6 +206,27 @@ def md_to_blocks(text: str):
     if footnotes:
         blocks.append(("footnotes", footnotes))
     return blocks
+
+
+def resolve_image(src: str):
+    """نشانی تصویرِ داخل مارک‌داون را به یک فایل روی همین سرور تبدیل می‌کند.
+
+    فقط فایل‌های خودِ آنتانو (پوشه‌ی خروجی‌ها) پذیرفته می‌شوند — نه نشانی‌های
+    بیرونی — تا ساخت سند هیچ درخواست شبکه‌ای نزند و مسیرِ فایل هم از پوشه‌ی
+    خروجی بیرون نرود.
+    """
+    if not src:
+        return None
+    name = str(src).split("?")[0].rstrip("/")
+    if "/download/" in name:
+        name = name.split("/download/", 1)[1]
+    name = os.path.basename(name)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        return None
+    if os.path.splitext(name)[1].lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return None
+    path = os.path.join(EXPORT_DIR, name)
+    return path if os.path.exists(path) else None
 
 
 _FN_MARKER_RE = re.compile(r"\[\^([^\]]+)\]")
@@ -561,6 +590,25 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
                           bold=(ri == 0), color=(0x0F, 0x76, 0x6E) if ri == 0 else None)
         doc.add_paragraph()
 
+    def add_image(info):
+        """تصویر (مثل نمودار مسیر مدل) را وسط‌چین با زیرنویس درج می‌کند."""
+        path = resolve_image(info.get("src") if isinstance(info, dict) else info)
+        if not path:
+            return
+        try:
+            from docx.shared import Inches
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.add_run().add_picture(path, width=Inches(6.0))
+        except Exception as e:
+            print("[ANTANU] embedding image failed:", e)
+            return
+        alt = (info.get("alt") if isinstance(info, dict) else "") or ""
+        if alt:
+            cap = doc.add_paragraph()
+            rtl_para(cap, WD_ALIGN_PARAGRAPH.CENTER)
+            style_run(cap.add_run(_to_fa_digits_mod(alt)), max(9, font_size - 3), bold=True)
+
     # پانوشت‌ها: شماره‌گذاری به‌ترتیب اولین ظهور در متن
     fn_defs = {}
     for kind, txt in blocks:
@@ -607,6 +655,9 @@ def build_docx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
             continue
         if kind == "table":
             add_table(txt)
+            continue
+        if kind == "img":
+            add_image(txt)
             continue
         lvl = HLEVEL.get(kind)
         p = doc.add_paragraph()
@@ -749,6 +800,18 @@ def build_pdf(blocks, font_size: int = 14, title: str | None = None, align: str 
             pdf.ln(2)
             write_par(txt, size, "R")
             pdf.ln(1)
+        elif kind == "img":
+            ipath = resolve_image(txt.get("src") if isinstance(txt, dict) else txt)
+            if ipath:
+                try:
+                    pdf.ln(2)
+                    pdf.image(ipath, w=epw)
+                    pdf.ln(2)
+                    alt = (txt.get("alt") if isinstance(txt, dict) else "") or ""
+                    if alt:
+                        write_par(alt, max(9, font_size - 3), "C")
+                except Exception as _e:
+                    print("[ANTANU] pdf image failed:", _e)
         elif kind == "li":
             write_par("• " + txt, font_size, body_code)
         elif kind == "quote":
@@ -834,6 +897,9 @@ def build_xlsx(blocks, font_name: str = "Vazirmatn", font_size: int = 14,
     for kind, txt in blocks:
         if kind == "table":
             put_table(txt)
+        elif kind == "img":
+            alt = (txt.get("alt") if isinstance(txt, dict) else "") or "تصویر"
+            put(f"[{alt}]", font_size, bold=True)
         elif kind == "h1":
             put(txt, font_size + 6, bold=True, color="0F766E")
         elif kind == "h2":
@@ -864,6 +930,9 @@ def build_txt(blocks, title: str | None = None) -> str:
             for row in txt:
                 lines.append("   ".join(str(c) for c in row))
             lines.append("")
+        elif kind == "img":
+            alt = (txt.get("alt") if isinstance(txt, dict) else "") or "تصویر"
+            lines += [f"[{alt}]", ""]
         elif kind in ("h1", "h2", "h3"):
             lines += ["", str(txt), ""]
         elif kind == "li":

@@ -687,7 +687,13 @@
     if (!S.outputs.length) { status("⚠️ خروجی‌ای برای دانلود نیست"); return; }
     status("در حال ساخت فایل Word…", true);
     const md = S.outputs.map((o) => {
-      let s = `## ${o.label} — ${o.fa}\n\n` + resultToMD(o.result);
+      // نمودار مسیر باید به‌صورت تصویر بیاید، نه یک ردیفِ نشانیِ فایل داخل جدول
+      const res = Object.assign({}, o.result);
+      const diagram = res.diagram;
+      delete res.diagram;
+      let s = `## ${o.label} — ${o.fa}\n\n`;
+      if (diagram) s += `![نمودار مسیر مدل](${location.origin}${diagram})\n\n`;
+      s += resultToMD(res);
       if (o.interpretation) s += "\n\n### تفسیر دانشگاهی\n\n" + o.interpretation;
       return s;
     }).join("\n\n---\n\n");
@@ -726,7 +732,10 @@
     if (kv.length) out += "| شاخص | مقدار |\n|---|---|\n" + kv.join("\n") + "\n\n";
     Object.entries(v).forEach(([k, val]) => {
       if (!(isScalar(val) || (Array.isArray(val) && val.every(isScalar) && val.length <= 6))) {
-        out += "#".repeat(Math.min(depth, 6)) + " " + k + "\n\n" + resultToMD(val, depth + 1) + "\n\n";
+        // خروجی Word فقط تا سه سطح سرفصل می‌شناسد؛ سطح‌های عمیق‌تر به‌جای اینکه
+        // «#### نام» خام در متن بیفتند، پررنگ نوشته می‌شوند.
+        out += (depth <= 3 ? "#".repeat(depth) + " " + k : "**" + k + "**") +
+               "\n\n" + resultToMD(val, depth + 1) + "\n\n";
       }
     });
     return out;

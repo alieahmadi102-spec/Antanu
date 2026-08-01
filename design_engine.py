@@ -377,6 +377,26 @@ def build_designed_docx(blocks, spec, title=None, subtitle="", font_size=13,
         if kind == "table":
             themed_table(txt)
             continue
+        if kind == "img":
+            # تصویر (مثل نمودار مسیر مدل) وسط‌چین با زیرنویس
+            import export_utils as _eu
+            _ip = _eu.resolve_image(txt.get("src") if isinstance(txt, dict) else txt)
+            if _ip:
+                try:
+                    from docx.shared import Inches as _In
+                    ip = doc.add_paragraph()
+                    ip.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    ip.add_run().add_picture(_ip, width=_In(6.0))
+                    _alt = (txt.get("alt") if isinstance(txt, dict) else "") or ""
+                    if _alt:
+                        cp = doc.add_paragraph()
+                        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        cr = cp.add_run(_alt)
+                        cr.bold = True
+                        cr.font.size = Pt(max(9, font_size - 3))
+                except Exception as _e:
+                    print("[ANTANU] designed docx image failed:", _e)
+            continue
         if kind == "quote":
             # باکس نکته: پس‌زمینه‌ی ملایم + نوار کناری لهجه‌ای
             p = doc.add_paragraph()
@@ -547,6 +567,8 @@ def build_designed_pptx(content, spec, title="ارائه آنتانو", subtitle
             if cur is None:
                 cur = {"title": "جدول", "level": "h2", "points": [], "tables": []}
             cur["tables"].append(txt)
+        elif kind == "img":
+            continue                      # تصویر در اسلاید متنی جایی ندارد
         elif kind == "quote":
             if cur is None:
                 cur = {"title": "نکته", "level": "h2", "points": [], "tables": []}
