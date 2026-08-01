@@ -334,5 +334,8 @@
   "tr.record": "🎙 Grabar",
   "tr.to": "A",
   "tr.v2v": "🔊 Voz a voz",
-  "tr.v2v_title": "Grabar, traducir y reproducir en voz alta"
+  "tr.v2v_title": "Grabar, traducir y reproducir en voz alta",
+  "help.title": "Guía de uso",
+  "help.back": "→ Volver al chat",
+  "help.translating": "⏳ La guía se está traduciendo a tu idioma; por ahora ves la versión en inglés. Actualiza la página en un momento."
 }

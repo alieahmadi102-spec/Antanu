@@ -334,5 +334,8 @@
   "tr.record": "🎙 Enregistrer",
   "tr.to": "Vers",
   "tr.v2v": "🔊 Voix à voix",
-  "tr.v2v_title": "Enregistrer, traduire et lire à voix haute"
+  "tr.v2v_title": "Enregistrer, traduire et lire à voix haute",
+  "help.title": "Guide d'utilisation",
+  "help.back": "→ Retour à la conversation",
+  "help.translating": "⏳ Le guide est en cours de traduction dans votre langue ; vous voyez pour l'instant la version anglaise. Actualisez la page dans un instant."
 }

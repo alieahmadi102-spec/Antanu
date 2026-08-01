@@ -16,13 +16,17 @@
       <a href="/chat" style="text-decoration:none"><button id="menuBtn">→</button></a>
       <img src="/static/logo.png" class="logo-sm" alt="ANTANU" width="34" height="34" style="width:34px;height:34px;border-radius:50%">
       <h1>آنتانو <span>ANTANU</span></h1>
-      <span class="limit-note">راهنمای استفاده</span>
+      <span class="limit-note">{{ t("help.title") }}</span>
     </header>
 
     <div id="messages" style="padding:24px 18px">
+      <div style="margin-bottom:16px">{% include "_langpicker.html" %}</div>
+      {% if translating %}
+      <p class="help-note">{{ translating }}</p>
+      {% endif %}
       <div class="md help-content">{{ content_html|safe }}</div>
       <div class="shared-foot">
-        <a href="/chat">→ بازگشت به گفتگو</a>
+        <a href="/chat">{{ t("help.back") }}</a>
       </div>
     </div>
   </main>

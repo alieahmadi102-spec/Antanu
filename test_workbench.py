@@ -277,12 +277,117 @@ def test_admin_accordion():
     check("همه‌ی کارت‌های پنل عنوان <h2> دارند", not without_h2, str(without_h2))
 
 
+# ═══════════════ ۶) راهنمای چندزبانه ═══════════════
+
+def test_help_multilang():
+    section("۶) راهنمای استفاده و ترجمه‌اش به زبان‌های آنتانو")
+    import asyncio
+    from fastapi.testclient import TestClient
+    import main, help_docs, i18n
+
+    # متن‌های دستی موجود و به‌روزند
+    fa, fa_lang = help_docs.source_text("fa")
+    en, en_lang = help_docs.source_text("en")
+    check("راهنمای فارسی موجود است", fa_lang == "fa" and len(fa) > 3000)
+    check("راهنمای انگلیسی موجود است", en_lang == "en" and len(en) > 3000)
+    for name, txt in (("فارسی", fa), ("انگلیسی", en)):
+        check(f"راهنمای {name} نرم‌افزارهای تازه را دارد",
+              all(k in txt for k in ("SPSS", "EViews", "SmartPLS")))
+    check("راهنمای فارسی قاعده‌ی پانوشتِ نام لاتین را توضیح داده",
+          "Times New Roman" in fa and "لاتین" in fa)
+
+    # زبان بدون فایل دستی → مبدأ انگلیسی است، نه فارسی
+    src, src_lang = help_docs.source_text("ja")
+    check("مبدأ ترجمه برای زبان‌های دیگر، انگلیسی است", src_lang == "en")
+
+    # تکه‌بندی: هیچ تکه‌ای نباید خالی یا غول‌آسا باشد
+    chunks = help_docs.split_chunks(en)
+    check("راهنما برای ترجمه تکه‌تکه می‌شود", len(chunks) >= 3)
+    check("هیچ تکه‌ای بیش از حد بزرگ نیست",
+          all(len(c) < help_docs.CHUNK_CHARS * 2.2 for c in chunks),
+          str([len(c) for c in chunks]))
+    check("جمعِ تکه‌ها چیزی از متن را نینداخته",
+          sum(len(c) for c in chunks) >= len(en) - len(chunks) * 2)
+
+    # همه‌ی زبان‌های سایت نام ترجمه‌ای دارند
+    missing = [c for c in i18n.LANGUAGES if c not in help_docs.LANG_NAMES]
+    check("برای همه‌ی ۱۲ زبان سایت، نام مقصد تعریف شده", not missing, str(missing))
+
+    # اثرانگشت: با تغییر متن، ترجمه‌ی انباری باطل می‌شود
+    k1 = help_docs.cache_key("tr")
+    check("کلید انبار شاملِ اثرانگشتِ متن است", help_docs.fingerprint() in k1)
+
+    # صفحه: فارسی و انگلیسی بدون هیچ فراخوانیِ هوش مصنوعی سرو شوند
+    calls = []
+
+    async def fake_fb(task, prompt=None, system=None, max_tokens=1800, messages=None,
+                      keep_foreign=False):
+        calls.append(task)
+        body = prompt.split("--- DOCUMENT START ---")[1].split("--- DOCUMENT END ---")[0]
+        return "```markdown\n[TR]" + body.strip() + "\n```"
+    main._call_model_with_fallback = fake_fb
+
+    c = TestClient(main.app)
+    r = c.get("/help", headers={"Accept-Language": "fa"})
+    check("راهنمای فارسی باز می‌شود", r.status_code == 200 and "نرم‌افزارهای آماری" in r.text)
+    r = c.get("/help", headers={"Accept-Language": "en"})
+    check("راهنمای انگلیسی باز می‌شود",
+          r.status_code == 200 and "Statistical software inside ANTANU" in r.text)
+    check("برای فارسی/انگلیسی هیچ ترجمه‌ای فراخوانی نشد", not calls, str(calls))
+
+    # ترجمه‌ی واقعی یک زبان: انبار می‌شود و جعبه‌ی کد پاک می‌شود
+    db = main.get_db()
+    db.execute("DELETE FROM settings WHERE key LIKE 'helpdoc:%'")
+    db.commit(); db.close()
+    txt = asyncio.run(main.translate_help_doc("tr"))
+    check("ترجمه انجام شد", len(txt) > 3000 and "[TR]" in txt)
+    check("جعبه‌ی کدِ دورِ خروجی حذف شد", "```markdown" not in txt)
+    check("ترجمه در پایگاه‌داده انبار شد",
+          len(main.get_setting(help_docs.cache_key("tr"), "")) > 3000)
+    r = c.get("/help", headers={"Accept-Language": "tr"})
+    check("نسخه‌ی انباری بدون ترجمه‌ی دوباره سرو می‌شود", "[TR]" in r.text)
+
+    # شکستِ سرویس: متن مبدأ نشان داده شود و چیزی انبار نشود
+    async def fail_fb(task, prompt=None, system=None, max_tokens=1800, messages=None,
+                      keep_foreign=False):
+        raise main.ModelError(402, "insufficient balance")
+    main._call_model_with_fallback = fail_fb
+    out = asyncio.run(main.translate_help_doc("ja"))
+    check("اگر ترجمه شکست بخورد، متن مبدأ برمی‌گردد (نه صفحه‌ی خالی)", len(out) > 3000)
+    check("ترجمه‌ی ناقص انبار نمی‌شود",
+          main.get_setting(help_docs.cache_key("ja"), "") == "")
+
+    db = main.get_db()
+    db.execute("DELETE FROM settings WHERE key LIKE 'helpdoc:%'")
+    db.commit(); db.close()
+
+    # اندپوینت‌های مدیریت
+    import db as D
+    conn = D.get_db()
+    a = conn.execute("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").fetchone()
+    conn.close()
+    if a:
+        ca = TestClient(main.app)
+        ca.cookies.set("antanu_session", main.make_session(a["id"]))
+        r = ca.get("/admin/help/status")
+        st = r.json()
+        check("وضعیت ترجمه‌ها برای همه‌ی زبان‌ها گزارش می‌شود",
+              r.status_code == 200 and len(st["langs"]) == len(i18n.LANGUAGES))
+        check("فارسی و انگلیسی «دستی» شمرده می‌شوند",
+              all(l["state"] == "written" for l in st["langs"] if l["code"] in ("fa", "en")))
+        r = ca.post("/admin/help/clear", json={})
+        check("پاک‌کردن ترجمه‌ها کار می‌کند", r.status_code == 200 and r.json()["ok"])
+        rn = TestClient(main.app).get("/admin/help/status")
+        check("کاربر غیرمدیر به وضعیت ترجمه دسترسی ندارد", rn.status_code in (401, 403, 302, 307))
+
+
 def main_run():
     test_config_integrity()
     test_grid_roundtrip()
     fname = test_pages_and_api()
     test_run_analyses(fname)
     test_admin_accordion()
+    test_help_multilang()
 
     print("\n" + "═" * 68)
     print(f"نتیجه: {len(PASS)} موفق، {len(FAIL)} ناموفق")

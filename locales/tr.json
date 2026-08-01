@@ -334,5 +334,8 @@
   "tr.record": "🎙 Kaydet",
   "tr.to": "Hedef dil",
   "tr.v2v": "🔊 Sesten sese",
-  "tr.v2v_title": "Kaydet, çevir ve sesli olarak dinlet"
+  "tr.v2v_title": "Kaydet, çevir ve sesli olarak dinlet",
+  "help.title": "Kullanım kılavuzu",
+  "help.back": "→ Sohbete dön",
+  "help.translating": "⏳ Kılavuz dilinize çevriliyor; şimdilik İngilizce sürümü görüyorsunuz. Lütfen birazdan sayfayı yenileyin."
 }

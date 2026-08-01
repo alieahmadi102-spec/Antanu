@@ -2292,19 +2292,90 @@ def render_markdown_html(md: str) -> str:
     return "\n".join(out)
 
 
+# زبان‌هایی که همین حالا در حال ترجمه‌شدنِ راهنما هستند — تا دو درخواستِ هم‌زمان
+# یک کار را دوبار انجام ندهند.
+_help_translating: set[str] = set()
+
+
+async def translate_help_doc(lang: str) -> str:
+    """ترجمه‌ی راهنما به یک زبان و انبار کردنش. متن ترجمه‌شده را برمی‌گرداند.
+
+    بخش‌بخش ترجمه می‌شود؛ اگر بخشی شکست بخورد، متنِ مبدأ همان بخش نگه داشته
+    می‌شود تا کاربر دست‌کم چیزی ببیند (و آن زبان انبار نمی‌شود تا دفعه‌ی بعد
+    دوباره تلاش شود).
+    """
+    import help_docs
+    if not help_docs.needs_translation(lang):
+        return ""
+    src, _src_lang = help_docs.source_text(lang)
+    if not src.strip():
+        return ""
+    chunks = help_docs.split_chunks(src)
+    out, complete = [], True
+    for ch in chunks:
+        try:
+            got = await _call_model_with_fallback(
+                "translate", help_docs.build_prompt(ch, lang),
+                system=help_docs.SYSTEM, max_tokens=4000, keep_foreign=True)
+            got = help_docs.clean_output(got)
+        except Exception as e:
+            print(f"[ANTANU] help translation failed ({lang}):", e)
+            got = ""
+        if not got:
+            complete = False
+            got = ch                      # همان متن مبدأ، تا جای خالی نماند
+        out.append(got)
+    text = "\n\n".join(out)
+    if complete:
+        set_setting(help_docs.cache_key(lang), text)
+    return text
+
+
+async def _translate_help_background(lang: str):
+    if lang in _help_translating:
+        return
+    _help_translating.add(lang)
+    try:
+        await translate_help_doc(lang)
+    finally:
+        _help_translating.discard(lang)
+
+
 @app.get("/help", response_class=HTMLResponse)
-def help_page(request: Request):
-    """راهنمای کامل استفاده — عمومی، بدون نیاز به ورود"""
-    content = "# راهنما\nفعلاً در دسترس نیست."
-    for path in ("راهنمای-کاربران.md", "راهنما.md"):
-        if os.path.exists(path):
-            try:
-                with open(path, encoding="utf-8") as f:
-                    content = f.read()
-                break
-            except Exception:
-                pass
-    return render("help.html", request=request, content_html=render_markdown_html(content))
+async def help_page(request: Request):
+    """راهنمای کامل استفاده — عمومی، بدون نیاز به ورود، به زبان خود کاربر.
+
+    فارسی و انگلیسی از فایل خوانده می‌شوند. زبان‌های دیگر یک بار ترجمه و انبار
+    می‌شوند؛ تا آماده شدنِ ترجمه، همان نسخه‌ی انگلیسی نشان داده می‌شود تا صفحه
+    هیچ‌وقت خالی نماند.
+    """
+    import help_docs
+    lang = resolve_lang(request, current_user(request))
+    i18n.set_digit_lang(lang)
+
+    content, pending = "", False
+    if help_docs.needs_translation(lang):
+        content = get_setting(help_docs.cache_key(lang), "")
+        if not content:
+            pending = True
+            asyncio.create_task(_translate_help_background(lang))
+    if not content:
+        content, _ = help_docs.source_text(lang)
+    if not content.strip():
+        # سازگاری با نسخه‌های قدیمی که راهنما را در ریشه‌ی پروژه داشتند
+        for path in ("راهنمای-کاربران.md", "راهنما.md"):
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        content = f.read()
+                    break
+                except OSError:
+                    pass
+    note = ""
+    if pending:
+        note = i18n.t("help.translating", lang)
+    return render("help.html", request=request, lang=lang,
+                  content_html=render_markdown_html(content), translating=note)
 
 
 @app.get("/chat", response_class=HTMLResponse)
@@ -4981,6 +5052,49 @@ def admin_smart_library_clear(request: Request):
     if not rag_engine.available():
         return {"ok": False, "error": rag_engine.unavailable_reason()}
     return {"ok": bool(rag_engine.clear())}
+
+
+@app.get("/admin/help/status")
+def admin_help_status(request: Request):
+    """وضعیت ترجمه‌ی راهنما برای هر زبان."""
+    require_admin(request)
+    import help_docs
+    langs = []
+    for code in i18n.LANGUAGES:
+        if code in help_docs.HAND_WRITTEN:
+            state = "written"          # دستی نوشته شده
+        elif get_setting(help_docs.cache_key(code), ""):
+            state = "ready"            # ترجمه آماده و انبار شده
+        elif code in _help_translating:
+            state = "running"
+        else:
+            state = "missing"
+        langs.append({"code": code, "name": i18n.native_name(code), "state": state})
+    return {"langs": langs, "fingerprint": help_docs.fingerprint()}
+
+
+@app.post("/admin/help/translate")
+async def admin_help_translate(request: Request):
+    """ترجمه‌ی راهنما به همه‌ی زبان‌هایی که هنوز آماده نیستند (در پس‌زمینه)."""
+    require_admin(request)
+    import help_docs
+    todo = [c for c in i18n.LANGUAGES
+            if help_docs.needs_translation(c)
+            and not get_setting(help_docs.cache_key(c), "")
+            and c not in _help_translating]
+    for code in todo:
+        asyncio.create_task(_translate_help_background(code))
+    return {"ok": True, "started": todo}
+
+
+@app.post("/admin/help/clear")
+def admin_help_clear(request: Request):
+    """پاک‌کردن ترجمه‌های انباری — دفعه‌ی بعد از نو ساخته می‌شوند."""
+    require_admin(request)
+    db = get_db()
+    n = db.execute("DELETE FROM settings WHERE key LIKE 'helpdoc:%'").rowcount
+    db.commit(); db.close()
+    return {"ok": True, "removed": n}
 
 
 @app.get("/admin/build_info")

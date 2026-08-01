@@ -334,5 +334,8 @@
   "tr.record": "🎙 Aufnehmen",
   "tr.to": "Nach",
   "tr.v2v": "🔊 Stimme zu Stimme",
-  "tr.v2v_title": "Aufnehmen, übersetzen und als Sprache abspielen"
+  "tr.v2v_title": "Aufnehmen, übersetzen und als Sprache abspielen",
+  "help.title": "Benutzerhandbuch",
+  "help.back": "→ Zurück zum Chat",
+  "help.translating": "⏳ Das Handbuch wird gerade in Ihre Sprache übersetzt; vorerst sehen Sie die englische Fassung. Bitte laden Sie die Seite gleich neu."
 }

@@ -197,6 +197,22 @@
     </div>
   </div>
 
+  <!-- راهنمای چندزبانه -->
+  <div class="card">
+    <h2>📘 راهنمای استفاده (چندزبانه)</h2>
+    <p class="sub" style="margin-bottom:12px">
+      متنِ فارسی و انگلیسیِ راهنما در فایل‌های <code>help_docs/fa.md</code> و
+      <code>help_docs/en.md</code> است. بقیه‌ی زبان‌ها یک‌بار ترجمه و انبار می‌شوند و بعد
+      بدون هزینه سرو می‌شوند. اگر متن راهنما را عوض کنی، ترجمه‌ها خودکار باطل و دوباره
+      ساخته می‌شوند. با دکمه‌ی زیر می‌توانی همه را از قبل آماده کنی تا کاربر منتظر نماند.
+    </p>
+    <div id="helpLangs" class="row" style="gap:6px;margin-bottom:12px">در حال بررسی…</div>
+    <div class="row">
+      <button class="mini" id="helpTranslate" type="button">🌍 ترجمه‌ی زبان‌های باقی‌مانده</button>
+      <button class="mini danger" id="helpClear" type="button">🗑 پاک‌کردن ترجمه‌ها (ساخت دوباره)</button>
+    </div>
+  </div>
+
   <!-- پشتیبان‌گیری تلگرام -->
   <div class="card">
     <h2>📤 پشتیبان‌گیری خودکار در تلگرام</h2>
@@ -780,6 +796,40 @@ async function loadKb() {
   if (r.ok) { const s = await r.json(); $("#kbCount").textContent = `${s.count} پرسش‌وپاسخ در حافظه ذخیره شده`; }
 }
 
+/* ---------- راهنمای چندزبانه ---------- */
+async function loadHelpLangs() {
+  const box = $("#helpLangs");
+  if (!box) return;
+  const r = await fetch("/admin/help/status");
+  if (!r.ok) { box.textContent = "—"; return; }
+  const s = await r.json();
+  const look = {
+    written: ["✍️ دستی", "ok"],
+    ready:   ["✅ آماده", "ok"],
+    running: ["⏳ در حال ترجمه", ""],
+    missing: ["— ترجمه نشده", "no"],
+  };
+  box.innerHTML = s.langs.map(l => {
+    const [txt, cls] = look[l.state] || ["?", ""];
+    return `<span class="tag ${cls}" style="font-size:12px">${esc(l.name)}: ${txt}</span>`;
+  }).join(" ");
+}
+$("#helpTranslate")?.addEventListener("click", async () => {
+  const btn = $("#helpTranslate");
+  btn.disabled = true;
+  const d = await post("/admin/help/translate", {});
+  btn.disabled = false;
+  if (!d.started.length) { alert("همه‌ی زبان‌ها از قبل آماده‌اند."); return; }
+  alert("ترجمه‌ی این زبان‌ها شروع شد: " + d.started.join("، ") +
+        "\nچند دقیقه طول می‌کشد؛ بعد همین بخش را دوباره باز کن.");
+  setTimeout(loadHelpLangs, 4000);
+});
+$("#helpClear")?.addEventListener("click", async () => {
+  if (!confirm("همه‌ی ترجمه‌های راهنما پاک شوند؟ دفعه‌ی بعد از نو ساخته می‌شوند.")) return;
+  await post("/admin/help/clear", {});
+  loadHelpLangs();
+});
+
 /* ---------- پشتیبان‌گیری تلگرام ---------- */
 async function loadTelegram() {
   const r = await fetch("/admin/telegram_settings");
@@ -1028,6 +1078,7 @@ window.addEventListener("resize", () => {
 });
 
 loadKb();
+loadHelpLangs();
 loadLibrary();
 loadSmartLibrary();
 loadBuildInfo();

@@ -1265,3 +1265,16 @@ footer { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   #ticker .ticker-item { display: inline; white-space: normal; }
   #ticker { white-space: normal; text-align: center; padding: 9px 14px; }
 }
+
+/* ---------- صفحه‌ی راهنما ---------- */
+.help-note {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-inline-start: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  font-size: 13.5px;
+  line-height: 1.9;
+  color: var(--muted);
+}

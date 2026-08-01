@@ -337,5 +337,8 @@
   "tr.v2v_title": "Record, translate, and play back as speech",
   "side.spss": "📊 SPSS workbench (statistics)",
   "side.eviews": "📈 EViews workbench (econometrics)",
-  "side.smartpls": "🧩 SmartPLS workbench (SEM)"
+  "side.smartpls": "🧩 SmartPLS workbench (SEM)",
+  "help.title": "User guide",
+  "help.back": "→ Back to chat",
+  "help.translating": "⏳ The guide is being translated into your language; for now you are seeing the English version. Please refresh in a moment."
 }
