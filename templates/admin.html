@@ -1041,5 +1041,97 @@ loadTts();
 loadStt();
 loadServices();
 </script>
+
+<script>
+/* ---------- بخش‌های کشویی (آکاردئون) ----------
+   هر کارت پنل مدیریت به یک بخش بازشونده تبدیل می‌شود: بسته می‌ماند تا روی
+   سربرگش بزنی، باز می‌شود، و با زدن دوباره بسته می‌شود. وضعیتِ باز/بسته‌ی هر
+   بخش در همین مرورگر به‌خاطر سپرده می‌شود تا دفعه‌ی بعد همان‌طور بماند. */
+(function () {
+  "use strict";
+  const KEY = "antanu_admin_open";
+  let open;
+  try { open = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { open = []; }
+  if (!Array.isArray(open)) open = [];
+
+  const cards = [...document.querySelectorAll(".admin-body > .card")];
+  const secs = [];
+
+  cards.forEach((card, i) => {
+    const h2 = card.querySelector(":scope > h2");
+    if (!h2) return;                       // کارت بدون عنوان دست‌نخورده می‌ماند
+    const id = "sec" + i;
+    card.classList.add("acc");
+    card.dataset.sec = id;
+
+    // بدنه: هر چیزی جز خودِ عنوان
+    const body = document.createElement("div");
+    body.className = "card-body";
+    [...card.childNodes].forEach((n) => { if (n !== h2) body.appendChild(n); });
+
+    // سربرگ قابل‌کلیک
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "card-head";
+    head.setAttribute("aria-expanded", "false");
+    const chev = document.createElement("span");
+    chev.className = "chev";
+    chev.textContent = "◀";
+    head.appendChild(h2);
+    head.appendChild(chev);
+
+    card.appendChild(head);
+    card.appendChild(body);
+
+    // نشان‌های وضعیت (مثل شمارنده‌ی ایده‌های تازه) کنار عنوان دیده شوند
+    const badge = body.querySelector("#fbNewBadge");
+    if (badge) head.insertBefore(badge, chev);
+
+    head.addEventListener("click", () => toggle(card));
+    secs.push({ card, id, title: h2.textContent.trim() });
+
+    if (open.includes(id)) toggle(card, true);
+  });
+
+  function toggle(card, force) {
+    const on = force === true ? true : !card.classList.contains("open");
+    card.classList.toggle("open", on);
+    card.querySelector(":scope > .card-head").setAttribute("aria-expanded", String(on));
+    const id = card.dataset.sec;
+    open = open.filter((x) => x !== id);
+    if (on) open.push(id);
+    try { localStorage.setItem(KEY, JSON.stringify(open)); } catch (e) { /* حالت ناشناس */ }
+    // نمودار داخل بخشِ بسته پهنا ندارد؛ بعد از باز شدن دوباره کشیده شود
+    if (on && card.querySelector("#analyticsChart")) {
+      setTimeout(() => {
+        try {
+          if (typeof drawDailyChart === "function" && typeof lastDaily !== "undefined"
+              && lastDaily && lastDaily.length) drawDailyChart(lastDaily);
+        } catch (e) { /* نمودار اختیاری است */ }
+      }, 30);
+    }
+  }
+
+  // نوار ابزار بالای صفحه: جستجوی بخش + باز/بستن همه
+  const bar = document.createElement("div");
+  bar.className = "acc-bar";
+  bar.innerHTML = `
+    <input type="text" id="accSearch" placeholder="🔍 جستجوی بخش… (مثلاً: کاربران، کلید، تلگرام)">
+    <button type="button" id="accOpenAll">باز کردن همه</button>
+    <button type="button" id="accCloseAll">بستن همه</button>`;
+  const sub = document.querySelector(".admin-body > .sub");
+  (sub || document.querySelector(".admin-body > h1")).after(bar);
+
+  bar.querySelector("#accOpenAll").addEventListener("click", () =>
+    secs.forEach((s) => { if (!s.card.classList.contains("open")) toggle(s.card); }));
+  bar.querySelector("#accCloseAll").addEventListener("click", () =>
+    secs.forEach((s) => { if (s.card.classList.contains("open")) toggle(s.card); }));
+
+  bar.querySelector("#accSearch").addEventListener("input", (e) => {
+    const q = e.target.value.trim();
+    secs.forEach((s) => s.card.classList.toggle("hidden-by-search", !!q && !s.title.includes(q)));
+  });
+})();
+</script>
 </body>
 </html>

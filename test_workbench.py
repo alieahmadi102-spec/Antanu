@@ -239,11 +239,50 @@ def test_run_analyses(fname):
     check("آزمون ریشه‌ی واحد (EViews) اجرا شد", "نتایج" in res, str(res.get("error", ""))[:120])
 
 
+# ═══════════════ ۵) بخش‌های کشویی پنل مدیریت ═══════════════
+
+def test_admin_accordion():
+    section("۵) پنل مدیریت: هر بخش کشویی است")
+    from fastapi.testclient import TestClient
+    import main
+    import db as D
+
+    conn = D.get_db()
+    a = conn.execute("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").fetchone()
+    conn.close()
+    if not a:
+        print("  ⏭  کاربر مدیر پیدا نشد — این بخش رد شد.")
+        return
+    c = TestClient(main.app)
+    c.cookies.set("antanu_session", main.make_session(a["id"]))
+    r = c.get("/admin")
+    check("پنل مدیریت باز می‌شود", r.status_code == 200)
+    html = r.text
+    check("اسکریپت کشویی‌کردن بخش‌ها هست", "card-head" in html and "card-body" in html)
+    check("جعبه‌ی جستجوی بخش هست", "accSearch" in html)
+    check("دکمه‌های باز/بستن همه هستند", "accOpenAll" in html and "accCloseAll" in html)
+    check("وضعیت باز/بسته در مرورگر ذخیره می‌شود", "antanu_admin_open" in html)
+
+    css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "static", "style.css"), encoding="utf-8").read()
+    check("بدنه‌ی بخشِ بسته پنهان است", ".card.acc > .card-body { display: none;" in css)
+    check("بدنه‌ی بخشِ باز نمایان است", ".card.acc.open > .card-body { display: block; }" in css)
+
+    # همه‌ی کارت‌های پنل عنوان دارند، وگرنه کشویی نمی‌شوند
+    tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "templates", "admin.html"), encoding="utf-8").read()
+    import re as _re
+    cards = _re.findall(r'<div class="card"[^>]*>(.*?)(?=\n  <!--|\n<script)', tpl, _re.DOTALL)
+    without_h2 = [i for i, body in enumerate(cards) if "<h2>" not in body]
+    check("همه‌ی کارت‌های پنل عنوان <h2> دارند", not without_h2, str(without_h2))
+
+
 def main_run():
     test_config_integrity()
     test_grid_roundtrip()
     fname = test_pages_and_api()
     test_run_analyses(fname)
+    test_admin_accordion()
 
     print("\n" + "═" * 68)
     print(f"نتیجه: {len(PASS)} موفق، {len(FAIL)} ناموفق")
