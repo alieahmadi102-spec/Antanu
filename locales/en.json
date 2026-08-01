@@ -334,5 +334,8 @@
   "tr.record": "🎙 Record",
   "tr.to": "To",
   "tr.v2v": "🔊 Voice to voice",
-  "tr.v2v_title": "Record, translate, and play back as speech"
+  "tr.v2v_title": "Record, translate, and play back as speech",
+  "side.spss": "📊 SPSS workbench (statistics)",
+  "side.eviews": "📈 EViews workbench (econometrics)",
+  "side.smartpls": "🧩 SmartPLS workbench (SEM)"
 }

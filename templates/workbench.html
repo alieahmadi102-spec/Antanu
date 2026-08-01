@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ sw.name }} — آنتانو</title>
+  <link rel="icon" href="/static/logo.png">
+  <link rel="stylesheet" href="/static/vendor/vazirmatn/vazirmatn.css">
+  <link rel="stylesheet" href="/static/workbench.css?v={{ asset_ver }}">
+</head>
+<body class="wb-body wb-{{ sw.id }}">
+
+  <!-- نوار عنوان پنجره -->
+  <div class="wb-titlebar">
+    <span class="wb-logo">{{ "S" if sw.id == "spss" else ("EV" if sw.id == "eviews" else "PLS") }}</span>
+    <span class="wb-win-title">{{ sw.window }}</span>
+    <a href="/chat" title="بازگشت به گفتگو">⬅ آنتانو</a>
+  </div>
+
+  <!-- نوار منو (با جاوااسکریپت از پیکربندی ساخته می‌شود) -->
+  <nav class="wb-menubar" id="wbMenubar"></nav>
+
+  <!-- نوار ابزار -->
+  <div class="wb-toolbar">
+    <button class="wb-tool" data-act="open" title="باز کردن داده‌های من">📂 <span>داده‌های من</span></button>
+    <button class="wb-tool" data-act="import" title="آپلود فایل داده">⬆️ <span>آپلود فایل</span></button>
+    <button class="wb-tool" data-act="save" title="ذخیره">💾 <span>ذخیره</span></button>
+    <button class="wb-tool" data-act="output" title="پنجره‌ی خروجی">🗔 <span>خروجی‌ها</span></button>
+    {% if sw.id == "smartpls" %}
+    <button class="wb-tool primary" data-act="pls_algorithm">▶ PLS Algorithm</button>
+    <button class="wb-tool primary" data-act="bootstrapping">⚡ Bootstrapping</button>
+    {% endif %}
+    <span class="wb-file-chip" id="wbFileChip">هنوز داده‌ای باز نشده — از «داده‌های من» یا «آپلود فایل» شروع کنید</span>
+    <span class="wb-dirty" id="wbDirty" hidden>●</span>
+    <input type="file" id="wbFileInput" hidden>
+  </div>
+
+  <!-- بدنه -->
+  <div class="wb-main" id="wbMain">
+    {% if sw.id == "eviews" %}
+    <aside class="wb-side">
+      <h4>Workfile: UNTITLED — سری‌ها</h4>
+      <div class="wb-side-scroll" id="wbSeriesList"></div>
+    </aside>
+    {% elif sw.id == "smartpls" %}
+    <aside class="pls-panel" id="plsPanel">
+      <h4>🧩 مدل اندازه‌گیری — سازه‌ها و گویه‌ها</h4>
+      <div class="sec">
+        <input type="text" id="plsNewName" placeholder="نام سازه (مثلاً: رضایت مشتری)">
+        <div class="wb-collist" id="plsIndicators" style="max-height:150px"></div>
+        <button class="wb-btn pls-add" id="plsAddConstruct">➕ افزودن سازه</button>
+      </div>
+      <div class="sec" id="plsConstructs"></div>
+      <h4>➡ مدل ساختاری — مسیرها</h4>
+      <div class="sec">
+        <select id="plsFrom"></select>
+        <select id="plsTo"></select>
+        <button class="wb-btn pls-add" id="plsAddPath">➕ افزودن مسیر</button>
+      </div>
+      <div class="sec" id="plsPaths"></div>
+      <div class="sec">
+        <label style="font-size:12px">تعداد نمونه‌ی بوت‌استرپ:
+          <input type="number" id="plsBoot" value="500" min="100" max="2000"></label>
+      </div>
+    </aside>
+    {% endif %}
+
+    <div class="wb-center">
+      {% if sw.id == "smartpls" %}
+      <div class="wb-canvas-wrap" id="plsCanvasWrap" style="display:block">
+        <svg id="plsCanvas" width="1200" height="800"></svg>
+      </div>
+      {% endif %}
+      <div class="wb-gridwrap" id="wbGridWrap" {% if sw.id == "smartpls" %}style="display:none"{% endif %}>
+        <table class="wb-grid" id="wbGrid"></table>
+      </div>
+      <div class="wb-gridwrap" id="wbVarsWrap" style="display:none">
+        <table class="wb-vars" id="wbVars"></table>
+      </div>
+      <div class="wb-tabs">
+        {% if sw.id == "smartpls" %}
+        <button class="wb-tab on" data-tab="canvas">🧩 بوم مدل</button>
+        <button class="wb-tab" data-tab="data">Data View — داده</button>
+        {% else %}
+        <button class="wb-tab on" data-tab="data">Data View — داده</button>
+        <button class="wb-tab" data-tab="vars">Variable View — متغیرها</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- نوار وضعیت -->
+  <div class="wb-status">
+    <span id="wbStatus">پردازشگر ANTANU آماده است</span>
+    <span id="wbDims"></span>
+  </div>
+
+  <!-- پنجره‌ی گفت‌وگوی تحلیل -->
+  <div class="wb-overlay" id="wbDlgOverlay">
+    <div class="wb-dialog">
+      <header><span id="wbDlgTitle" class="en"></span><button data-close>✕</button></header>
+      <div class="wb-dlg-body" id="wbDlgBody"></div>
+      <footer>
+        <button class="wb-btn" data-close>انصراف</button>
+        <button class="wb-btn ok" id="wbDlgOk">OK — اجرا</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- پنجره‌ی خروجی -->
+  <div class="wb-output" id="wbOutput">
+    <header>
+      <span>{{ "Output Viewer — نمایشگر خروجی" if sw.id == "spss" else ("Results — نتایج" if sw.id == "smartpls" else "Equation Output — خروجی برآورد") }}</span>
+      <span>
+        <button id="wbOutExport" title="دانلود خروجی (Word)">⬇ Word</button>
+        <button data-close>✕</button>
+      </span>
+    </header>
+    <div class="wb-out-main">
+      <div class="wb-out-tree" id="wbOutTree"></div>
+      <div class="wb-out-body" id="wbOutBody"></div>
+    </div>
+  </div>
+
+  <script>
+    window.WB_CONFIG = {{ sw_json | safe }};
+  </script>
+  <script src="/static/workbench.js?v={{ asset_ver }}"></script>
+</body>
+</html>

@@ -161,6 +161,17 @@ CREATE TABLE IF NOT EXISTS glossary (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_term ON glossary(lang, term);
+
+CREATE TABLE IF NOT EXISTS datasets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    fname       TEXT NOT NULL,                    -- نام فایل در پوشه‌ی exports
+    title       TEXT NOT NULL,                    -- نام نمایشی برای کاربر
+    source      TEXT NOT NULL DEFAULT 'upload',   -- upload | edit | article
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_datasets ON datasets(user_id, created_at);
 """
 
 

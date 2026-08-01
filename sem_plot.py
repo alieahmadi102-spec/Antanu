@@ -59,10 +59,26 @@ def render_pls_diagram(result, title=None):
         return None
 
     constructs = result.get("constructs") or {}
-    if not constructs:
-        return None
     paths = result.get("paths") or []
     r2map = result.get("r2_by_construct") or {}
+    if not constructs and result.get("سازه‌ها"):
+        # خروجی pls_engine (کلیدهای فارسی) → قالب موردنیاز این رسم
+        for name, info in (result.get("سازه‌ها") or {}).items():
+            constructs[name] = {
+                "items": list(info.get("گویه‌ها") or (info.get("بارهای عاملی") or {}).keys()),
+                "loadings": info.get("بارهای عاملی") or {},
+            }
+        for row in result.get("مسیرهای ساختاری") or []:
+            parts = [s.strip() for s in str(row.get("مسیر", "")).split("→")]
+            if len(parts) == 2:
+                paths.append({"from": parts[0], "to": parts[1],
+                              "beta": row.get("ضریب استاندارد (β)")})
+        for row in result.get("R2") or []:
+            name = row.get("سازه درون‌زا")
+            if name is not None and row.get("R2") is not None:
+                r2map[name] = row.get("R2")
+    if not constructs:
+        return None
     fp = _ensure_font()
     fkw = {"fontproperties": fp} if fp else {}
 

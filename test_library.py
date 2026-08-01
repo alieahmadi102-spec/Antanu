@@ -686,7 +686,7 @@ def test_no_regression():
     # این‌ها کنار همین فایل و در گیت‌اند، نه در ANTANU_OLD_TESTS
     here = os.path.dirname(os.path.abspath(__file__))
     for t in ("test_digits.py", "test_footnotes.py", "test_article_stats.py", "test_article_refs.py",
-             "test_stats_gaps.py"):
+             "test_stats_gaps.py", "test_workbench.py"):
         p = os.path.join(here, t)
         if not os.path.exists(p):
             continue

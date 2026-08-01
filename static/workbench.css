@@ -1,0 +1,288 @@
+/* میزکار نرم‌افزارهای آماری آنتانو — پوسته‌ی SPSS / EViews / SmartPLS */
+
+.wb-body {
+  margin: 0; height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column;
+  font-family: Vazirmatn, Tahoma, sans-serif;
+  background: #d6d9de; color: #1c1e21; font-size: 14px;
+  overflow: hidden;
+}
+.wb-body * { box-sizing: border-box; }
+
+/* ---------- رنگ‌بندی هر نرم‌افزار ---------- */
+.wb-spss     { --acc: #d31f2f; --bar: linear-gradient(#3d6db5, #2a5599); --sel: #cfe0f5; --hdr: #e8e5e0; }
+.wb-eviews   { --acc: #2456a6; --bar: linear-gradient(#5a6f8f, #3c5375); --sel: #d8e4f5; --hdr: #ece9e2; }
+.wb-smartpls { --acc: #0e8a6d; --bar: linear-gradient(#12967a, #0b6e58); --sel: #d3efe7; --hdr: #e6efe9; }
+
+/* ---------- نوار عنوان پنجره ---------- */
+.wb-titlebar {
+  background: var(--bar); color: #fff; padding: 6px 12px;
+  display: flex; align-items: center; gap: 10px; user-select: none;
+  font-size: 13px; flex: 0 0 auto;
+}
+.wb-titlebar .wb-logo {
+  width: 20px; height: 20px; border-radius: 4px; background: #fff;
+  color: var(--acc); font-weight: 800; font-size: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.wb-titlebar .wb-win-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: Tahoma, sans-serif; direction: ltr; text-align: left; }
+.wb-titlebar a { color: #fff; text-decoration: none; opacity: .85; font-size: 12px; }
+.wb-titlebar a:hover { opacity: 1; }
+
+/* ---------- نوار منو ---------- */
+.wb-menubar {
+  background: #f2f3f5; border-bottom: 1px solid #b9bec7;
+  display: flex; padding: 0 6px; flex: 0 0 auto; user-select: none;
+  position: relative; z-index: 60; flex-wrap: wrap;
+}
+.wb-menu { position: relative; }
+.wb-menu > button {
+  border: 0; background: none; padding: 7px 12px; cursor: pointer;
+  font: inherit; font-size: 13px; color: #222; border-radius: 0;
+}
+.wb-menu > button b { font-family: Tahoma, sans-serif; font-weight: 400; }
+.wb-menu > button small { color: #667; margin-inline-start: 4px; font-size: 11px; }
+.wb-menu.open > button, .wb-menu > button:hover { background: var(--sel); }
+.wb-drop {
+  display: none; position: absolute; top: 100%; inset-inline-start: 0;
+  background: #fff; border: 1px solid #a9aeb8; box-shadow: 0 6px 18px rgba(0,0,0,.25);
+  min-width: 250px; z-index: 70; padding: 4px 0;
+}
+.wb-menu.open .wb-drop { display: block; }
+.wb-item { position: relative; }
+.wb-item > button {
+  width: 100%; border: 0; background: none; text-align: start; cursor: pointer;
+  padding: 7px 14px; font: inherit; font-size: 13px; display: flex; gap: 8px;
+  align-items: baseline; justify-content: space-between;
+}
+.wb-item > button:hover { background: var(--sel); }
+.wb-item .en { font-family: Tahoma, sans-serif; direction: ltr; color: #223; }
+.wb-item .fa2 { color: #556; font-size: 11.5px; }
+.wb-item .arrow { color: #889; }
+.wb-sub {
+  display: none; position: absolute; top: -4px; inset-inline-start: 100%;
+  background: #fff; border: 1px solid #a9aeb8; box-shadow: 0 6px 18px rgba(0,0,0,.25);
+  min-width: 270px; z-index: 80; padding: 4px 0;
+}
+.wb-item.open .wb-sub { display: block; }
+
+/* ---------- نوار ابزار ---------- */
+.wb-toolbar {
+  background: #eceef1; border-bottom: 1px solid #c2c7cf; padding: 4px 8px;
+  display: flex; gap: 6px; align-items: center; flex: 0 0 auto; flex-wrap: wrap;
+}
+.wb-tool {
+  border: 1px solid transparent; background: none; border-radius: 4px;
+  padding: 4px 9px; cursor: pointer; font: inherit; font-size: 12.5px;
+}
+.wb-tool:hover { border-color: #9fb6d8; background: var(--sel); }
+.wb-tool.primary { background: var(--acc); color: #fff; border-color: transparent; font-weight: 600; }
+.wb-tool.primary:hover { filter: brightness(1.1); }
+.wb-file-chip { font-size: 12px; color: #445; background: #fff; border: 1px solid #c2c7cf;
+  border-radius: 20px; padding: 3px 10px; max-width: 300px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.wb-dirty { color: var(--acc); font-weight: 700; }
+
+/* ---------- بدنه ---------- */
+.wb-main { flex: 1 1 auto; display: flex; min-height: 0; }
+.wb-side {
+  flex: 0 0 230px; background: #f6f7f9; border-inline-end: 1px solid #c2c7cf;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.wb-side h4 {
+  margin: 0; padding: 8px 10px; font-size: 12.5px; background: var(--hdr);
+  border-bottom: 1px solid #d4d7dd; color: #334;
+}
+.wb-side .wb-side-scroll { overflow: auto; flex: 1; padding: 4px 0; }
+.wb-series {
+  display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: default;
+  font-size: 13px;
+}
+.wb-series:hover { background: var(--sel); }
+.wb-series .ico { font-size: 13px; }
+.wb-series .nm { direction: ltr; font-family: Tahoma, sans-serif; font-size: 12.5px; }
+
+.wb-center { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+/* ---------- شبکه‌ی داده ---------- */
+.wb-gridwrap { flex: 1 1 auto; overflow: auto; background: #fff; min-height: 0; }
+table.wb-grid { border-collapse: collapse; direction: ltr; }
+table.wb-grid th, table.wb-grid td {
+  border: 1px solid #cfd3da; min-width: 84px; max-width: 260px; padding: 3px 8px;
+  font-size: 12.5px; font-family: Tahoma, Vazirmatn, sans-serif; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; height: 24px;
+}
+table.wb-grid thead th {
+  background: var(--hdr); position: sticky; top: 0; z-index: 5; cursor: pointer;
+  font-weight: 600; color: #223; text-align: center;
+}
+table.wb-grid thead th.rownum-h { min-width: 46px; }
+table.wb-grid td.rownum {
+  background: var(--hdr); text-align: center; color: #556; min-width: 46px;
+  position: sticky; inset-inline-start: 0; z-index: 4; cursor: pointer; user-select: none;
+}
+table.wb-grid td[contenteditable] { outline: none; }
+table.wb-grid td[contenteditable]:focus { background: #fffbe6; box-shadow: inset 0 0 0 2px var(--acc); }
+table.wb-grid .selcol { background: var(--sel) !important; }
+table.wb-grid tr.selrow td { background: var(--sel); }
+
+/* Variable View */
+table.wb-vars { border-collapse: collapse; width: 100%; direction: rtl; }
+table.wb-vars th, table.wb-vars td { border: 1px solid #cfd3da; padding: 5px 10px; font-size: 12.5px; }
+table.wb-vars thead th { background: var(--hdr); position: sticky; top: 0; }
+table.wb-vars td.vn { direction: ltr; text-align: left; font-family: Tahoma, sans-serif; }
+
+/* تب‌های پایین (سبک SPSS) */
+.wb-tabs {
+  background: #eceef1; border-top: 1px solid #c2c7cf; display: flex; gap: 2px;
+  padding: 3px 8px 0; flex: 0 0 auto;
+}
+.wb-tab {
+  border: 1px solid #c2c7cf; border-bottom: 0; background: #dde0e5; cursor: pointer;
+  padding: 5px 16px; font: inherit; font-size: 12.5px; border-radius: 6px 6px 0 0;
+}
+.wb-tab.on { background: #fff; font-weight: 700; }
+
+/* ---------- نوار وضعیت ---------- */
+.wb-status {
+  background: #eceef1; border-top: 1px solid #c2c7cf; padding: 3px 12px;
+  font-size: 11.5px; color: #556; display: flex; justify-content: space-between;
+  flex: 0 0 auto; gap: 10px;
+}
+
+/* ---------- پنجره‌ی گفت‌وگوی تحلیل (Dialog) ---------- */
+.wb-overlay {
+  position: fixed; inset: 0; background: rgba(20,25,35,.45); z-index: 100;
+  display: none; align-items: center; justify-content: center; padding: 14px;
+}
+.wb-overlay.show { display: flex; }
+.wb-dialog {
+  background: #f2f3f5; border: 1px solid #8a90a0; border-radius: 8px;
+  width: min(560px, 96vw); max-height: 92vh; display: flex; flex-direction: column;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+}
+.wb-dialog > header {
+  background: var(--bar); color: #fff; padding: 8px 14px; border-radius: 8px 8px 0 0;
+  display: flex; justify-content: space-between; align-items: center; font-size: 13px;
+}
+.wb-dialog > header .en { font-family: Tahoma, sans-serif; direction: ltr; }
+.wb-dialog > header button { background: none; border: 0; color: #fff; font-size: 15px; cursor: pointer; }
+.wb-dialog .wb-dlg-body { padding: 14px 16px; overflow: auto; }
+.wb-field { margin-bottom: 12px; }
+.wb-field > label { display: block; font-size: 12.5px; color: #334; margin-bottom: 4px; font-weight: 600; }
+.wb-field .hint { font-weight: 400; color: #778; font-size: 11.5px; }
+.wb-field select, .wb-field input[type=number], .wb-field input[type=text] {
+  width: 100%; padding: 6px 8px; border: 1px solid #aab0bc; border-radius: 4px;
+  background: #fff; font: inherit; font-size: 13px;
+}
+.wb-collist {
+  background: #fff; border: 1px solid #aab0bc; border-radius: 4px; max-height: 170px;
+  overflow: auto; padding: 4px;
+}
+.wb-collist label {
+  display: flex; gap: 8px; align-items: center; padding: 3px 6px; font-size: 12.5px;
+  cursor: pointer; border-radius: 3px;
+}
+.wb-collist label:hover { background: var(--sel); }
+.wb-collist .cn { direction: ltr; font-family: Tahoma, sans-serif; }
+.wb-dialog > footer {
+  padding: 10px 16px; border-top: 1px solid #c9cdd6; display: flex; gap: 8px;
+  justify-content: flex-end;
+}
+.wb-btn {
+  border: 1px solid #9aa2b1; background: #fff; border-radius: 5px; cursor: pointer;
+  padding: 6px 20px; font: inherit; font-size: 13px;
+}
+.wb-btn.ok { background: var(--acc); color: #fff; border-color: transparent; font-weight: 700; }
+
+/* ---------- پنجره‌ی خروجی (Output Viewer) ---------- */
+.wb-output {
+  position: fixed; inset: 4vh 3vw; background: #fff; z-index: 90;
+  border: 1px solid #8a90a0; border-radius: 8px; display: none;
+  flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.wb-output.show { display: flex; }
+.wb-output > header {
+  background: var(--bar); color: #fff; padding: 7px 14px; border-radius: 8px 8px 0 0;
+  display: flex; justify-content: space-between; align-items: center; font-size: 13px;
+}
+.wb-output > header button { background: none; border: 0; color: #fff; font-size: 16px; cursor: pointer; }
+.wb-out-main { flex: 1; display: flex; min-height: 0; }
+.wb-out-tree {
+  flex: 0 0 200px; border-inline-end: 1px solid #d4d7dd; overflow: auto;
+  background: #f8f9fb; padding: 6px 0; font-size: 12.5px;
+}
+.wb-out-tree .node { padding: 5px 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-out-tree .node:hover, .wb-out-tree .node.on { background: var(--sel); }
+.wb-out-body { flex: 1; overflow: auto; padding: 18px 26px; }
+
+/* خروجی سبک SPSS */
+.spss-block h3 {
+  font-size: 15px; color: #1a3d6d; margin: 20px 0 8px; font-weight: 800;
+}
+.spss-block table {
+  border-collapse: collapse; margin: 8px 0 18px; font-size: 12.5px; max-width: 100%;
+}
+.spss-block table caption {
+  caption-side: top; text-align: start; font-weight: 700; font-size: 12.5px;
+  padding: 4px 2px; color: #111;
+}
+.spss-block th, .spss-block td { padding: 4px 12px; text-align: center; }
+.spss-block thead th { border-top: 2px solid #222; border-bottom: 1px solid #222; font-weight: 700; }
+.spss-block tbody tr:last-child td { border-bottom: 2px solid #222; }
+.spss-block tbody th, .spss-block td.rowhead { text-align: start; font-weight: 600; }
+.wb-eviews .spss-block h3 { color: #23406e; }
+
+/* خروجی سبک EViews — تک‌فاصله */
+.ev-out { font-family: "Courier New", monospace; direction: ltr; text-align: left; }
+.ev-out .ev-head {
+  border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 6px 4px;
+  margin-bottom: 8px; font-size: 12.5px; white-space: pre-wrap;
+}
+.ev-out table { border-collapse: collapse; font-size: 12.5px; margin: 6px 0 16px; }
+.ev-out th, .ev-out td { padding: 3px 12px; text-align: right; }
+.ev-out thead th { border-bottom: 1px solid #000; font-weight: 700; }
+.ev-out tbody tr:last-child td { border-bottom: 1px solid #000; }
+.ev-out .fa-note { font-family: Vazirmatn, Tahoma; direction: rtl; text-align: right; }
+
+/* تفسیر هوش مصنوعی */
+.wb-interp {
+  background: #f4f7fb; border: 1px solid #cdd9ea; border-inline-start: 4px solid var(--acc);
+  border-radius: 6px; padding: 12px 16px; margin-top: 18px; font-size: 13.5px; line-height: 2;
+}
+.wb-interp h3 { margin-top: 0; color: var(--acc); font-size: 14px; }
+.wb-out-body img { max-width: 100%; border: 1px solid #d4d7dd; border-radius: 6px; margin: 10px 0; }
+
+/* ---------- بوم SmartPLS ---------- */
+.wb-canvas-wrap { flex: 1; position: relative; overflow: auto; min-height: 0;
+  background: #fbfcfd;
+  background-image: radial-gradient(#d5dae2 1px, transparent 1px); background-size: 22px 22px; }
+.wb-canvas-wrap svg { display: block; min-width: 100%; min-height: 100%; }
+.pls-panel { flex: 0 0 290px; background: #f6f7f9; border-inline-end: 1px solid #c2c7cf;
+  display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.pls-panel h4 { margin: 0; padding: 8px 10px; font-size: 12.5px; background: var(--hdr);
+  border-bottom: 1px solid #d4d7dd; }
+.pls-panel .sec { padding: 8px 10px; border-bottom: 1px solid #e2e5ea; }
+.pls-construct { background: #fff; border: 1px solid #c9cdd6; border-radius: 6px;
+  padding: 6px 8px; margin-bottom: 6px; font-size: 12.5px; }
+.pls-construct b { color: #0b6e58; }
+.pls-construct .items { color: #667; direction: ltr; text-align: left; font-family: Tahoma; font-size: 11.5px; }
+.pls-construct button, .pls-path button { border: 0; background: none; cursor: pointer; color: #b33; float: left; }
+.pls-path { background: #fff; border: 1px solid #c9cdd6; border-radius: 6px; padding: 5px 8px;
+  margin-bottom: 5px; font-size: 12.5px; }
+.pls-add { width: 100%; margin-top: 4px; }
+.pls-panel select, .pls-panel input[type=text], .pls-panel input[type=number] {
+  width: 100%; padding: 5px 7px; border: 1px solid #aab0bc; border-radius: 4px;
+  font: inherit; font-size: 12.5px; margin-bottom: 5px; background: #fff;
+}
+
+/* واکنش‌گرا */
+@media (max-width: 760px) {
+  .wb-side { display: none; }
+  .pls-panel { flex-basis: 100%; position: absolute; inset: 0; z-index: 50; display: none; }
+  .pls-panel.show { display: flex; }
+  .wb-output { inset: 2vh 2vw; }
+}
+
+/* حالت تیره‌ی سایت روی میزکار اثر نکند — نرم‌افزارها همیشه روشن‌اند، مثل نسخه‌ی ویندوز */

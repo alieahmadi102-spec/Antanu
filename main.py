@@ -3828,6 +3828,8 @@ async def stats_upload(request: Request, file: UploadFile = File(...)):
             hint = (" اگر جدول در این فایل به‌صورت متن پیوسته است، آن را به Excel/CSV تبدیل کنید "
                     "یا مطمئن شوید ستون‌ها با فاصله/تب از هم جدا شده‌اند.")
         raise HTTPException(400, f"خواندن داده‌ی جدولی از این فایل ممکن نشد.{hint}")
+    # ثبت در فهرست داده‌های کاربر تا در میزکارهای SPSS/EViews/SmartPLS هم دیده شود
+    _register_dataset(user["id"], fname, name, "upload")
     return {"file": fname, "overview": overview}
 
 
@@ -3877,7 +3879,8 @@ async def stats_run(request: Request):
     # نمودارها (SmartPLS و سبک SPSS) — پس از تفسیر ساخته می‌شوند تا در پرامپت نیایند
     try:
         import sem_plot
-        if analysis in ("sem_pls", "pls") and result.get("constructs"):
+        if analysis in ("sem_pls", "pls", "pls_sem", "smartpls") and \
+                (result.get("constructs") or result.get("سازه‌ها")):
             png = await run_in_threadpool(sem_plot.render_pls_diagram, result,
                                           "مدل مسیر پژوهش (ضرایب استاندارد و بارهای عاملی)")
         elif analysis in ("overview", "assumptions"):
@@ -3893,6 +3896,137 @@ async def stats_run(request: Request):
         print("[ANTANU] stats chart failed:", _e)
 
     return {"result": result, "interpretation": interpretation}
+
+
+# ---------------- میزکار نرم‌افزارهای آماری (SPSS / EViews / SmartPLS) ----------------
+
+def _workbench_page(request: Request, software: str):
+    """صفحه‌ی میزکار یک نرم‌افزار آماری — ظاهر و منوهای همان نرم‌افزار اصلی."""
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    import workbench
+    sw = workbench.SOFTWARES.get(software)
+    if not sw:
+        raise HTTPException(404, "نرم‌افزار ناشناخته")
+    return render("workbench.html", request=request, user=user, sw=sw,
+                  sw_json=json.dumps(sw, ensure_ascii=False))
+
+
+@app.get("/spss", response_class=HTMLResponse)
+def spss_page(request: Request):
+    return _workbench_page(request, "spss")
+
+
+@app.get("/eviews", response_class=HTMLResponse)
+def eviews_page(request: Request):
+    return _workbench_page(request, "eviews")
+
+
+@app.get("/smartpls", response_class=HTMLResponse)
+def smartpls_page(request: Request):
+    return _workbench_page(request, "smartpls")
+
+
+def _register_dataset(user_id: int, fname: str, title: str, source: str = "upload"):
+    """ثبت فایل داده در فهرست داده‌های کاربر — تا در میزکارها هم دیده شود."""
+    try:
+        db = get_db()
+        db.execute("INSERT INTO datasets (user_id, fname, title, source) VALUES (?, ?, ?, ?)",
+                   (user_id, fname, (title or fname)[:120], source))
+        db.commit(); db.close()
+    except Exception as e:
+        print("[ANTANU] dataset register failed:", e)
+
+
+def _dataset_access_ok(user, fname: str) -> bool:
+    """فایل ثبت‌شده متعلق به همین کاربر است؟ (فایل ثبت‌نشده = رفتار قدیمی، آزاد)"""
+    try:
+        db = get_db()
+        row = db.execute("SELECT user_id FROM datasets WHERE fname = ? ORDER BY id DESC LIMIT 1",
+                         (fname,)).fetchone()
+        db.close()
+        return (row is None) or (row["user_id"] == user["id"])
+    except Exception:
+        return True
+
+
+@app.get("/api/workbench/datasets")
+async def workbench_datasets(request: Request):
+    """فهرست داده‌های کاربر — آپلودی، ساخته‌شده در میزکار، یا پیوست‌شده به مقاله."""
+    user = require_user(request)
+    import export_utils
+    db = get_db()
+    rows = db.execute(
+        "SELECT fname, title, source, created_at FROM datasets WHERE user_id = ? "
+        "ORDER BY id DESC LIMIT 60", (user["id"],)).fetchall()
+    out, dead = [], []
+    for r in rows:
+        p = os.path.join(export_utils.EXPORT_DIR, r["fname"])
+        if os.path.exists(p):
+            if not any(d["file"] == r["fname"] for d in out):
+                out.append({"file": r["fname"], "title": r["title"],
+                            "source": r["source"], "created": (r["created_at"] or "")[:16]})
+        else:
+            dead.append(r["fname"])
+    for f in dead:  # فایل‌هایی که از دیسک پاک شده‌اند از فهرست هم پاک شوند
+        db.execute("DELETE FROM datasets WHERE user_id = ? AND fname = ?", (user["id"], f))
+    if dead:
+        db.commit()
+    db.close()
+    return {"datasets": out}
+
+
+@app.get("/api/workbench/data")
+async def workbench_data(request: Request, file: str = ""):
+    """محتوای شبکه‌ی داده برای Data View / Variable View."""
+    user = require_user(request)
+    check_subscription(user)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", file or ""):
+        raise HTTPException(400, "نام فایل نامعتبر")
+    if not _dataset_access_ok(user, file):
+        raise HTTPException(403, "این فایل داده متعلق به شما نیست")
+    import export_utils, workbench
+    path = os.path.join(export_utils.EXPORT_DIR, file)
+    if not os.path.exists(path):
+        raise HTTPException(404, "فایل داده پیدا نشد؛ دوباره آپلود کنید")
+    try:
+        grid = await run_in_threadpool(workbench.load_grid, path)
+    except Exception as e:
+        raise HTTPException(400, f"خواندن داده ممکن نشد: {e}")
+    grid["file"] = file
+    return grid
+
+
+@app.post("/api/workbench/save")
+async def workbench_save(request: Request):
+    """ذخیره‌ی شبکه‌ی ویرایش‌شده (یا داده‌ی تازه‌ی واردشده) به‌صورت یک فایل داده."""
+    user = require_user(request)
+    check_subscription(user)
+    body = await request.json()
+    columns = body.get("columns") or []
+    rows = body.get("rows") or []
+    title = (body.get("title") or "داده‌ی میزکار").strip()[:120]
+    fname = (body.get("file") or "").strip()
+    import export_utils, workbench, stats_engine
+    if fname:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", fname):
+            raise HTTPException(400, "نام فایل نامعتبر")
+        if not _dataset_access_ok(user, fname):
+            raise HTTPException(403, "این فایل داده متعلق به شما نیست")
+        # ویرایش همیشه به‌صورت CSV ذخیره می‌شود تا با فرمت اصلی (مثلاً xlsx) تداخل نکند
+        if not fname.lower().endswith(".csv"):
+            fname = ""
+    if not fname:
+        fname = f"data-{secrets.token_hex(6)}.csv"
+        _register_dataset(user["id"], fname, title, "edit")
+    path = os.path.join(export_utils.EXPORT_DIR, fname)
+    try:
+        info = await run_in_threadpool(workbench.save_grid, path, columns, rows)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    overview = await run_in_threadpool(stats_engine.run, "overview", path)
+    return {"file": fname, "saved": info, "overview": overview}
 
 
 @app.get("/api/ticker")
